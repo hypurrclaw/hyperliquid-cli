@@ -1,0 +1,25 @@
+src/lib.rs
+  e32fb033d817a798 10
+src/main.rs
+  e32fb033d817a798 41,231,623-625,634-635
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.2",
+  "base_commit_sha": "c932ed7354386eb8d9ae22aa183f6b092d2e4654",
+  "prompts": {
+    "e32fb033d817a798": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "c54eaa2a-2ac4-436f-a67f-5ed0218e9397",
+        "model": "default"
+      },
+      "human_author": "Sayo",
+      "messages": [],
+      "total_additions": 215,
+      "total_deletions": 0,
+      "accepted_lines": 9,
+      "overriden_lines": 6
+    }
+  }
+}
