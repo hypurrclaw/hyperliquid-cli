@@ -1,0 +1,38 @@
+AGENTS.md
+  6f6ef06f7e052b42 35-36
+.cursor/rules/live-testnet-qa.mdc
+  6f6ef06f7e052b42 1-22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.2",
+  "base_commit_sha": "9f34a1537f112c67f4f0385d6eb9590c2a0d3aa1",
+  "prompts": {
+    "6f6ef06f7e052b42": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "80a8caa2-8c0e-41c5-b267-c900d3eddb13",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Sayo",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 24,
+      "overriden_lines": 0
+    },
+    "ce306f10d4f1cef8": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "f291e7b2-40a6-494e-90b6-272f66f63a30",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Sayo",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 630,
+      "overriden_lines": 0
+    }
+  }
+}
