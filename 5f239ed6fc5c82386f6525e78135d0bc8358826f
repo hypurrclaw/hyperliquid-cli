@@ -1,0 +1,25 @@
+src/commands/orders.rs
+  f2cd77c2d0f208e7 1513
+src/main.rs
+  f2cd77c2d0f208e7 3254-3257
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.2",
+  "base_commit_sha": "5f239ed6fc5c82386f6525e78135d0bc8358826f",
+  "prompts": {
+    "f2cd77c2d0f208e7": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "29f9d016-1063-493c-9fdb-49a4db6a0260",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Sayo",
+      "messages": [],
+      "total_additions": 5,
+      "total_deletions": 4,
+      "accepted_lines": 5,
+      "overriden_lines": 0
+    }
+  }
+}
