@@ -1,0 +1,48 @@
+tests/vaults_borrowlend.rs
+  50972fdc38044dbd 729-853
+scripts/qa-command-matrix.sh
+  50972fdc38044dbd 385-386
+src/main.rs
+  50972fdc38044dbd 1471-1473,1746-1748,4100-4137
+  4924abdd667f798b 619-622,1164-1165,1167-1175,1177-1178,1180-1188
+src/commands/borrowlend.rs
+  50972fdc38044dbd 64
+  4924abdd667f798b 5,18,35-63,65-71,278-322,324-330,452-477,589-605
+agents/tool-catalog.json
+  50972fdc38044dbd 632-653
+README.md
+  50972fdc38044dbd 180
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.2",
+  "base_commit_sha": "8cff008bc90daff78197b691bb29fb82f368dc60",
+  "prompts": {
+    "4924abdd667f798b": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "1df62e59-5284-4115-80c2-bfd6ee29d43f",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Sayo",
+      "messages": [],
+      "total_additions": 166,
+      "total_deletions": 0,
+      "accepted_lines": 167,
+      "overriden_lines": 2
+    },
+    "50972fdc38044dbd": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "6ed6e52e-1f04-4091-8b89-f715ea038fc2",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Sayo",
+      "messages": [],
+      "total_additions": 197,
+      "total_deletions": 2,
+      "accepted_lines": 196,
+      "overriden_lines": 0
+    }
+  }
+}
