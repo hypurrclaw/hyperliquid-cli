@@ -1,0 +1,27 @@
+src/commands/borrowlend.rs
+  9fd16d67b922fde7 478,480,482,484
+src/main.rs
+  9fd16d67b922fde7 3248,3293
+src/commands/orders.rs
+  9fd16d67b922fde7 590,1389,1395,1514-1515,2269-2272,2279,2684,2688
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.2",
+  "base_commit_sha": "83d4673b86f30c889c4c9e0dbae44cd506811456",
+  "prompts": {
+    "9fd16d67b922fde7": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "044499c1-21be-4fa6-905f-af6bbbe19bb3",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Sayo",
+      "messages": [],
+      "total_additions": 21,
+      "total_deletions": 17,
+      "accepted_lines": 18,
+      "overriden_lines": 2
+    }
+  }
+}
