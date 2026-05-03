@@ -1,0 +1,48 @@
+agents/tool-catalog.json
+  420013c4be307b00 1067-1076
+tests/advanced_commands.rs
+  420013c4be307b00 967-1032,1034-1077
+src/main.rs
+  420013c4be307b00 641-642,1207-1209,4230-4253
+src/commands/multisig.rs
+  420013c4be307b00 94-105,169-176,181-185,238-246,261-292,539-540
+docs/plans/2026-05-03-001-feat-remaining-issue-chunks-plan.md
+  420013c4be307b00 227
+README.md
+  420013c4be307b00 184
+scripts/qa-command-matrix.sh
+  420013c4be307b00 417
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.2",
+  "base_commit_sha": "785ba0cc2b8d4b5be2f427c6c9dbe47d1d3c5647",
+  "prompts": {
+    "420013c4be307b00": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "13070541-ce4a-49ab-892d-808b75786548",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Sayo",
+      "messages": [],
+      "total_additions": 233,
+      "total_deletions": 3,
+      "accepted_lines": 233,
+      "overriden_lines": 1
+    },
+    "4924abdd667f798b": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "1df62e59-5284-4115-80c2-bfd6ee29d43f",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Sayo",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    }
+  }
+}
