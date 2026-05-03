@@ -1,0 +1,35 @@
+src/mcp/registry.rs
+  df74cf257efe1e20 181-195
+src/main.rs
+  df74cf257efe1e20 1479-1481,1494,2950
+tests/orders_create.rs
+  df74cf257efe1e20 572-608,651-713
+agents/tool-catalog.json
+  df74cf257efe1e20 616-617,664,666-667,669
+tests/subaccounts.rs
+  df74cf257efe1e20 204-249
+tests/orders_cancel_modify.rs
+  df74cf257efe1e20 379-491
+src/commands/orders.rs
+  df74cf257efe1e20 104-107,185-194,915-916,927,937-938,1345,1497,1518,1535-1539,1941-1943,2140,2325-2330,3088-3094,3103-3111,3113-3116,3118,3122
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.2",
+  "base_commit_sha": "2a369ad7e569a1b0bf622562bbdf32888956174a",
+  "prompts": {
+    "df74cf257efe1e20": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "a61621d2-3b72-4d68-917c-a5ece282b959",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Sayo",
+      "messages": [],
+      "total_additions": 357,
+      "total_deletions": 18,
+      "accepted_lines": 359,
+      "overriden_lines": 0
+    }
+  }
+}
