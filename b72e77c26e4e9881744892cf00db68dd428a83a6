@@ -1,0 +1,25 @@
+scripts/qa-command-matrix.sh
+  df74cf257efe1e20 413,419
+AGENTS.md
+  df74cf257efe1e20 35-42
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.2",
+  "base_commit_sha": "b72e77c26e4e9881744892cf00db68dd428a83a6",
+  "prompts": {
+    "df74cf257efe1e20": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "a61621d2-3b72-4d68-917c-a5ece282b959",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Sayo",
+      "messages": [],
+      "total_additions": 10,
+      "total_deletions": 0,
+      "accepted_lines": 10,
+      "overriden_lines": 0
+    }
+  }
+}
