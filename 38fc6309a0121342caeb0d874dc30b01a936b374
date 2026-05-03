@@ -1,0 +1,43 @@
+src/commands/schema.rs
+  0aa0470156bc534a 6-8,205-207,210-211,214-215,218-219,222-223,226-227,230-231,235-237,240-241,243-245,247-249,251-253,255-257
+src/command_metadata.rs
+  bb720b5e8b36a512 74-77
+  0aa0470156bc534a 1-73,78-240
+src/mcp/schema.rs
+  0aa0470156bc534a 4-5,34-57
+src/mcp/registry.rs
+  0aa0470156bc534a 8-9,80,151-153,156-157,160-161,164-165,168-169,172-173,176-177,278
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.2",
+  "base_commit_sha": "38fc6309a0121342caeb0d874dc30b01a936b374",
+  "prompts": {
+    "0aa0470156bc534a": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "d92b7109-1183-47bb-a640-3c1efa63b638",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Sayo",
+      "messages": [],
+      "total_additions": 328,
+      "total_deletions": 375,
+      "accepted_lines": 320,
+      "overriden_lines": 0
+    },
+    "bb720b5e8b36a512": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "94ef03c4-4242-42c0-934c-0fdfd9a5d58e",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Sayo",
+      "messages": [],
+      "total_additions": 4,
+      "total_deletions": 4,
+      "accepted_lines": 4,
+      "overriden_lines": 0
+    }
+  }
+}
