@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    name: Rust quality gates
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache cargo build outputs
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build
+
+      - name: Build with baked defaults
+        env:
+          HYPERLIQUID_DEFAULT_BUILDER_ADDRESS: "0x00000000000000000000000000000000000000bb"
+          HYPERLIQUID_DEFAULT_BUILDER_FEE_RATE: "0.001%"
+          HYPERLIQUID_DEFAULT_REFERRAL_CODE: "CITEST"
+          HYPERLIQUID_FEEDBACK_URL: "https://example.invalid/feedback"
+        run: cargo build --bin hyperliquid
+
+      - name: All tests
+        run: cargo test
+
+      - name: Contract characterization tests
+        run: cargo test --test command_contracts --test schema_contracts --test registry_contracts --test dry_run_contracts --test output_contracts
+
+      - name: Registry rollout policy gate
+        run: bash scripts/qa-registry-rollout-gates.sh
+
+      - name: Clippy
+        run: cargo clippy -- -D warnings
+
+      - name: OWS tests
+        run: cargo test --lib --bins
+
+      - name: OWS clippy
+        run: cargo clippy --lib --bins -- -D warnings
+
+      - name: Formatting
+        run: cargo fmt --check
