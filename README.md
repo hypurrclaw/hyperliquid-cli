@@ -5,19 +5,19 @@
 [![Rust](https://img.shields.io/badge/rust-1.93%2B-blue.svg)](https://www.rust-lang.org)
 [![Built on hypersdk](https://img.shields.io/badge/built%20on-hypersdk-blueviolet.svg)](https://github.com/infinitefield/hypersdk)
 
-**One terminal. Every Hyperliquid action. Built for humans and AI agents.**
+**Give your AI agent a CLI and wallet to trade Hyperliquid.**
 
-`hyperliquid` is a fast, single-binary command line for [Hyperliquid](https://app.hyperliquid.xyz) — covering market data, accounts, orders, transfers, staking, vaults, borrow/lend, builder/referral workflows, and WebSocket streams with first-class JSON output, schemas, dry runs, and explicit signing.
+`hyperliquid` is a single binary that hands your personal agent — OpenClaw, Hermes, PicoClaw, Claude, Codex, or any LLM that can shell out — a production-grade command line and encrypted wallet for [Hyperliquid](https://app.hyperliquid.xyz). Markets, orders, transfers, staking, vaults, borrow/lend, builder fees, WebSocket streams: every action surfaces as a clean JSON command an agent can read, reason about, and execute.
 
-If you trade Hyperliquid from a terminal, automate it from a script, or drive it from an AI agent, this CLI is built for you.
+Drop it into your agent's tool belt and it can check prices, place orders, manage positions, and stream the book — all through one binary, with dry-runs, schemas, and safety gates built in.
 
 ## Why hyperliquid-cli
 
+- **Agent-first.** Built for the agent loop. Every command speaks JSON with `--format json`, field projection (`--select`), result caps (`--max-results`), and machine-readable `schema` output. `HYPERLIQUID_AGENT=1` (or non-TTY stdout) defaults to JSON automatically. Your agent reads stable snake_case keys, structured error objects, and well-defined exit codes — no scraping, no guessing.
+- **Wallet for your agent.** Create an API wallet (aka agent wallet) that can trade but never withdraw. Hand it to OpenClaw, Hermes, Claude, or any automation and it operates with bounded authority. Wallets live in the encrypted OWS vault — secrets never touch stdout, logs, or shell history.
 - **One tool, broad protocol coverage.** Markets, perps, spot, HIP-3 DEXes, orders, transfers, subaccounts, vaults, staking, borrow/lend, builder fees, referrals, account abstraction, and WebSocket subscriptions — all behind one binary.
-- **Agent-native.** Every data command supports `--format json`, field projection (`--select`), result limits, machine-readable command schemas, and bounded watch streams. Drop it into any LLM agent or shell script.
-- **Safe by default.** Prompt-gated mainnet mutations require confirmation, and `--dry-run` previews supported side effects. Testnet is one flag away. Wallets live in the encrypted OWS vault — never on stdout, never in logs.
+- **Safe by default.** Prompt-gated mainnet mutations require confirmation. `--dry-run` previews every side effect before it happens. Testnet is one flag away. API wallets are withdraw-proof by protocol design.
 - **Decimal-correct.** Every price, size, and amount uses `rust_decimal`. No floats, no surprise rounding.
-- **Stable contracts.** snake_case JSON keys, structured error objects, and well-defined exit codes you can branch on.
 - **Single static binary.** Built in Rust on top of [`hypersdk`](https://github.com/infinitefield/hypersdk). Install in seconds, ship in containers, run anywhere.
 
 ## Install
