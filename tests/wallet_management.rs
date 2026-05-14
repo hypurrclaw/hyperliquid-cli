@@ -179,7 +179,7 @@ fn wallet_address_json_outputs_stable_object() {
 }
 
 #[test]
-fn wallet_reset_json_routes_prompt_to_stderr_and_outputs_success_object() {
+fn wallet_reset_json_yes_outputs_success_object_without_prompt() {
     let env = IsolatedHome::new();
 
     env.account_command(TEST_ACCOUNT_PASSPHRASE)
@@ -189,13 +189,15 @@ fn wallet_reset_json_routes_prompt_to_stderr_and_outputs_success_object() {
 
     let assert = env
         .account_command(TEST_ACCOUNT_PASSPHRASE)
-        .args(["--format", "json", "wallet", "reset"])
-        .write_stdin("y\n")
+        .args(["--format", "json", "wallet", "reset", "--yes"])
         .assert()
         .success()
-        .stderr(predicate::str::contains(
-            "Reset wallet configuration and remove default wallet reference?",
-        ));
+        .stderr(
+            predicate::str::contains(
+                "Reset wallet configuration and remove default wallet reference?",
+            )
+            .not(),
+        );
     let output = assert.get_output().stdout.clone();
     let json: Value = serde_json::from_slice(&output).unwrap();
 
@@ -209,7 +211,7 @@ fn wallet_reset_json_missing_configuration_outputs_noop_object() {
 
     let output = env
         .account_command(TEST_ACCOUNT_PASSPHRASE)
-        .args(["--format", "json", "wallet", "reset"])
+        .args(["--format", "json", "wallet", "reset", "--yes"])
         .assert()
         .success()
         .get_output()
@@ -288,24 +290,25 @@ fn wallet_import_without_argument_prompts_and_stores_wallet() {
 }
 
 #[test]
-fn wallet_import_json_includes_default_status_and_warns_for_argument_key() {
+fn wallet_import_json_rejects_argument_key() {
     let env = IsolatedHome::new();
-    let address = expected_address(IMPORT_KEY);
 
-    let assert = env
+    let output = env
         .account_command(TEST_ACCOUNT_PASSPHRASE)
         .args(["--format", "json", "wallet", "import", IMPORT_KEY])
         .assert()
-        .success()
-        .stderr(predicate::str::contains("process listings"))
-        .stderr(predicate::str::contains("shell history"))
-        .stderr(predicate::str::contains(IMPORT_KEY).not());
-    let output = assert.get_output().stdout.clone();
+        .code(13)
+        .get_output()
+        .stdout
+        .clone();
     let json: Value = serde_json::from_slice(&output).unwrap();
 
-    assert_eq!(json["message"], "Imported wallet");
-    assert_eq!(json["address"], address);
-    assert_eq!(json["is_default"], true);
+    assert!(
+        json["error"]
+            .as_str()
+            .unwrap()
+            .contains("argv secret input is not supported")
+    );
     assert!(!String::from_utf8_lossy(&output).contains(IMPORT_KEY));
 }
 
@@ -808,16 +811,13 @@ fn account_add_ls_set_default_and_remove_flow() {
 }
 
 #[test]
-fn account_add_set_default_and_remove_support_non_interactive_agents() {
+fn account_add_set_default_and_remove_flow_with_yes() {
     let env = IsolatedHome::new();
     let first_address = expected_address(IMPORT_KEY);
     let second_address = expected_address(SECOND_KEY);
 
-    let add_output = env
-        .account_command(TEST_ACCOUNT_PASSPHRASE)
+    env.account_command(TEST_ACCOUNT_PASSPHRASE)
         .args([
-            "--format",
-            "json",
             "account",
             "add",
             IMPORT_KEY,
@@ -832,14 +832,10 @@ fn account_add_set_default_and_remove_support_non_interactive_agents() {
         .stderr(predicate::str::contains("process listings"))
         .stderr(predicate::str::contains("shell history"))
         .stderr(predicate::str::contains(IMPORT_KEY).not())
-        .get_output()
-        .stdout
-        .clone();
-    let add_json: Value = serde_json::from_slice(&add_output).unwrap();
-    assert_eq!(add_json["message"], "Account added");
-    assert_eq!(add_json["alias"], "main");
-    assert_eq!(add_json["address"], first_address);
-    assert!(!String::from_utf8_lossy(&add_output).contains(IMPORT_KEY));
+        .stdout(predicate::str::contains("Account added"))
+        .stdout(predicate::str::contains("main"))
+        .stdout(predicate::str::contains(&first_address))
+        .stdout(predicate::str::contains(IMPORT_KEY).not());
 
     env.account_command(TEST_ACCOUNT_PASSPHRASE)
         .args([
@@ -1043,7 +1039,7 @@ fn account_set_default_and_remove_without_accounts_have_clear_error() {
         set_default_json["error"]
             .as_str()
             .unwrap()
-            .contains(expected)
+            .contains("account set-default requires confirmation in machine-readable contexts")
     );
 
     let remove_output = env
@@ -1056,7 +1052,12 @@ fn account_set_default_and_remove_without_accounts_have_clear_error() {
         .stdout
         .clone();
     let remove_json: Value = serde_json::from_slice(&remove_output).unwrap();
-    assert!(remove_json["error"].as_str().unwrap().contains(expected));
+    assert!(
+        remove_json["error"]
+            .as_str()
+            .unwrap()
+            .contains("account remove requires confirmation in machine-readable contexts")
+    );
 
     let set_default_selector_output = env
         .account_command(TEST_ACCOUNT_PASSPHRASE)
@@ -1093,9 +1094,8 @@ fn account_set_default_and_remove_without_accounts_have_clear_error() {
 }
 
 #[test]
-fn account_remove_json_cancel_routes_prompts_to_stderr_and_outputs_cancelled_object() {
+fn account_remove_json_requires_yes_before_prompting() {
     let env = IsolatedHome::new();
-    let address = expected_address(IMPORT_KEY);
 
     env.account_command(TEST_ACCOUNT_PASSPHRASE)
         .args(["account", "add"])
@@ -1103,34 +1103,28 @@ fn account_remove_json_cancel_routes_prompts_to_stderr_and_outputs_cancelled_obj
         .assert()
         .success();
 
-    let assert = env
+    let output = env
         .account_command(TEST_ACCOUNT_PASSPHRASE)
         .args(["--format", "json", "account", "remove"])
         .write_stdin("main\nn\n")
         .assert()
-        .success()
-        .stderr(predicate::str::contains("Stored wallets:"))
-        .stderr(predicate::str::contains("main"))
-        .stderr(predicate::str::contains(&address))
-        .stderr(predicate::str::contains("Select wallet by name or id:"))
-        .stderr(predicate::str::contains("Remove wallet 'main'"));
-    let output = assert.get_output().stdout.clone();
-    assert_ne!(String::from_utf8_lossy(&output), "Remove cancelled\n");
+        .code(13)
+        .stderr(predicate::str::is_empty())
+        .get_output()
+        .stdout
+        .clone();
     let json: Value = serde_json::from_slice(&output).unwrap();
 
-    assert_eq!(json["status"], "cancelled");
-    assert_eq!(json["message"], "Remove cancelled");
-
-    env.account_command(TEST_ACCOUNT_PASSPHRASE)
-        .args(["account", "ls"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("main"))
-        .stdout(predicate::str::contains(&address));
+    assert!(
+        json["error"]
+            .as_str()
+            .unwrap()
+            .contains("account remove requires confirmation in machine-readable contexts")
+    );
 }
 
 #[test]
-fn account_remove_json_success_routes_prompts_to_stderr_and_outputs_removed_account() {
+fn account_remove_json_yes_outputs_removed_account_without_prompt() {
     let env = IsolatedHome::new();
     let address = expected_address(IMPORT_KEY);
 
@@ -1142,15 +1136,10 @@ fn account_remove_json_success_routes_prompts_to_stderr_and_outputs_removed_acco
 
     let assert = env
         .account_command(TEST_ACCOUNT_PASSPHRASE)
-        .args(["--format", "json", "account", "remove"])
-        .write_stdin("main\ny\n")
+        .args(["--format", "json", "account", "remove", "main", "--yes"])
         .assert()
         .success()
-        .stderr(predicate::str::contains("Stored wallets:"))
-        .stderr(predicate::str::contains("main"))
-        .stderr(predicate::str::contains(&address))
-        .stderr(predicate::str::contains("Select wallet by name or id:"))
-        .stderr(predicate::str::contains("Remove wallet 'main'"));
+        .stderr(predicate::str::is_empty());
     let output = assert.get_output().stdout.clone();
     let json: Value = serde_json::from_slice(&output).unwrap();
 
