@@ -321,11 +321,11 @@ async fn transfer_confirmation_prompts_are_yellow_only_in_pretty() {
             "--testnet",
         ])
         .assert()
-        .code(2)
-        .stderr(predicate::str::contains(
-            "Transfer 100 USDC from spot to perp? [y/N]",
+        .code(13)
+        .stdout(predicate::str::contains(
+            "requires confirmation in machine-readable contexts",
         ))
-        .stderr(predicate::str::contains("\u{1b}[").not());
+        .stdout(predicate::str::contains("\u{1b}[").not());
 }
 
 #[tokio::test]
