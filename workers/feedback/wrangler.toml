@@ -9,4 +9,4 @@ compatibility_date = "2026-05-14"
 [[d1_databases]]
 binding = "DB"
 database_name = "hyperliquid_feedback"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "fc104f3b-1e23-442e-b79e-bb9d0e560bce"

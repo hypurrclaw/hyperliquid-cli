@@ -78,6 +78,7 @@ check_file_contains README.md "HYPERLIQUID_CLI_REPO=OWNER/REPO" "README does not
 check_file_contains .github/workflows/release.yml 'HYPERLIQUID_DEFAULT_BUILDER_ADDRESS: \$\{\{ vars\.HYPERLIQUID_DEFAULT_BUILDER_ADDRESS \}\}' "release workflow must expose build-time default builder address"
 check_file_contains .github/workflows/release.yml 'HYPERLIQUID_DEFAULT_BUILDER_FEE_RATE: \$\{\{ vars\.HYPERLIQUID_DEFAULT_BUILDER_FEE_RATE \}\}' "release workflow must expose build-time default builder fee rate"
 check_file_contains .github/workflows/release.yml 'HYPERLIQUID_DEFAULT_REFERRAL_CODE: \$\{\{ vars\.HYPERLIQUID_DEFAULT_REFERRAL_CODE \}\}' "release workflow must expose build-time default referral code"
+check_file_contains .github/workflows/release.yml 'HYPERLIQUID_FEEDBACK_URL: \$\{\{ secrets\.HYPERLIQUID_FEEDBACK_URL \}\}' "release workflow must expose build-time feedback endpoint secret"
 check_file_contains .github/workflows/release.yml 'cargo build --locked --release --bin hyperliquid' "release workflow must build the hyperliquid binary with Cargo.lock"
 check_file_contains .github/workflows/release.yml 'dist/hyperliquid-\$\{\{ matrix\.target \}\}\.tar\.gz' "release workflow Unix archive name must match install.sh asset naming"
 check_file_contains .github/workflows/release.yml 'hyperliquid-\$\{\{ matrix\.target \}\}\.tar\.gz\.sha256' "release workflow must produce per-archive .sha256 files"

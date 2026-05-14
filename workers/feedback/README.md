@@ -15,7 +15,8 @@ Cloudflare Worker endpoint for `hyperliquid feedback`. It accepts structured sce
     "context": { "network": "testnet" },
     "expected": "dry-run preview",
     "actual": "unexpected validation error",
-    "steps": ["ran hyperliquid --dry-run orders create ..."]
+    "steps": ["ran hyperliquid --dry-run orders create ..."],
+    "agent_address": "0x0000000000000000000000000000000000000001"
   },
   "contact": "optional@example.com",
   "tags": ["bug", "agent"]
@@ -59,4 +60,4 @@ HYPERLIQUID_FEEDBACK_URL="https://<worker-subdomain>/feedback" cargo build --rel
 hyperliquid feedback --scenario-json '{"command":"mids","actual":"worked","expected":"worked"}'
 ```
 
-For local testing, pass `--url http://127.0.0.1:8787/feedback`.
+For local testing, pass `--url http://127.0.0.1:8787/feedback` or set runtime `HYPERLIQUID_FEEDBACK_URL`; both override the embedded build-time default, with `--url` taking precedence.

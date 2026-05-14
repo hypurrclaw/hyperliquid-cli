@@ -37,6 +37,7 @@ jobs:
           HYPERLIQUID_DEFAULT_BUILDER_ADDRESS: "0x00000000000000000000000000000000000000bb"
           HYPERLIQUID_DEFAULT_BUILDER_FEE_RATE: "0.001%"
           HYPERLIQUID_DEFAULT_REFERRAL_CODE: "CITEST"
+          HYPERLIQUID_FEEDBACK_URL: "https://example.invalid/feedback"
         run: cargo build --bin hyperliquid
 
       - name: All tests

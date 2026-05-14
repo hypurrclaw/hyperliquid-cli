@@ -336,7 +336,7 @@ Outcome market notation (`#N` spot coin and `+N` token name) is available for di
 | `builder approve --builder <ADDRESS> --max-fee-rate <PERCENT>` | Approve or revoke a builder fee cap for the configured master signer. |
 | `prio status` / `prio bid` | Query or bid in the gossip priority auction. |
 | `referral register <CODE>` / `referral set [CODE]` / `referral status` | Register your own referral code, set a referrer, or inspect referral state. |
-| `feedback --scenario-json <JSON>` / `feedback --scenario-file <PATH\|->` | Send structured CLI feedback as a scenario JSON object to the build-time feedback endpoint or `--url`. |
+| `feedback --scenario-json <JSON>` / `feedback --scenario-file <PATH\|->` | Send structured CLI feedback as a scenario JSON object to the configured feedback endpoint; include `agent_address`, `signer_address`, or `wallet_address` in the scenario for rate-limit attribution, and use `--url` to override defaults. |
 | `schema [COMMAND...]` | Show machine-readable command schemas for agents. |
 | `subscribe trades\|orderbook\|candles\|all-mids\|order-updates\|fills` | Stream WebSocket events. |
 
@@ -404,7 +404,7 @@ Resolution order: CLI flags → environment variables → `~/.config/hyperliquid
 
 ## Develop
 
-To embed a default endpoint for `hyperliquid feedback`, set `HYPERLIQUID_FEEDBACK_URL` in the build environment. Operators can still pass `--url` for local testing.
+To embed a default endpoint for `hyperliquid feedback`, set `HYPERLIQUID_FEEDBACK_URL` in the build environment. At runtime, `--url` takes precedence, then runtime `HYPERLIQUID_FEEDBACK_URL`, then the embedded build-time default.
 
 ```bash
 HYPERLIQUID_FEEDBACK_URL="https://<worker-subdomain>/feedback" cargo build --release

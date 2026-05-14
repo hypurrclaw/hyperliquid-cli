@@ -24,7 +24,7 @@ const MAX_CONTACT_BYTES: usize = 256;
         .args(["scenario_json", "scenario_file"])
 ))]
 pub struct FeedbackArgs {
-    /// Structured scenario JSON object to submit.
+    /// Structured scenario JSON object to submit. May include agent_address, signer_address, or wallet_address for feedback rate-limit attribution.
     #[arg(
         long = "scenario-json",
         value_name = "JSON",
@@ -32,7 +32,7 @@ pub struct FeedbackArgs {
     )]
     pub scenario_json: Option<String>,
 
-    /// Path to a structured scenario JSON object, or '-' to read from stdin.
+    /// Path to a structured scenario JSON object, or '-' to read from stdin. May include agent_address, signer_address, or wallet_address.
     #[arg(
         long = "scenario-file",
         value_name = "PATH|-",
@@ -48,7 +48,7 @@ pub struct FeedbackArgs {
     #[arg(long, value_name = "TAG", value_delimiter = ',')]
     pub tags: Vec<String>,
 
-    /// Feedback API endpoint. Defaults to the URL embedded from build-time HYPERLIQUID_FEEDBACK_URL.
+    /// Feedback API endpoint. Defaults to runtime or build-time HYPERLIQUID_FEEDBACK_URL.
     #[arg(long, value_name = "URL")]
     pub url: Option<String>,
 }
@@ -69,6 +69,7 @@ struct FeedbackResponse {
     status: Option<String>,
     id: Option<String>,
     message: Option<String>,
+    error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -149,11 +150,16 @@ pub async fn submit(args: &FeedbackArgs, format: OutputFormat) -> Result<(), any
 }
 
 fn feedback_endpoint(args: &FeedbackArgs) -> Result<String, CliError> {
-    let endpoint = args.url.clone().or_else(compiled_feedback_endpoint).ok_or_else(|| {
-        CliError::Configuration(format!(
-            "feedback endpoint is not configured; pass --url or build with {BUILD_ENV_FEEDBACK_URL} set"
-        ))
-    })?;
+    let endpoint = args
+        .url
+        .clone()
+        .or_else(runtime_feedback_endpoint)
+        .or_else(compiled_feedback_endpoint)
+        .ok_or_else(|| {
+            CliError::Configuration(format!(
+                "feedback endpoint is not configured; pass --url or set {BUILD_ENV_FEEDBACK_URL} at runtime or build time"
+            ))
+        })?;
 
     let parsed = reqwest::Url::parse(&endpoint).map_err(|err| {
         CliError::Configuration(format!("feedback endpoint must be an absolute URL: {err}"))
@@ -164,6 +170,13 @@ fn feedback_endpoint(args: &FeedbackArgs) -> Result<String, CliError> {
         ));
     }
     Ok(endpoint)
+}
+
+fn runtime_feedback_endpoint() -> Option<String> {
+    std::env::var(BUILD_ENV_FEEDBACK_URL)
+        .ok()
+        .map(|url| url.trim().to_string())
+        .filter(|url| !url.is_empty())
 }
 
 fn compiled_feedback_endpoint() -> Option<String> {
@@ -296,7 +309,7 @@ fn feedback_output_from_body(body: &str) -> Result<FeedbackOutput, CliError> {
     Ok(FeedbackOutput {
         status: response.status.unwrap_or_else(|| "accepted".to_string()),
         id: response.id,
-        message: response.message,
+        message: response.message.or(response.error),
     })
 }
 
@@ -355,4 +368,67 @@ mod tests {
         assert_eq!(output.status, "accepted");
         assert_eq!(output.id.as_deref(), Some("fb_123"));
     }
+
+    #[test]
+    fn parses_worker_error_field_as_message() {
+        let output =
+            feedback_output_from_body(r#"{"status":"error","error":"rate_limited"}"#).unwrap();
+
+        assert_eq!(output.status, "error");
+        assert_eq!(output.message.as_deref(), Some("rate_limited"));
+    }
+
+    #[test]
+    fn feedback_endpoint_uses_runtime_env_when_url_arg_absent() {
+        let _guard = env_guard();
+        unsafe {
+            std::env::set_var(
+                BUILD_ENV_FEEDBACK_URL,
+                "https://example.invalid/runtime-feedback",
+            );
+        }
+        let mut args = args_with_json(r#"{"command":"mids"}"#);
+        args.url = None;
+
+        let endpoint = feedback_endpoint(&args).unwrap();
+
+        assert_eq!(endpoint, "https://example.invalid/runtime-feedback");
+    }
+
+    #[test]
+    fn feedback_endpoint_prefers_url_arg_over_runtime_env() {
+        let _guard = env_guard();
+        unsafe {
+            std::env::set_var(
+                BUILD_ENV_FEEDBACK_URL,
+                "https://example.invalid/runtime-feedback",
+            );
+        }
+        let mut args = args_with_json(r#"{"command":"mids"}"#);
+        args.url = Some("https://example.invalid/explicit-feedback".to_string());
+
+        let endpoint = feedback_endpoint(&args).unwrap();
+
+        assert_eq!(endpoint, "https://example.invalid/explicit-feedback");
+    }
+}
+
+#[cfg(test)]
+fn env_guard() -> impl Drop {
+    use std::sync::Mutex;
+    use std::sync::OnceLock;
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    let mutex = LOCK.get_or_init(|| Mutex::new(()));
+    let guard = mutex.lock().unwrap();
+    struct EnvRestore {
+        _guard: std::sync::MutexGuard<'static, ()>,
+    }
+    impl Drop for EnvRestore {
+        fn drop(&mut self) {
+            unsafe {
+                std::env::remove_var(BUILD_ENV_FEEDBACK_URL);
+            }
+        }
+    }
+    EnvRestore { _guard: guard }
 }

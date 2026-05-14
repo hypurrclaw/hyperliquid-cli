@@ -54,6 +54,7 @@ jobs:
           HYPERLIQUID_DEFAULT_BUILDER_ADDRESS: ${{ vars.HYPERLIQUID_DEFAULT_BUILDER_ADDRESS }}
           HYPERLIQUID_DEFAULT_BUILDER_FEE_RATE: ${{ vars.HYPERLIQUID_DEFAULT_BUILDER_FEE_RATE }}
           HYPERLIQUID_DEFAULT_REFERRAL_CODE: ${{ vars.HYPERLIQUID_DEFAULT_REFERRAL_CODE }}
+          HYPERLIQUID_FEEDBACK_URL: ${{ secrets.HYPERLIQUID_FEEDBACK_URL }}
         run: cargo build --locked --release --bin hyperliquid --target ${{ matrix.target }}
 
       - name: Package archive (Unix)

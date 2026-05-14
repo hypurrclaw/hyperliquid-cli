@@ -5,7 +5,7 @@ use serde_json::Value;
 use std::fs;
 
 use support::IsolatedHome;
-use wiremock::matchers::{body_partial_json, method, path};
+use wiremock::matchers::{body_partial_json, header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 #[tokio::test]
@@ -15,12 +15,14 @@ async fn feedback_posts_structured_scenario_json() {
 
     Mock::given(method("POST"))
         .and(path("/feedback"))
+        .and(header("content-type", "application/json"))
         .and(body_partial_json(serde_json::json!({
             "source": "hyperliquid-cli",
             "scenario": {
                 "command": "orders create",
                 "expected": "dry-run preview",
-                "actual": "unexpected error"
+                "actual": "unexpected error",
+                "agent_address": "0x0000000000000000000000000000000000000001"
             },
             "contact": "agent@example.test",
             "tags": ["bug", "agent"]
@@ -42,7 +44,7 @@ async fn feedback_posts_structured_scenario_json() {
             "--url",
             &format!("{}/feedback", server.uri()),
             "--scenario-json",
-            r#"{"command":"orders create","expected":"dry-run preview","actual":"unexpected error"}"#,
+            r#"{"command":"orders create","expected":"dry-run preview","actual":"unexpected error","agent_address":"0x0000000000000000000000000000000000000001"}"#,
             "--contact",
             "agent@example.test",
             "--tags",
@@ -138,6 +140,40 @@ async fn feedback_accepts_scenario_file_and_stdin() {
         .write_stdin(r#"{"command":"status","actual":"ok"}"#)
         .assert()
         .success();
+}
+
+#[tokio::test]
+async fn feedback_maps_worker_rate_limit_to_exit_code_11() {
+    let home = IsolatedHome::new();
+    let server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/feedback"))
+        .respond_with(
+            ResponseTemplate::new(429)
+                .append_header("retry-after", "60")
+                .set_body_json(serde_json::json!({
+                    "status": "error",
+                    "error": "rate_limited"
+                })),
+        )
+        .mount(&server)
+        .await;
+
+    home.command()
+        .args([
+            "--no-update-check",
+            "--format",
+            "json",
+            "feedback",
+            "--url",
+            &format!("{}/feedback", server.uri()),
+            "--scenario-json",
+            r#"{"command":"mids","actual":"rate limited"}"#,
+        ])
+        .assert()
+        .code(11)
+        .stderr(predicate::str::contains("Rate limited"));
 }
 
 #[test]

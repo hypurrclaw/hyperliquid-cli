@@ -3277,13 +3277,13 @@
         {
           "id": "scenario_json",
           "long": "scenario-json",
-          "description": "Structured scenario JSON object describing the command, context, expected behavior, and actual behavior. Mutually exclusive with scenario_file.",
+          "description": "Structured scenario JSON object describing the command, context, expected behavior, and actual behavior. May include agent_address, signer_address, or wallet_address for feedback rate-limit attribution. Mutually exclusive with scenario_file.",
           "input_kind": "json_object"
         },
         {
           "id": "scenario_file",
           "long": "scenario-file",
-          "description": "Path to a structured scenario JSON object, or '-' to read from stdin. Mutually exclusive with scenario_json.",
+          "description": "Path to a structured scenario JSON object, or '-' to read from stdin. Scenario may include agent_address, signer_address, or wallet_address for feedback rate-limit attribution. Mutually exclusive with scenario_json.",
           "input_kind": "file_path"
         },
         {
@@ -3302,7 +3302,7 @@
         {
           "id": "url",
           "long": "url",
-          "description": "Feedback API endpoint. Defaults to the endpoint embedded from build-time HYPERLIQUID_FEEDBACK_URL.",
+          "description": "Feedback API endpoint. Defaults to runtime or build-time HYPERLIQUID_FEEDBACK_URL.",
           "input_kind": "url"
         }
       ],
