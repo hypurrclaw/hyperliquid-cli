@@ -686,6 +686,28 @@ fn format_reversibility(reversibility: ActionReversibility) -> &'static str {
     }
 }
 
+/// Serializes env-var tests to avoid races. Restores variables on drop.
+#[cfg(test)]
+fn env_guard() -> impl Drop {
+    use std::sync::Mutex;
+    use std::sync::OnceLock;
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    let mutex = LOCK.get_or_init(|| Mutex::new(()));
+    let guard = mutex.lock().unwrap();
+    struct EnvRestore {
+        _guard: std::sync::MutexGuard<'static, ()>,
+    }
+    impl Drop for EnvRestore {
+        fn drop(&mut self) {
+            unsafe {
+                std::env::remove_var("HYPERLIQUID_DEFAULT_BUILDER_ADDRESS");
+                std::env::remove_var("HYPERLIQUID_DEFAULT_BUILDER_FEE_RATE");
+            }
+        }
+    }
+    EnvRestore { _guard: guard }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -809,26 +831,4 @@ mod tests {
         );
         assert_eq!(result.1, 1); // 0.001% = 1 tenth bps
     }
-}
-
-/// Serializes env-var tests to avoid races. Restores variables on drop.
-#[cfg(test)]
-fn env_guard() -> impl Drop {
-    use std::sync::Mutex;
-    use std::sync::OnceLock;
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    let mutex = LOCK.get_or_init(|| Mutex::new(()));
-    let guard = mutex.lock().unwrap();
-    struct EnvRestore {
-        _guard: std::sync::MutexGuard<'static, ()>,
-    }
-    impl Drop for EnvRestore {
-        fn drop(&mut self) {
-            unsafe {
-                std::env::remove_var("HYPERLIQUID_DEFAULT_BUILDER_ADDRESS");
-                std::env::remove_var("HYPERLIQUID_DEFAULT_BUILDER_FEE_RATE");
-            }
-        }
-    }
-    EnvRestore { _guard: guard }
 }

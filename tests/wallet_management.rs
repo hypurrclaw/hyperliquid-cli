@@ -248,7 +248,7 @@ fn wallet_reset_yes_removes_configuration_without_prompt() {
         .args(["wallet", "address"])
         .assert()
         .success()
-        .stdout(predicate::str::contains(&expected_address(IMPORT_KEY)));
+        .stdout(predicate::str::contains(expected_address(IMPORT_KEY)));
 
     // Clean up: delete the wallet from the vault.
     env.account_command(TEST_ACCOUNT_PASSPHRASE)

@@ -611,8 +611,8 @@ mod tests {
         for err in &variants {
             let envelope = ErrorEnvelope::from_cli_error(err);
             let json = envelope.to_json();
-            let parsed: serde_json::Value =
-                serde_json::from_str(&json).expect(&format!("should be valid JSON for {:?}", err));
+            let parsed: serde_json::Value = serde_json::from_str(&json)
+                .unwrap_or_else(|_| panic!("should be valid JSON for {:?}", err));
             assert!(
                 parsed.get("error").is_some(),
                 "missing 'error' field for {:?}",

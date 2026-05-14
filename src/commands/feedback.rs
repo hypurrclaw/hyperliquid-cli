@@ -322,6 +322,26 @@ fn contains_control(input: &str) -> bool {
 }
 
 #[cfg(test)]
+fn env_guard() -> impl Drop {
+    use std::sync::Mutex;
+    use std::sync::OnceLock;
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    let mutex = LOCK.get_or_init(|| Mutex::new(()));
+    let guard = mutex.lock().unwrap();
+    struct EnvRestore {
+        _guard: std::sync::MutexGuard<'static, ()>,
+    }
+    impl Drop for EnvRestore {
+        fn drop(&mut self) {
+            unsafe {
+                std::env::remove_var(BUILD_ENV_FEEDBACK_URL);
+            }
+        }
+    }
+    EnvRestore { _guard: guard }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -411,24 +431,4 @@ mod tests {
 
         assert_eq!(endpoint, "https://example.invalid/explicit-feedback");
     }
-}
-
-#[cfg(test)]
-fn env_guard() -> impl Drop {
-    use std::sync::Mutex;
-    use std::sync::OnceLock;
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    let mutex = LOCK.get_or_init(|| Mutex::new(()));
-    let guard = mutex.lock().unwrap();
-    struct EnvRestore {
-        _guard: std::sync::MutexGuard<'static, ()>,
-    }
-    impl Drop for EnvRestore {
-        fn drop(&mut self) {
-            unsafe {
-                std::env::remove_var(BUILD_ENV_FEEDBACK_URL);
-            }
-        }
-    }
-    EnvRestore { _guard: guard }
 }

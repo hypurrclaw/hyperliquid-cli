@@ -960,11 +960,10 @@ fn env_truthy(name: &str) -> bool {
     })
 }
 
-/// Dispatch commands and return Ok(()) on success or Err on failure.
-///
-/// clap handles argument parsing and usage errors (exit 2) before
-/// this function is called.
-
+// Dispatch commands and return Ok(()) on success or Err on failure.
+//
+// clap handles argument parsing and usage errors (exit 2) before
+// this function is called.
 #[cfg(test)]
 mod tests {
     use super::cli_runtime::{
