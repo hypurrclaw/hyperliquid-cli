@@ -74,7 +74,7 @@ The fastest path for a new operator:
 hyperliquid setup
 ```
 
-The wizard walks you through creating or importing a wallet, choosing a default network, and persisting any packaged builder fee / referral defaults. For unattended environments, accept all defaults non-interactively:
+The wizard walks you through creating or importing a wallet, choosing a default network, persisting any packaged builder fee / referral defaults, and optionally approving the default builder fee cap. For unattended environments, accept all defaults non-interactively:
 
 ```bash
 hyperliquid setup -y

@@ -3,7 +3,7 @@ mod support;
 use predicates::prelude::*;
 use serde_json::Value;
 use std::fs;
-use wiremock::matchers::{method, path};
+use wiremock::matchers::{body_string_contains, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use support::{
@@ -87,6 +87,16 @@ async fn setup_create_wallet_saves_config_and_verifies_connection() {
 async fn setup_yes_creates_wallet_and_persists_default_builder_and_referral() {
     let env = IsolatedHome::new();
     let server = mock_all_mids_server().await;
+    Mock::given(method("POST"))
+        .and(path("/exchange"))
+        .and(body_string_contains(r#""type":"approveBuilderFee""#))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "status": "ok",
+            "response": { "type": "default" }
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
 
     env.account_command_with_server(TEST_ACCOUNT_PASSPHRASE, &server)
         .env(
@@ -101,6 +111,7 @@ async fn setup_yes_creates_wallet_and_persists_default_builder_and_referral() {
         .stdout(predicate::str::contains("Setup complete"))
         .stdout(predicate::str::contains("Default builder"))
         .stdout(predicate::str::contains("Default referral"))
+        .stdout(predicate::str::contains("Builder approval submitted"))
         .stdout(predicate::str::contains("Choose an option").not())
         .stdout(predicate::str::contains("Default builder address").not())
         .stdout(predicate::str::contains("Default referral code").not());

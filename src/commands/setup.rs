@@ -3,6 +3,7 @@
 use std::io::{self, Write};
 
 use clap::Args;
+use hypersdk::Address;
 use hypersdk::hypercore::{Chain, HttpClient};
 use serde::Serialize;
 
@@ -15,6 +16,14 @@ pub struct SetupArgs {
     /// Create a new wallet and accept default setup choices without prompting.
     #[arg(long, short = 'y')]
     pub yes: bool,
+
+    /// Submit the configured default builder fee approval during setup without an extra prompt.
+    #[arg(long, conflicts_with = "no_approve_builder")]
+    pub approve_builder: bool,
+
+    /// Skip default builder fee approval during setup, even with --yes.
+    #[arg(long, conflicts_with = "approve_builder")]
+    pub no_approve_builder: bool,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -27,6 +36,7 @@ struct SetupSummary {
     vault_path: String,
     connection: String,
     default_builder: String,
+    builder_approval: String,
     default_referral_code: String,
 }
 
@@ -45,6 +55,10 @@ impl TableData for SetupSummary {
             vec!["Vault".to_string(), self.vault_path.clone()],
             vec!["Connection".to_string(), self.connection.clone()],
             vec!["Default builder".to_string(), self.default_builder.clone()],
+            vec![
+                "Builder approval".to_string(),
+                self.builder_approval.clone(),
+            ],
             vec![
                 "Default referral".to_string(),
                 self.default_referral_code.clone(),
@@ -102,16 +116,19 @@ pub async fn run(
     let passphrase = crate::ows::ows_passphrase();
     let vault_path = crate::ows::ows_vault_path();
 
-    let (wallet_name, wallet_id, address) = match wallet_choice.trim().to_ascii_lowercase().as_str()
+    let (wallet_name, wallet_id, address, signer_address) = match wallet_choice
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
     {
         "" | "1" | "create" | "c" => {
             let name = next_setup_name("setup", vault_path.as_deref())?;
             let wallet =
                 crate::ows::create_ows_wallet(&name, passphrase.as_deref(), vault_path.as_deref())
                     .map_err(|err| anyhow::anyhow!("{err}"))?;
-            let (hl, _) = crate::ows::hyperliquid_address_from_wallet(&wallet)
+            let (hl, hl_address) = crate::ows::hyperliquid_address_from_wallet(&wallet)
                 .map_err(|err| anyhow::anyhow!("{err}"))?;
-            (wallet.name, wallet.id, hl)
+            (wallet.name, wallet.id, hl, hl_address)
         }
         "2" | "import" | "i" => {
             let private_key = prompt_private_key(format)?;
@@ -123,9 +140,9 @@ pub async fn run(
                 vault_path.as_deref(),
             )
             .map_err(|err| anyhow::anyhow!("{err}"))?;
-            let (hl, _) = crate::ows::hyperliquid_address_from_wallet(&wallet)
+            let (hl, hl_address) = crate::ows::hyperliquid_address_from_wallet(&wallet)
                 .map_err(|err| anyhow::anyhow!("{err}"))?;
-            (wallet.name, wallet.id, hl)
+            (wallet.name, wallet.id, hl, hl_address)
         }
         other => {
             return Err(crate::errors::CliError::Unsupported(format!(
@@ -169,6 +186,16 @@ pub async fn run(
         .as_ref()
         .map(|(address, fee)| format!("{address} at {fee}"))
         .unwrap_or_else(|| "not configured".to_string());
+    let builder_approval = maybe_approve_default_builder(
+        network,
+        args,
+        builder_defaults.as_ref(),
+        &wallet_id,
+        signer_address,
+        vault_path.clone(),
+        format,
+    )
+    .await?;
 
     let default_referral_code = referral_code.unwrap_or_else(|| "not configured".to_string());
 
@@ -181,6 +208,7 @@ pub async fn run(
         vault_path: vault_path_str,
         connection,
         default_builder,
+        builder_approval,
         default_referral_code,
     };
     crate::output::print_data_no_timing(&output, format);
@@ -296,6 +324,95 @@ pub(crate) fn setup_builder_default_suggestion() -> Result<Option<(String, Strin
             })
         })
         .map_err(Into::into)
+}
+
+async fn maybe_approve_default_builder(
+    network: Network,
+    args: &SetupArgs,
+    builder_defaults: Option<&(String, String)>,
+    wallet_id: &str,
+    signer_address: Address,
+    vault_path: Option<std::path::PathBuf>,
+    format: OutputFormat,
+) -> Result<String, anyhow::Error> {
+    let Some((builder, fee)) = builder_defaults else {
+        if args.approve_builder {
+            return Err(crate::errors::CliError::Configuration(
+                "--approve-builder requires a configured default builder address and fee rate"
+                    .to_string(),
+            )
+            .into());
+        }
+        return Ok("not configured".to_string());
+    };
+
+    let approve = should_approve_default_builder(args, builder, fee, format)?;
+    if !approve {
+        return Ok("not approved".to_string());
+    }
+
+    let builder_address = crate::commands::builder::parse_builder_address(builder)?;
+    crate::commands::builder::validate_max_fee_rate(fee)?;
+    let signer =
+        crate::signing::SelectedSigner::ows(crate::ows::OwsSigningConfig::with_vault_path(
+            wallet_id.to_string(),
+            Some(wallet_id.to_string()),
+            signer_address,
+            vault_path,
+        ));
+    let chain = chain_for_network(network);
+    let api_base_url = api_base_url_for_network(network)?;
+    let max_fee_tenths_bps = crate::commands::builder::submit_approval(
+        &api_base_url,
+        chain,
+        &signer,
+        builder_address,
+        fee,
+    )
+    .await?;
+    let message = format!("approved {builder_address} at {fee} ({max_fee_tenths_bps} tenths bps)");
+    write_line(&format!("Builder approval submitted: {message}"), format)?;
+    Ok(message)
+}
+
+fn should_approve_default_builder(
+    args: &SetupArgs,
+    builder: &str,
+    fee: &str,
+    format: OutputFormat,
+) -> Result<bool, anyhow::Error> {
+    if args.no_approve_builder {
+        return Ok(false);
+    }
+    if args.yes || args.approve_builder {
+        return Ok(true);
+    }
+
+    let answer = prompt(
+        &format!("Approve default builder {builder} for max fee {fee}? [Y/n]: "),
+        format,
+    )?;
+    match answer.trim().to_ascii_lowercase().as_str() {
+        "" | "y" | "yes" => Ok(true),
+        "n" | "no" => Ok(false),
+        other => Err(crate::errors::CliError::Unsupported(format!(
+            "builder approval answer '{other}' is not supported; answer yes or no"
+        ))
+        .into()),
+    }
+}
+
+fn api_base_url_for_network(network: Network) -> Result<String, anyhow::Error> {
+    Ok(config::resolve_api_base_url_override_for_network(network)?
+        .map(|url| url.to_string())
+        .unwrap_or_else(|| config::api_base_url(network == Network::Testnet).to_string()))
+}
+
+fn chain_for_network(network: Network) -> Chain {
+    match network {
+        Network::Mainnet => Chain::Mainnet,
+        Network::Testnet => Chain::Testnet,
+    }
 }
 
 fn prompt_referral_default(
@@ -421,6 +538,7 @@ mod tests {
             vault_path: "~/.hyperliquid".to_string(),
             connection: "Test query succeeded".to_string(),
             default_builder: "not configured".to_string(),
+            builder_approval: "not configured".to_string(),
             default_referral_code: "not configured".to_string(),
         };
 

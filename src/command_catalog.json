@@ -3362,6 +3362,20 @@
           "arg_type": "boolean",
           "description": "Create a new wallet and accept default setup choices without prompting.",
           "input_kind": "boolean"
+        },
+        {
+          "id": "approve_builder",
+          "long": "approve-builder",
+          "arg_type": "boolean",
+          "description": "Submit the configured default builder fee approval during setup without an extra prompt.",
+          "input_kind": "boolean"
+        },
+        {
+          "id": "no_approve_builder",
+          "long": "no-approve-builder",
+          "arg_type": "boolean",
+          "description": "Skip default builder fee approval during setup, even with --yes.",
+          "input_kind": "boolean"
         }
       ],
       "lifecycle": "interactive_local",

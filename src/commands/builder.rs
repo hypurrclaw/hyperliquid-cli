@@ -407,12 +407,37 @@ pub async fn approve(
     }
 
     let start = Instant::now();
-    let user = signer.address();
+    submit_approval(api_base_url, chain, signer, builder, &args.max_fee_rate).await?;
+
+    crate::output::print_data(
+        &BuilderApproveOutput {
+            row: approve_output_row(
+                chain,
+                signer,
+                builder,
+                &args.max_fee_rate,
+                max_fee_tenths_bps,
+            ),
+        },
+        format,
+        start.elapsed(),
+    );
+    Ok(())
+}
+
+pub async fn submit_approval(
+    api_base_url: &str,
+    chain: Chain,
+    signer: &SelectedSigner,
+    builder: Address,
+    max_fee_rate: &str,
+) -> Result<u64, anyhow::Error> {
+    let max_fee_tenths_bps = validate_max_fee_rate(max_fee_rate)?;
     let nonce = actions::nonce_now();
     let message = ApproveBuilderFeeMessage {
         signature_chain_id: chain.arbitrum_id().to_string(),
         hyperliquid_chain: chain,
-        max_fee_rate: args.max_fee_rate.clone(),
+        max_fee_rate: max_fee_rate.to_string(),
         builder,
         nonce,
     };
@@ -421,7 +446,7 @@ pub async fn approve(
         action_type: "approveBuilderFee",
         signature_chain_id: chain.arbitrum_id().to_string(),
         hyperliquid_chain: chain,
-        max_fee_rate: args.max_fee_rate.clone(),
+        max_fee_rate: max_fee_rate.to_string(),
         builder,
         nonce,
     };
@@ -432,26 +457,28 @@ pub async fn approve(
         signature,
     )
     .await?;
+    Ok(max_fee_tenths_bps)
+}
 
-    crate::output::print_data(
-        &BuilderApproveOutput {
-            row: BuilderApproveRow {
-                status: "submitted".to_string(),
-                action: "approve-builder-fee".to_string(),
-                signer: user.to_string(),
-                query_address: signer.query_address().to_string(),
-                builder: builder.to_string(),
-                max_fee_rate: args.max_fee_rate.clone(),
-                max_fee_tenths_bps,
-                network: chain.to_string(),
-                reversibility: format_reversibility(BuilderActionKind::ApproveFee.reversibility())
-                    .to_string(),
-            },
-        },
-        format,
-        start.elapsed(),
-    );
-    Ok(())
+fn approve_output_row(
+    chain: Chain,
+    signer: &SelectedSigner,
+    builder: Address,
+    max_fee_rate: &str,
+    max_fee_tenths_bps: u64,
+) -> BuilderApproveRow {
+    BuilderApproveRow {
+        status: "submitted".to_string(),
+        action: "approve-builder-fee".to_string(),
+        signer: signer.address().to_string(),
+        query_address: signer.query_address().to_string(),
+        builder: builder.to_string(),
+        max_fee_rate: max_fee_rate.to_string(),
+        max_fee_tenths_bps,
+        network: chain.to_string(),
+        reversibility: format_reversibility(BuilderActionKind::ApproveFee.reversibility())
+            .to_string(),
+    }
 }
 
 pub fn parse_builder_address(raw: &str) -> Result<Address, CliError> {

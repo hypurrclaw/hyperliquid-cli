@@ -2344,6 +2344,31 @@
     },
     {
       "auth_required": false,
+      "command": "hyperliquid feedback",
+      "command_path": [
+        "feedback"
+      ],
+      "confirmation": "none",
+      "dangerous": false,
+      "dry_run": "not_supported",
+      "group": "system",
+      "input_kinds": {
+        "contact": "identifier",
+        "scenario_file": "file_path",
+        "scenario_json": "json_object",
+        "tags": "identifier",
+        "url": "url"
+      },
+      "mutability": "live_mutating",
+      "output_contract": "json_value",
+      "raw_payload": "unsupported",
+      "risk": "none",
+      "transport": [
+        "cli_process"
+      ]
+    },
+    {
+      "auth_required": false,
       "command": "hyperliquid schema",
       "command_path": [
         "schema"
@@ -2391,6 +2416,8 @@
       "dry_run": "not_supported",
       "group": "system",
       "input_kinds": {
+        "approve_builder": "boolean",
+        "no_approve_builder": "boolean",
         "yes": "boolean"
       },
       "mutability": "interactive_local",

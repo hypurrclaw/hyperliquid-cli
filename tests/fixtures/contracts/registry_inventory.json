@@ -7817,6 +7817,32 @@
           "positional_index": null,
           "required": false,
           "short": "y"
+        },
+        {
+          "arg_type": "boolean",
+          "default": null,
+          "description": "Submit the configured default builder fee approval during setup without an extra prompt.",
+          "enum_values": [],
+          "id": "approve_builder",
+          "kind": "boolean",
+          "long": "approve-builder",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        },
+        {
+          "arg_type": "boolean",
+          "default": null,
+          "description": "Skip default builder fee approval during setup, even with --yes.",
+          "enum_values": [],
+          "id": "no_approve_builder",
+          "kind": "boolean",
+          "long": "no-approve-builder",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
         }
       ],
       "lifecycle": "interactive_local",
