@@ -5,6 +5,8 @@
 [![Rust](https://img.shields.io/badge/rust-1.93%2B-blue.svg)](https://www.rust-lang.org)
 [![Built on hypersdk](https://img.shields.io/badge/built%20on-hypersdk-blueviolet.svg)](https://github.com/infinitefield/hypersdk)
 
+Languages: [English](README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja-JP.md) | [한국어](README.ko-KR.md)
+
 **Give your AI agent a CLI and wallet to trade Hyperliquid.**
 
 `hyperliquid` is a single binary that hands your personal agent — OpenClaw, Hermes, PicoClaw, Claude, Codex, or any LLM that can shell out — a production-grade command line and encrypted wallet for [Hyperliquid](https://app.hyperliquid.xyz). Markets, orders, transfers, staking, vaults, borrow/lend, builder fees, WebSocket streams: every action surfaces as a clean JSON command an agent can read, reason about, and execute.
@@ -28,7 +30,7 @@ sh install.sh
 hyperliquid --version
 ```
 
-The installer verifies a SHA-256 checksum before copying the binary to `~/.local/bin`. Override defaults with `HYPERLIQUID_CLI_REPO`, `HYPERLIQUID_CLI_VERSION`, and `BIN_DIR`.
+The installer verifies a SHA-256 checksum before copying the binary to `~/.local/bin`. Override defaults with `HYPERLIQUID_CLI_REPO=OWNER/REPO`, `HYPERLIQUID_CLI_VERSION=v0.1.0`, and `BIN_DIR=/path/to/bin`.
 
 From source:
 
