@@ -62,7 +62,7 @@ rusqlite = { version = "0.38", features = ["bundled"] }
 aes-gcm = "0.10"
 base64 = "0.22"
 hex = "0.4"
-rand = "0.9"
+rand = "0.10"
 sha2 = "0.11"
 rpassword = "7"
 keyring = { version = "3", features = ["apple-native", "linux-native", "windows-native"] }
