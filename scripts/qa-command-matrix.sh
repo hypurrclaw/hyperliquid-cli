@@ -428,8 +428,6 @@ if [[ -z "${HL_QA_VALIDATOR:-}" ]]; then
 fi
 HL_QA_VALIDATOR="${HL_QA_VALIDATOR:-0x0000472d488d33b7329ca53bfcc3918961d55f8e}"
 
-printf '{"intent":{"network":"testnet","multi_sig_addr":"%s"},"signatures":[]}\n' "$HL_QA_MULTI_SIG_ADDR" > "$pending_file"
-
 printf "# Hyperliquid CLI QA command matrix\n" > "$RUN_DIR/REPORT.md"
 printf "\nRun dir: \`%s\`\n\n" "$RUN_DIR" >> "$RUN_DIR/REPORT.md"
 printf "Binary: \`%s\`\nNetwork: \`%s\`\nWallet: \`%s\`\n\n" "$HL_BIN" "$HL_QA_NETWORK" "$HL_QA_ADDRESS" >> "$RUN_DIR/REPORT.md"

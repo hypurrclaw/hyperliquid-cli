@@ -362,17 +362,27 @@ async fn maybe_approve_default_builder(
         ));
     let chain = chain_for_network(network);
     let api_base_url = api_base_url_for_network(network)?;
-    let max_fee_tenths_bps = crate::commands::builder::submit_approval(
+    let approval = crate::commands::builder::submit_approval(
         &api_base_url,
         chain,
         &signer,
         builder_address,
         fee,
     )
-    .await?;
-    let message = format!("approved {builder_address} at {fee} ({max_fee_tenths_bps} tenths bps)");
-    write_line(&format!("Builder approval submitted: {message}"), format)?;
-    Ok(message)
+    .await;
+    match approval {
+        Ok(max_fee_tenths_bps) => {
+            let message =
+                format!("approved {builder_address} at {fee} ({max_fee_tenths_bps} tenths bps)");
+            write_line(&format!("Builder approval submitted: {message}"), format)?;
+            Ok(message)
+        }
+        Err(err) => {
+            let message = format!("approval failed: {err}");
+            write_line(&format!("Builder approval failed: {err}"), format)?;
+            Ok(message)
+        }
+    }
 }
 
 fn should_approve_default_builder(

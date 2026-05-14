@@ -13,16 +13,6 @@ use support::{
 
 const IMPORT_KEY: &str = "0x0000000000000000000000000000000000000000000000000000000000000006";
 
-fn assert_file_does_not_contain(path: &std::path::Path, needle: &str) {
-    let bytes = fs::read(path).unwrap();
-    let contents = String::from_utf8_lossy(&bytes);
-    assert!(
-        !contents.contains(needle),
-        "{} must not contain sensitive material",
-        path.display()
-    );
-}
-
 fn assert_directory_does_not_contain(path: &std::path::Path, needle: &str) {
     let mut stack = vec![path.to_path_buf()];
     while let Some(dir) = stack.pop() {
@@ -126,6 +116,44 @@ async fn setup_yes_creates_wallet_and_persists_default_builder_and_referral() {
     );
     assert_eq!(config["default_builder_fee_rate"], "0.001%");
     assert_eq!(config["default_referral_code"], "SETUPYES");
+}
+
+#[tokio::test]
+async fn setup_yes_reports_builder_approval_failure_without_failing_setup() {
+    let env = IsolatedHome::new();
+    let server = mock_all_mids_server().await;
+    Mock::given(method("POST"))
+        .and(path("/exchange"))
+        .and(body_string_contains(r#""type":"approveBuilderFee""#))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "status": "err",
+            "response": "Builder has insufficient balance to be approved."
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    env.account_command_with_server(TEST_ACCOUNT_PASSPHRASE, &server)
+        .env(
+            "HYPERLIQUID_DEFAULT_BUILDER_ADDRESS",
+            "0x00000000000000000000000000000000000000bb",
+        )
+        .env("HYPERLIQUID_DEFAULT_BUILDER_FEE_RATE", "0.001%")
+        .args(["setup", "-y"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Builder approval failed"))
+        .stdout(predicate::str::contains("Setup complete"))
+        .stdout(predicate::str::contains("approval failed"));
+
+    let config: Value = serde_json::from_str(&fs::read_to_string(env.config_file_path()).unwrap())
+        .expect("setup -y should keep valid config when approval fails");
+    assert!(config["default_wallet_id"].as_str().is_some());
+    assert_eq!(
+        config["default_builder_address"],
+        "0x00000000000000000000000000000000000000bb"
+    );
+    assert_eq!(config["default_builder_fee_rate"], "0.001%");
 }
 
 #[tokio::test]

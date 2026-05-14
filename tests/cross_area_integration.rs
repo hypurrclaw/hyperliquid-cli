@@ -135,7 +135,7 @@ async fn first_visit_setup_then_query_and_first_order_succeed() {
 
     env.account_command_with_server(TEST_ACCOUNT_PASSPHRASE, &server)
         .arg("setup")
-        .write_stdin(format!("2\ny\n{IMPORT_PRIVATE_KEY}\n"))
+        .write_stdin(format!("2\ny\n\n\n{IMPORT_PRIVATE_KEY}\n"))
         .assert()
         .success()
         .stdout(predicate::str::contains("Test query succeeded"))
