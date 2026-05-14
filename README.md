@@ -28,7 +28,7 @@ sh install.sh
 hyperliquid --version
 ```
 
-The installer verifies a SHA-256 checksum before copying the binary to `~/.local/bin`. Override defaults with `HYPERLIQUID_CLI_REPO`, `HYPERLIQUID_CLI_VERSION`, and `BIN_DIR`.
+The installer verifies a SHA-256 checksum before copying the binary to `~/.local/bin`. Override defaults with `HYPERLIQUID_CLI_REPO=OWNER/REPO`, `HYPERLIQUID_CLI_VERSION=v0.1.0`, and `BIN_DIR=/path/to/bin`.
 
 From source:
 
