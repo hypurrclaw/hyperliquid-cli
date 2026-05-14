@@ -1,0 +1,101 @@
+{
+  "characterization": true,
+  "outputs": {
+    "orders_batch_create_file": {
+      "acting_as": null,
+      "args": {
+        "grouping": "na",
+        "on_behalf_of": null,
+        "order_count": 2,
+        "orders": [
+          {
+            "amount": null,
+            "amount_unit": null,
+            "asset_id": 0,
+            "cloid": null,
+            "coin": "BTC",
+            "is_market": null,
+            "leg_index": 0,
+            "limit_px": "50000",
+            "price": "50000",
+            "reduce_only": false,
+            "resolved_asset": "BTC",
+            "side": "buy",
+            "size": "0.001",
+            "tif": "alo",
+            "tpsl": null,
+            "trigger_px": null,
+            "type": "limit"
+          },
+          {
+            "amount": null,
+            "amount_unit": null,
+            "asset_id": 1,
+            "cloid": null,
+            "coin": "ETH",
+            "is_market": null,
+            "leg_index": 1,
+            "limit_px": "3000",
+            "price": "3000",
+            "reduce_only": true,
+            "resolved_asset": "ETH",
+            "side": "sell",
+            "size": "0.01",
+            "tif": "gtc",
+            "tpsl": null,
+            "trigger_px": null,
+            "type": "limit"
+          }
+        ],
+        "orders_file": "tests/fixtures/orders_batch_create.json"
+      },
+      "command": "orders batch-create",
+      "dry_run": true,
+      "signer": null,
+      "vault_address": null,
+      "would_execute": "submit_order_batch"
+    },
+    "orders_create_with_redacted_payload": {
+      "acting_as": null,
+      "args": {
+        "amount": null,
+        "amount_unit": null,
+        "asset_id": 0,
+        "builder": null,
+        "builder_address": null,
+        "builder_fee_rate": null,
+        "cloid": null,
+        "coin": "BTC",
+        "dex": null,
+        "grouping": null,
+        "is_market": null,
+        "limit_px": "50000",
+        "margin_mode": "cross",
+        "max_slippage_bps": 500,
+        "on_behalf_of": null,
+        "reduce_only": false,
+        "resolved_asset": "BTC",
+        "side": "buy",
+        "size": "0.001",
+        "stop_loss": null,
+        "take_profit": null,
+        "tif": "gtc",
+        "tpsl": null,
+        "trigger_px": null,
+        "type": "limit"
+      },
+      "command": "orders create",
+      "dry_run": true,
+      "payload": {
+        "api_key": "[redacted]",
+        "nested": {
+          "authorization": "[redacted]"
+        }
+      },
+      "signer": null,
+      "vault_address": null,
+      "would_execute": "submit_order"
+    }
+  },
+  "review_required_to_update": true
+}

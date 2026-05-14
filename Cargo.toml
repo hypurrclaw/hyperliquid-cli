@@ -1,0 +1,78 @@
+[package]
+name = "hyperliquid-cli"
+version = "0.1.0"
+edition = "2024"
+description = "Production-grade CLI for Hyperliquid DEX"
+license = "MIT"
+rust-version = "1.93"
+readme = "README.md"
+repository = "https://github.com/hypurrclaw/hyperliquid-cli"
+homepage = "https://github.com/hypurrclaw/hyperliquid-cli"
+documentation = "https://github.com/hypurrclaw/hyperliquid-cli#readme"
+keywords = ["hyperliquid", "cli", "dex", "trading"]
+categories = ["command-line-utilities"]
+
+[[bin]]
+name = "hyperliquid"
+path = "src/main.rs"
+
+[dependencies]
+# Primary SDK for Hyperliquid API
+hypersdk = "0.2"
+reqwest = { version = "0.13", features = ["json"] }
+alloy-signer-local = { version = "1.8", features = ["keystore"] }
+alloy = { version = "1.5.2", features = ["eip712", "sol-types", "signers"], default-features = false }
+
+# CLI framework
+clap = { version = "4", features = ["derive"] }
+
+# Async runtime
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "time", "io-util"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+regex-lite = "0.1"
+
+# Financial precision (ALL prices/amounts)
+rust_decimal = { version = "1", features = ["serde", "serde-str"] }
+
+# Output formatting
+tabwriter = { version = "1", features = ["ansi_formatting"] }
+tabled = "0.20"
+crossterm = { version = "0.29", features = ["event-stream"] }
+
+# Fuzzy asset matching
+strsim = "0.11"
+
+# Error handling
+anyhow = "1"
+thiserror = "2"
+
+# Config directory resolution
+dirs = "6"
+
+# Timestamps
+chrono = { version = "0.4", features = ["serde"] }
+futures = "0.3"
+either = "1"
+rmp-serde = "1"
+alloy-primitives = "1"
+rusqlite = { version = "0.38", features = ["bundled"] }
+aes-gcm = "0.10"
+base64 = "0.22"
+hex = "0.4"
+rand = "0.9"
+sha2 = "0.10"
+rpassword = "7"
+keyring = { version = "3", features = ["apple-native", "linux-native", "windows-native"] }
+ows-lib = "1.3.2"
+
+[features]
+default = []
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+tempfile = "3"
+wiremock = "0.6"

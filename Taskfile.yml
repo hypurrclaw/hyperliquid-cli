@@ -1,0 +1,93 @@
+version: "3"
+
+dotenv:
+  - .env
+  - .env.local
+
+vars:
+  BIN: hyperliquid
+  LOCAL_BIN: "{{.HOME}}/.local/bin/hyperliquid"
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list
+
+  fmt:
+    desc: Check Rust formatting
+    cmds:
+      - cargo fmt --check
+
+  clippy:
+    desc: Run clippy with warnings denied
+    cmds:
+      - cargo clippy -- -D warnings
+
+  test:
+    desc: Run the Rust test suite
+    cmds:
+      - cargo test
+
+  contracts:
+    desc: Run command/schema/registry/dry-run characterization contract tests
+    cmds:
+      - cargo test --test command_contracts --test schema_contracts --test registry_contracts --test dry_run_contracts --test output_contracts
+
+  build:
+    desc: Build the release hyperliquid binary
+    cmds:
+      - cargo build --release --bin {{.BIN}}
+
+  bind:
+    desc: Bind ~/.local/bin/hyperliquid to the release binary
+    deps:
+      - build
+    cmds:
+      - mkdir -p "{{.HOME}}/.local/bin"
+      - ln -sfn "{{.ROOT_DIR}}/target/release/{{.BIN}}" "{{.LOCAL_BIN}}"
+      - "{{.LOCAL_BIN}} --version"
+
+  qa:matrix:
+    desc: Run the broad live/dry-run QA command matrix against the QA wallet
+    deps:
+      - bind
+    cmds:
+      - HL_BIN="{{.LOCAL_BIN}}" ./scripts/qa-command-matrix.sh
+
+  qa:registry-rollout:
+    desc: Verify registry rollout and canary policy gates
+    cmds:
+      - bash scripts/qa-registry-rollout-gates.sh
+
+  qa:registry-canary-plan:
+    desc: Create a manual funded-live registry rollout canary checklist under .qa/
+    cmds:
+      - bash scripts/qa-registry-rollout-gates.sh --write-canary-plan
+
+  release:check:
+    desc: Check OSS release files and fail on local-only secret/artifact paths
+    cmds:
+      - bash scripts/pre-release-check.sh
+
+  qa:matrix:strict:
+    desc: Run QA matrix and fail on commands intentionally skipped by the sweep
+    deps:
+      - bind
+    cmds:
+      - HL_QA_STRICT_SKIPS=1 HL_BIN="{{.LOCAL_BIN}}" ./scripts/qa-command-matrix.sh
+
+  qa:all:
+    desc: Run all repeatable QA sweeps
+    cmds:
+      - task: qa:matrix
+
+  ci:
+    desc: Run local quality gates and the repeatable QA command matrix
+    cmds:
+      - task: fmt
+      - task: clippy
+      - task: test
+      - task: contracts
+      - task: qa:registry-rollout
+      - task: qa:all

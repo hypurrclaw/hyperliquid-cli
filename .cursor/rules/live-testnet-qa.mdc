@@ -1,0 +1,23 @@
+---
+description: Require explicit opt-in before funded Hyperliquid testnet execution
+alwaysApply: false
+---
+
+# Funded Testnet QA
+
+Default to mocked coverage, dry-run previews, or the repeatable QA matrix unless the operator explicitly requests funded live testnet execution **and** sets `HL_ENABLE_FUNDED_LIVE_QA=1` for the command environment.
+
+Use `task qa:matrix` for repeatable command-surface validation. The matrix is broad coverage, but it is not a substitute for a separately authorized funded-live pass.
+
+For an explicitly authorized funded-live testnet pass:
+
+- Require credentials to be supplied outside the repository path through environment variables, a password manager, or another operator-controlled secret source.
+- Do not auto-discover or rely on repository-local keystores, password files, account databases, OWS vaults, or `.qa/` metadata.
+- Build/bind the current binary first if needed.
+- Use small, reversible funded actions where possible.
+- Record redacted artifacts under an ignored local artifact directory.
+- Finish by verifying `orders open`, `positions list`, and relevant portfolio/vault state.
+- Label exchange/account-state blockers as live-gated, not dry-run coverage.
+- Use dry-run when a command is irreversible, unsafe for the selected wallet, or explicitly requested as dry-run.
+
+If the request is ambiguous, ask whether the operator wants the dry-run QA matrix or explicitly authorized funded testnet execution.

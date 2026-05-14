@@ -1,0 +1,49 @@
+# Rust build artifacts
+/target/
+**/*.rs.bk
+*.pdb
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.*
+
+# Config (contains private keys)
+config.json
+
+# Hyperliquid CLI config directory
+.config/
+/.qa
+
+# Local agent/chat/editor artifacts
+.kanna/
+.sc/
+*.code-workspace
+
+# Compound Engineering machine-local config
+.compound-engineering/*.local.yaml
+
+# Local wallet, account, and secret artifacts
+*.db
+*.sqlite
+*.sqlite3
+*password*
+*secret*
+*keystore*
+wallet-meta.json
+wallet-address.txt
+ows-vault*/
+accounts.db
+
+/docs/research/oss-competitors
+/.tmp
