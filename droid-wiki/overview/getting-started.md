@@ -17,7 +17,7 @@ hyperliquid --help
 ### From GitHub Releases
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/wtfsayo/hyperliquid-cli/main/install.sh
+curl -fsSLO https://raw.githubusercontent.com/hypurrclaw/hyperliquid-cli/main/install.sh
 sh install.sh
 hyperliquid --version
 ```

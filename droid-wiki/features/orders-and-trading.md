@@ -43,7 +43,7 @@ The orders module in `src/commands/orders/` is split into 5 sub-modules:
 | Type | Key args | Description |
 |------|----------|-------------|
 | `limit` | `--price`, `--size` | Standard limit order at specified price |
-| `market` | `--amount` (USDC) | Market order with optional `--max-slippage-bps` (default 500, max 1000) |
+| `market` | `--amount` (quote/collateral token) | Market order with optional `--max-slippage-bps` (default 500, max 1000) |
 | `stop-loss` | `--trigger-price` | Market trigger order at trigger price |
 | `take-profit` | `--trigger-price` | Market trigger order at trigger price |
 | `stop-limit` | `--trigger-price`, `--price`, `--size` | Limit order placed when trigger is hit |

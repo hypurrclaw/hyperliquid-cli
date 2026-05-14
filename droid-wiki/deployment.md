@@ -19,7 +19,7 @@ Runs on every push to `main` and every pull request:
 
 ### Release (`release.yml`)
 
-Triggered by version tags (`v*`) or manual dispatch. Builds for 4 targets:
+Triggered by version tags (`v*`) or manual dispatch. Builds for 5 targets:
 
 | Target | Runner |
 |--------|--------|
@@ -27,11 +27,12 @@ Triggered by version tags (`v*`) or manual dispatch. Builds for 4 targets:
 | `aarch64-unknown-linux-gnu` | ubuntu-24.04-arm |
 | `x86_64-apple-darwin` | macos-13 |
 | `aarch64-apple-darwin` | macos-14 |
+| `x86_64-pc-windows-msvc` | windows-latest |
 
 Each build:
 1. Runs `scripts/pre-release-check.sh` to verify no local-only secrets/artifacts
 2. Builds the release binary with `--locked`
-3. Packages the binary with README and LICENSE into a `.tar.gz`
+3. Packages the binary with README and LICENSE into a `.tar.gz` on Unix targets or `.zip` on Windows
 4. Generates a SHA-256 checksum
 5. Smoke-tests the archive by running `hyperliquid --version`
 6. Uploads artifacts
@@ -74,4 +75,4 @@ The CLI itself has no server-side deployment. It connects to:
 | Mainnet | `https://api.hyperliquid.xyz` |
 | Testnet | `https://api.hyperliquid-testnet.xyz` |
 
-Override with `HYPERLIQUID_API_BASE_URL` for mainnet or `HYPERLIQUID_TESTNET_API_BASE_URL` for testnet.
+Override all networks with `HYPERLIQUID_API_BASE_URL`, or override individual networks with `HYPERLIQUID_MAINNET_API_BASE_URL` / `HYPERLIQUID_TESTNET_API_BASE_URL`.

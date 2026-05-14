@@ -126,16 +126,15 @@ All actions are signed via EIP-712 typed data using the `HyperliquidTransaction:
 
 ```sql
 CREATE TABLE accounts (
-    id INTEGER PRIMARY KEY,
-    alias TEXT NOT NULL,
-    address TEXT NOT NULL UNIQUE,
-    encrypted_private_key BLOB NOT NULL,
-    encryption_version TEXT NOT NULL,
-    account_type TEXT NOT NULL DEFAULT 'signing',
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    alias TEXT NOT NULL UNIQUE,
+    address TEXT NOT NULL,
+    encrypted_private_key TEXT NOT NULL,
+    type TEXT NOT NULL,
+    is_default INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
     master_address TEXT,
     agent_name TEXT,
-    expires_at INTEGER,
-    is_default INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL
+    expires_at INTEGER
 );
 ```

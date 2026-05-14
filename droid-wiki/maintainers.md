@@ -19,4 +19,4 @@ No CODEOWNERS file exists. Derived from recent git history on `origin/main`.
 
 ## Contact
 
-This is primarily a solo-maintained project. For issues and contributions, open a GitHub issue or PR at [wtfsayo/hyperliquid-cli](https://github.com/wtfsayo/hyperliquid-cli).
+This is primarily a solo-maintained project. For issues and contributions, open a GitHub issue or PR at [hypurrclaw/hyperliquid-cli](https://github.com/hypurrclaw/hyperliquid-cli).

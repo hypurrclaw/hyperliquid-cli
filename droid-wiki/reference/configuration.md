@@ -14,7 +14,10 @@ Location: platform config directory + `/hyperliquid/config.json`
 {
   "private_key": null,
   "network": "mainnet",
-  "default_wallet_id": null
+  "default_wallet_id": null,
+  "default_builder_address": null,
+  "default_builder_fee_rate": null,
+  "default_referral_code": null
 }
 ```
 
@@ -36,8 +39,8 @@ Fields are optional — missing config is not an error for read-only commands.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `HYPERLIQUID_FORMAT` | `pretty` | Output format: `pretty`, `table`, or `json` |
-| `HYPERLIQUID_AGENT` | (unset) | Set to `1` to default to JSON format |
+| `HYPERLIQUID_FORMAT` | dynamic | Output format: `pretty`, `table`, or `json`; explicit env wins over TTY/agent defaults |
+| `HYPERLIQUID_AGENT` | (unset) | Set to `1` to default one-shot commands to JSON format |
 
 ### Signing
 
@@ -51,6 +54,7 @@ Fields are optional — missing config is not an error for read-only commands.
 |----------|-------------|
 | `HYPERLIQUID_ACCOUNT_KEY_PASSPHRASE` | Passphrase for account encryption key derivation |
 | `HYPERLIQUID_ACCOUNT_KEYCHAIN_DISABLED` | Set to `1` to disable OS keychain and require passphrase |
+| `HYPERLIQUID_ACCOUNT_KEY_STORE_DIR` | Override the local directory used for file-backed account encryption key material |
 
 ### OWS wallet
 
@@ -63,7 +67,8 @@ Fields are optional — missing config is not an error for read-only commands.
 
 | Variable | Description |
 |----------|-------------|
-| `HYPERLIQUID_WATCH_MAX_TICKS` | Default max ticks for watch mode in agent contexts |
+| `HYPERLIQUID_WATCH_MAX_TICKS` | Default max ticks for snapshot watch mode in agent contexts |
+| `HYPERLIQUID_SUBSCRIBE_MAX_EVENTS` | Default max events for WebSocket subscribe commands in agent contexts |
 
 ### Builder and referral defaults
 
@@ -91,7 +96,7 @@ Location: platform data directory + `/hyperliquid/accounts.db`
 | macOS | `~/Library/Application Support/hyperliquid/accounts.db` |
 | Linux | `~/.local/share/hyperliquid/accounts.db` |
 
-Encrypted with AES-256-GCM. Encryption key stored in OS keychain or derived from `HYPERLIQUID_ACCOUNT_KEY_PASSPHRASE`.
+Encrypted with AES-256-GCM. Encryption key material is stored in the OS keychain when available, or in the file-backed key store when keychain use is disabled/unavailable; `HYPERLIQUID_ACCOUNT_KEY_PASSPHRASE` provides deterministic passphrase-derived key material for headless use.
 
 ## OWS vault
 

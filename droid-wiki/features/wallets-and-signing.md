@@ -15,7 +15,7 @@ Wallet lifecycle management, API/agent wallet approval, and builder fee configur
 | `wallet show` | Show current wallet metadata | `src/commands/wallet.rs` |
 | `wallet address` | Print only the wallet address | `src/commands/wallet.rs` |
 | `wallet list` | List all wallets in the OWS vault | `src/commands/wallet.rs` |
-| `wallet rename <SELECTOR> --new-name <NAME>` | Rename a wallet | `src/commands/wallet.rs` |
+| `wallet rename <SELECTOR> <NEW_NAME>` | Rename a wallet | `src/commands/wallet.rs` |
 | `wallet delete <SELECTOR>` | Delete a wallet (prompts unless `-y`) | `src/commands/wallet.rs` |
 | `wallet export <SELECTOR>` | Export wallet secret (mnemonic or key) | `src/commands/wallet.rs` |
 | `wallet reset` | Remove wallet configuration | `src/commands/wallet.rs` |
@@ -37,7 +37,7 @@ Wallet lifecycle management, API/agent wallet approval, and builder fee configur
 |------|------|-------------|
 | `AccountRow` | `src/commands/wallet.rs` | Renderable stored account row (id, alias, address, type, default status) |
 | `AccountsOutput` | `src/commands/wallet.rs` | List of stored accounts implementing `TableData` |
-| `CreateArgs` | `src/commands/api_wallet.rs` | Args for API wallet creation (name, expiry, store options) |
+| `CreateArgs` | `src/commands/api_wallet.rs` | Args for API wallet creation (name, expiry, optional existing agent address) |
 | `ApproveArgs` | `src/commands/api_wallet.rs` | Args for approving an existing agent address |
 | `ApproveBuilderFee` | `src/commands/builder.rs` | Solidity struct for builder fee approval action |
 
@@ -47,8 +47,8 @@ Wallet lifecycle management, API/agent wallet approval, and builder fee configur
 stateDiagram-v2
     [*] --> Created: wallet create
     [*] --> Imported: wallet import / import-mnemonic
-    Created --> Default: becomes default if first wallet
-    Imported --> Default: becomes default if first wallet
+    Created --> Default: saved as default wallet
+    Imported --> Default: saved as default wallet
     Default --> Renamed: wallet rename
     Default --> Exported: wallet export
     Default --> Deleted: wallet delete
@@ -59,7 +59,7 @@ stateDiagram-v2
 
 API wallets (agent wallets) are delegated Hyperliquid trading keys. They can trade for the approving master account but cannot withdraw. Key behaviors:
 
-- `api-wallet create` generates a new local key, signs an `approveAgent` action, and prints the API private key once (or stores it encrypted with `--store --alias`)
+- `api-wallet create` generates a new local key by default, signs an `approveAgent` action, and prints the API private key once; it can also approve an existing address with `--agent-address`
 - `api-wallet approve` approves an existing agent address without generating a new key
 - Named API wallets replace prior agents with the same name
 - Maximum agent expiration is 180 days

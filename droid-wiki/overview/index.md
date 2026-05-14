@@ -21,7 +21,7 @@ The binary is a single-purpose operational interface — not a trading bot, not 
 
 - **Three output formats**: pretty (colored terminal), table (bordered), and JSON (stable snake_case keys for agents)
 - **Structured exit codes**: 0 success, 1 internal, 2 usage, 10 auth, 11 rate-limit, 12 unavailable, 13 unsupported, 14 stale, 15 partial
-- **Signed action safety**: testnet support, `--dry-run` for previews, confirmation prompts for mainnet, encrypted local key storage
+- **Signed action safety**: testnet support, `--dry-run` for supported previews, confirmation prompts for prompt-gated mainnet actions, encrypted local key storage
 - **Agent-first output**: `--select` for field projection, `--results-only` to strip envelopes, `--max-results` for context control, `schema` command for machine-readable contract metadata
 - **Financial precision**: all prices and amounts use `rust_decimal::Decimal`, never floats
 

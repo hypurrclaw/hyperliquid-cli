@@ -31,7 +31,7 @@ graph TD
 
 ### Private key handling
 
-- Private keys are never logged, printed (except once during `api-wallet create` without `--store`), committed, or stored in plaintext
+- Private keys are never logged, committed, or stored in plaintext; `api-wallet create` prints a newly generated API private key exactly once unless the command is only dry-run
 - `wallet import` and `account add` use hidden prompts when no argument is passed to avoid shell history exposure
 - Config file storage of private keys is supported for backward compatibility but stored accounts are preferred
 

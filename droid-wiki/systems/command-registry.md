@@ -2,7 +2,7 @@
 
 Active contributors: Sayo
 
-The command registry is a typed representation of every CLI command, loaded at startup from `src/command_catalog.json`. It powers the `schema` command and gates migration to typed in-process handlers.
+The command registry is a typed representation of every CLI command, compiled from the embedded `src/command_catalog.json`. It powers the `schema` command and gates migration to typed in-process handlers.
 
 ## Directory layout
 
@@ -54,11 +54,15 @@ Each command entry in `src/command_catalog.json` has:
 
 ```json
 {
-  "command": "orders create",
-  "group": "orders",
+  "command": "hyperliquid orders create",
+  "group": "trade",
+  "auth_required": true,
   "dangerous": true,
-  "description": "Create a new order",
-  "args": [...]
+  "description": "Create a new order.",
+  "args": [...],
+  "lifecycle": "live_mutating",
+  "risk": "funds_movement",
+  "dry_run": "optional"
 }
 ```
 

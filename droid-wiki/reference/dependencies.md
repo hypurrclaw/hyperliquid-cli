@@ -15,7 +15,7 @@
 | `rust_decimal` | 1 | Financial precision (prices, sizes, amounts) |
 | `tabwriter` | 1 | ANSI-aware column alignment for pretty output |
 | `tabled` | 0.20 | Bordered table rendering |
-| `crossterm` | 0.28 | Terminal control (alternate screen, raw mode) |
+| `crossterm` | 0.29 | Terminal control (alternate screen, raw mode) |
 | `strsim` | 0.11 | Levenshtein distance for fuzzy asset matching |
 | `dirs` | 6 | Platform config/data directory resolution |
 | `chrono` | 0.4 | Timestamp formatting and parsing |
@@ -25,7 +25,7 @@
 | `aes-gcm` | 0.10 | AES-256-GCM for account encryption |
 | `base64` | 0.22 | Base64 encoding for encrypted blobs |
 | `hex` | 0.4 | Hex encoding for keys and addresses |
-| `rand` | 0.8 | Random nonce generation for encryption |
+| `rand` | 0.9 | Random nonce generation for encryption |
 | `sha2` | 0.10 | SHA-256 for passphrase key derivation |
 | `rpassword` | 7 | Hidden password/key prompts |
 | `keyring` | 3 | OS keychain integration (macOS, Linux, Windows) |

@@ -7,15 +7,15 @@
 
 **One terminal. Every Hyperliquid action. Built for humans and AI agents.**
 
-`hyperliquid` is a fast, single-binary command line for [Hyperliquid](https://app.hyperliquid.xyz) — covering market data, accounts, orders, transfers, staking, vaults, borrow/lend, HyperEVM/Morpho, and WebSocket streams with first-class JSON output, schemas, dry runs, and explicit signing.
+`hyperliquid` is a fast, single-binary command line for [Hyperliquid](https://app.hyperliquid.xyz) — covering market data, accounts, orders, transfers, staking, vaults, borrow/lend, builder/referral workflows, and WebSocket streams with first-class JSON output, schemas, dry runs, and explicit signing.
 
 If you trade Hyperliquid from a terminal, automate it from a script, or drive it from an AI agent, this CLI is built for you.
 
 ## Why hyperliquid-cli
 
-- **One tool, the whole protocol.** Markets, perps, spot, HIP-3 DEXes, orders, transfers, subaccounts, vaults, staking, borrow/lend, builder fees, referrals, account abstraction, HyperEVM/Morpho, and WebSocket subscriptions — all behind one binary.
+- **One tool, broad protocol coverage.** Markets, perps, spot, HIP-3 DEXes, orders, transfers, subaccounts, vaults, staking, borrow/lend, builder fees, referrals, account abstraction, and WebSocket subscriptions — all behind one binary.
 - **Agent-native.** Every data command supports `--format json`, field projection (`--select`), result limits, machine-readable command schemas, and bounded watch streams. Drop it into any LLM agent or shell script.
-- **Safe by default.** Mainnet mutations prompt for confirmation. `--dry-run` previews any side effect. Testnet is one flag away. Wallets live in the encrypted OWS vault — never on stdout, never in logs.
+- **Safe by default.** Prompt-gated mainnet mutations require confirmation, and `--dry-run` previews supported side effects. Testnet is one flag away. Wallets live in the encrypted OWS vault — never on stdout, never in logs.
 - **Decimal-correct.** Every price, size, and amount uses `rust_decimal`. No floats, no surprise rounding.
 - **Stable contracts.** snake_case JSON keys, structured error objects, and well-defined exit codes you can branch on.
 - **Single static binary.** Built in Rust on top of [`hypersdk`](https://github.com/infinitefield/hypersdk). Install in seconds, ship in containers, run anywhere.
@@ -96,7 +96,7 @@ The newly created or imported wallet becomes the default signer.
 hyperliquid wallet list                 # all wallets in the OWS vault
 hyperliquid wallet show                 # current default
 hyperliquid wallet address              # just the address
-hyperliquid wallet rename <SELECTOR> --new-name <NAME>
+hyperliquid wallet rename <SELECTOR> <NEW_NAME>
 hyperliquid wallet export <SELECTOR>    # reveal secret (with confirmation)
 hyperliquid wallet delete <SELECTOR>
 ```
@@ -151,7 +151,7 @@ Every data command exposes the same automation surface:
 | `--select <FIELDS>` | Project JSON to comma-separated fields. |
 | `--results-only` | Strip envelopes, return only data. |
 | `--max-results <N>` | Cap top-level list/map size client-side. |
-| `--dry-run` | Validate and preview any mutation. |
+| `--dry-run` | Validate and preview supported mutations. |
 | `--payload-json` / `--payload-file` | Feed raw JSON into dry-runs. |
 
 Set `HYPERLIQUID_AGENT=1` (or run non-TTY) and one-shot commands default to JSON automatically. Errors are stable objects:
@@ -242,7 +242,7 @@ Canonical top-level aliases accepted by the CLI:
 | `wallet address` | Print only the configured wallet address. |
 | `wallet import-mnemonic [MNEMONIC]` | Import a wallet from a BIP-39 mnemonic phrase. |
 | `wallet list` | List all wallets in the OWS vault. |
-| `wallet rename <SELECTOR> --new-name <NAME>` | Rename a wallet. |
+| `wallet rename <SELECTOR> <NEW_NAME>` | Rename a wallet. |
 | `wallet delete <SELECTOR>` | Delete a wallet. Prompts unless `-y`. |
 | `wallet export <SELECTOR>` | Export wallet secret (mnemonic or private key). |
 | `wallet reset` | Remove wallet configuration after confirmation. |
@@ -370,7 +370,7 @@ The CLI is designed to make side effects visible:
 - Signing only happens through explicit `--account`, `--ows-signer`, `--keystore`, `--private-key`, or stored OWS wallets.
 - `--testnet` cleanly routes API calls and signed actions to Hyperliquid testnet.
 - `--dry-run` validates and previews any supported mutation without sending it.
-- Mainnet order creation prompts for confirmation unless `-y` / `--yes` is supplied.
+- Prompt-gated live mainnet mutations and destructive local secret operations require confirmation unless `-y` / `--yes` is supplied where supported.
 - Transfer recipients and protocol object addresses must be explicit `0x` addresses — local aliases are never silently substituted.
 
 ## Exit Codes
@@ -395,9 +395,10 @@ Resolution order: CLI flags → environment variables → `~/.config/hyperliquid
 | --- | --- |
 | `HYPERLIQUID_PRIVATE_KEY` | Private key for signing (prefer OWS or keystore). |
 | `HYPERLIQUID_NETWORK` | `mainnet` or `testnet`. |
-| `HYPERLIQUID_FORMAT` | Default output format. |
+| `HYPERLIQUID_FORMAT` | Explicit default output format (`pretty`, `table`, or `json`) before agent/non-TTY fallback. |
 | `HYPERLIQUID_AGENT` | Set to `1` to force agent defaults. |
-| `HYPERLIQUID_WATCH_MAX_TICKS` | Default tick limit for watch mode. |
+| `HYPERLIQUID_WATCH_MAX_TICKS` | Default tick limit for snapshot watch mode. |
+| `HYPERLIQUID_SUBSCRIBE_MAX_EVENTS` | Default event limit for WebSocket subscribe commands in agent contexts. |
 | `OWS_PASSPHRASE` | Passphrase to unlock an encrypted OWS wallet. |
 | `HYPERLIQUID_OWS_VAULT_PATH` | Override the OWS vault path (default `~/.hyperliquid`). |
 

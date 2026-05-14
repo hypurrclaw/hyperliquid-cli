@@ -1,40 +1,41 @@
 # By the numbers
 
-Data collected on 2026-05-13.
+Data collected on 2026-05-15 from tracked files.
 
 ## Size
 
-Total Rust lines: **54,236** across **50 source files** and **37 Rust test files**. The current source tree also has 3 shell scripts, 3 workflow files, 3 docs files, and JSON command/contract fixtures.
+Total Rust lines: **56,575** across **51 `src/` source files**, **38 Rust test files**, and `build.rs`. The tracked tree also has 4 shell scripts, 7 YAML workflow/task files, 46 Markdown files, and JSON command/contract fixtures.
 
 | Language | Lines of code |
 |----------|---------------|
-| Rust | 54,236 |
-| JSON | 14,444 |
-| Shell | 914 |
-| YAML | 287 |
+| Rust | 56,575 |
+| JSON | 15,509 |
+| Shell | 1,144 |
+| YAML | 416 |
+| Markdown | 5,295 |
 
 ```mermaid
 xychart-beta
     title "Lines of code by language"
-    x-axis ["Rust", "JSON", "Shell", "YAML"]
-    y-axis "Lines" 0 --> 55000
-    bar [54236, 14444, 914, 287]
+    x-axis ["Rust", "JSON", "Markdown", "Shell", "YAML"]
+    y-axis "Lines" 0 --> 57000
+    bar [56575, 15509, 5295, 1144, 416]
 ```
 
 ## Largest source files
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `src/cli_runtime.rs` | 3,649 | Command dispatch and context resolution |
-| `src/commands/orders.rs` | 2,277 | Order creation, validation, planning, rendering |
+| `src/cli_runtime.rs` | 3,973 | Command dispatch and context resolution |
+| `src/commands/orders.rs` | 2,477 | Order creation, validation, planning, rendering |
 | `tests/orders_create.rs` | 2,188 | Order creation integration coverage |
 | `src/commands/account.rs` | 1,904 | Public account data queries |
-| `src/commands/orders/planning.rs` | 1,495 | Order action planning and dry-run previews |
+| `src/commands/orders/planning.rs` | 1,514 | Order action planning and dry-run previews |
 | `src/output/mod.rs` | 1,379 | Output formatting system |
+| `tests/wallet_management.rs` | 1,327 | Wallet management integration coverage |
 | `src/commands/staking.rs` | 1,323 | Staking queries and actions |
 | `src/db.rs` | 1,159 | Encrypted account storage |
-| `src/commands/orderbook.rs` | 1,115 | Order book, candles, mids, and watch helpers |
-| `src/commands/vaults.rs` | 1,102 | Vault discovery and transfer actions |
+| `tests/vaults_borrowlend.rs` | 1,145 | Vault and borrow/lend integration coverage |
 
 ## Activity (last 90 days)
 
@@ -56,8 +57,8 @@ Of the last 100 commits, ~44% have the co-author `capy-ai[bot]`. This is a lower
 
 ## Complexity
 
-- **Average Rust file size**: ~624 lines across source and test files
+- **Average Rust file size**: ~629 lines across tracked Rust files
 - **Largest function area**: `src/cli_runtime.rs` dispatches the command tree and enforces dry-run/payload gates
 - **Deepest module**: `src/commands/orders/` splits into 5 sub-modules (`args`, `planning`, `queries`, `rendering`, `validation`)
 - **Exported symbols**: `src/lib.rs` exports 17 public modules for integration testing
-- **Test-to-code ratio**: 50 Rust source files vs 37 Rust test files (roughly 1 test file per 1.35 source files)
+- **Test-to-code ratio**: 51 `src/` Rust source files vs 38 Rust test files (roughly 1 test file per 1.34 source files)

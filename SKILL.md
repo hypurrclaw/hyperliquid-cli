@@ -167,7 +167,7 @@ Terminology:
 - **Selected signer**: key used to sign an authenticated action.
 - **API wallet / agent wallet**: delegated Hyperliquid trading key approved by a master account; it can trade but cannot withdraw.
 - **Protocol user address / USER**: public account-data lookup target.
-- **Protocol address / *_ADDRESS**: explicit remote address such as recipient, vault, validator, builder, multisig user, or Morpho contract.
+- **Protocol address / *_ADDRESS**: explicit remote address such as recipient, vault, validator, or builder.
 
 Never print, log, commit, or store plaintext private keys.
 

@@ -13,7 +13,7 @@ src/
 └── ows.rs        # Open Wallet Standard vault integration
 
 ~/.config/hyperliquid/
-└── config.json   # User config (network, default wallet id)
+└── config.json   # User config (network, default wallet id, packaged defaults)
 
 ~/.hyperliquid/   # OWS vault directory (default, override with HYPERLIQUID_OWS_VAULT_PATH)
 ```
@@ -22,7 +22,7 @@ src/
 
 | Type | File | Description |
 |------|------|-------------|
-| `Config` | `src/config.rs` | User config struct (private_key, network, default_wallet_id) |
+| `Config` | `src/config.rs` | User config struct (private_key, network, default_wallet_id, builder/referral defaults) |
 | `Network` | `src/config.rs` | `Mainnet` or `Testnet` with case-insensitive serde |
 | `AccountStore` | `src/db.rs` | SQLite-backed encrypted account storage |
 | `EncryptionKeyStore` | `src/db.rs` | Trait for key material storage (OS keychain or passphrase-derived) |
@@ -49,7 +49,10 @@ src/
 | `HYPERLIQUID_ACCOUNT_KEYCHAIN_DISABLED` | Set to `1` to disable OS keychain |
 | `OWS_PASSPHRASE` | Passphrase to unlock encrypted OWS wallet |
 | `HYPERLIQUID_OWS_VAULT_PATH` | Custom OWS vault path (default: `~/.hyperliquid`) |
-| `HYPERLIQUID_WATCH_MAX_TICKS` | Default max ticks for watch mode |
+| `HYPERLIQUID_WATCH_MAX_TICKS` | Default max ticks for snapshot watch mode |
+| `HYPERLIQUID_SUBSCRIBE_MAX_EVENTS` | Default max events for WebSocket subscribe commands |
+| `HYPERLIQUID_ACCOUNT_KEY_STORE_DIR` | Override the file-backed account encryption key store directory |
+| `HYPERLIQUID_MAINNET_API_BASE_URL` / `HYPERLIQUID_TESTNET_API_BASE_URL` | Per-network API URL overrides |
 
 ## Account storage
 
@@ -66,7 +69,7 @@ graph LR
     Keychain[OS Keychain] -->|store/load| DEK
 ```
 
-The encryption key material is stored in the OS keychain (macOS Keychain, Linux Secret Service, Windows Credential Manager) when available. In headless/CI environments, `HYPERLIQUID_ACCOUNT_KEY_PASSPHRASE` provides a deterministic passphrase-derived key.
+The encryption key material is stored in the OS keychain (macOS Keychain, Linux Secret Service, Windows Credential Manager) when available. If keychain use is disabled or unavailable, the CLI falls back to file-backed key material; in headless/CI environments, `HYPERLIQUID_ACCOUNT_KEY_PASSPHRASE` provides a deterministic passphrase-derived key.
 
 ## OWS vault
 
@@ -78,4 +81,4 @@ The CLI checks for both `eip155:999` (Hyperliquid chain) and `eip155:1` (Ethereu
 
 - **Add a new config option**: add field to `Config` in `src/config.rs`, add env var constant, wire into resolution
 - **Change encryption**: modify `src/db.rs` encryption/decryption functions
-- **Add a new wallet backend**: implement the signing trait, add resolution path in `src/auth.rs`
+- **Change OWS wallet resolution**: update `src/ows.rs` and the signer resolution path in `src/auth.rs`/`src/cli_runtime.rs`
