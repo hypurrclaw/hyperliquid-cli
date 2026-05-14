@@ -1,4 +1,4 @@
-# hyperliquid-cli
+# Hyperliquid CLI
 
 [![Crates.io](https://img.shields.io/badge/crates.io-v0.1.0-orange.svg)](https://crates.io/crates/hyperliquid-cli)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -38,7 +38,7 @@ cargo install --path . --bin hyperliquid
 
 Requires Rust 1.93+.
 
-## 60-Second Tour
+## Quick start
 
 ```bash
 # Read the market
@@ -141,7 +141,7 @@ export OWS_PASSPHRASE=...               # unlock encrypted OWS wallet
 - Use API wallets when delegating trading to scripts or agents — they can't withdraw funds.
 - `--testnet` is one flag away whenever you want to rehearse a flow before going live.
 
-## Built for Agents
+## Output formats
 
 Every data command exposes the same automation surface:
 
@@ -164,7 +164,7 @@ Every mutating command ships a `schema` description an agent can read before act
 
 See [`SKILL.md`](SKILL.md) for the agent operating guide.
 
-## What's Inside
+## Terminology and address selectors
 
 | Domain | Examples |
 | --- | --- |
@@ -361,6 +361,10 @@ hyperliquid --format json --dry-run vault deposit --vault 0x... --amount 5
 ```
 
 Full reference: `hyperliquid --help` and `hyperliquid <command> --help`, plus the guides in [`docs/`](docs/).
+
+## Testnet
+
+Use `--testnet` to rehearse reads, dry-runs, and approved live testnet flows before touching mainnet. Testnet uses the same command surface with the testnet API endpoint and separate account state.
 
 ## Safety Model
 
