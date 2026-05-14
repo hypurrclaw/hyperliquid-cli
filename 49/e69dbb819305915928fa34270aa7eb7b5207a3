@@ -1,0 +1,21 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.2",
+  "base_commit_sha": "49e69dbb819305915928fa34270aa7eb7b5207a3",
+  "prompts": {
+    "0ba4db100e1c4291": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "fb6726e6-dc92-4637-91b0-c2de52e97422",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Sayo",
+      "messages": [],
+      "total_additions": 1823,
+      "total_deletions": 504,
+      "accepted_lines": 1317,
+      "overriden_lines": 1
+    }
+  }
+}
