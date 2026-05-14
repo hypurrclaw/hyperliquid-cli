@@ -1,14 +1,17 @@
 ---
-name: hyperliquid
+name: hyperliquid-cli
 version: 1.1.0
 description: "Agent guide for trading different assets on Hyperliquid with the Hyperliquid CLI: discover markets, query state, plan safely, dry-run mutations, and execute approved workflows."
+license: MIT
+compatibility: "Requires a shell environment. Installs or uses the hyperliquid CLI. Wallets can be created or imported locally through the encrypted Open Wallet Standard vault."
 metadata:
   openclaw:
-    category: "finance"
+    requires:
+      bins: ["curl", "tar"]
+    homepage: https://github.com/hypurrclaw/hyperliquid-cli
   hermes:
-    category: "crypto"
-  requires:
-    bins: ["curl", "tar"]
+    category: crypto
+    tags: [hyperliquid, hyperliquid-cli, trading, cli, crypto, finance, defi, dex, market-data, wallets, orders, automation, agents, testnet]
 ---
 
 # Hyperliquid CLI Agent Guide
