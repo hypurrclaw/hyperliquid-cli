@@ -971,7 +971,6 @@ mod tests {
         command_accepts_mutating_preview, command_contract_for_path, command_uses_api,
     };
     use super::*;
-    use clap::Parser;
 
     #[test]
     fn usage_error_respects_equals_form_human_formats() {

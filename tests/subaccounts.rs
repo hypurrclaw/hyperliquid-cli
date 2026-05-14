@@ -217,6 +217,7 @@ async fn subaccount_transfer_resolves_alias_and_uses_usdc_integer_units() {
             "10.25",
             "--direction",
             "deposit",
+            "-y",
             "--testnet",
         ])
         .assert()
@@ -313,6 +314,7 @@ async fn subaccount_spot_transfer_submits_expected_exchange_payload() {
             "1.2300",
             "--direction",
             "deposit",
+            "-y",
             "--testnet",
         ])
         .assert()

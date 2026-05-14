@@ -8,14 +8,12 @@ mod support;
 use assert_cmd::Command;
 use predicates::prelude::*;
 use serde_json::{Value, json};
-use std::fs;
 use wiremock::MockServer;
 
 use support::{
-    API_OVERRIDE_ENV, FORMAT_ENV, IsolatedHome, PRIVATE_KEY_ENV, TEST_ACCOUNT_PASSPHRASE,
-    TESTNET_API_OVERRIDE_ENV, VALID_PRIVATE_KEY, fixture_malformed_spot_meta,
-    fixture_perp_meta_btc_only, mock_market_server, mount_market_meta, mount_override_healthcheck,
-    mount_perp_dexs, mount_spot_meta,
+    API_OVERRIDE_ENV, FORMAT_ENV, IsolatedHome, TEST_ACCOUNT_PASSPHRASE, TESTNET_API_OVERRIDE_ENV,
+    fixture_malformed_spot_meta, fixture_perp_meta_btc_only, mock_market_server, mount_market_meta,
+    mount_override_healthcheck, mount_perp_dexs, mount_spot_meta,
 };
 
 async fn mock_malformed_spot_meta_server() -> MockServer {
