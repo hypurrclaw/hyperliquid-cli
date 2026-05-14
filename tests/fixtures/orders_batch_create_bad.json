@@ -1,0 +1,9 @@
+{
+  "orders": [
+    {
+      "coin": "BTC",
+      "side": "buy",
+      "size": "0.001"
+    }
+  ]
+}

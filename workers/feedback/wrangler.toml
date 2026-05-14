@@ -1,0 +1,12 @@
+name = "hyperliquid-feedback"
+main = "src/index.ts"
+compatibility_date = "2026-05-14"
+
+# Create the database with:
+#   npx wrangler d1 create hyperliquid_feedback
+# Then replace database_id below and run:
+#   npm run db:migrate
+[[d1_databases]]
+binding = "DB"
+database_name = "hyperliquid_feedback"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"

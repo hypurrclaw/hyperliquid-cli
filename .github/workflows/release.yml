@@ -1,0 +1,116 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to package without publishing a release"
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: Package ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+          - runner: macos-13
+            target: x86_64-apple-darwin
+          - runner: macos-14
+            target: aarch64-apple-darwin
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo build outputs
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+
+      - name: Pre-release repository check
+        run: bash scripts/pre-release-check.sh
+
+      - name: Build release binary
+        env:
+          HYPERLIQUID_DEFAULT_BUILDER_ADDRESS: ${{ vars.HYPERLIQUID_DEFAULT_BUILDER_ADDRESS }}
+          HYPERLIQUID_DEFAULT_BUILDER_FEE_RATE: ${{ vars.HYPERLIQUID_DEFAULT_BUILDER_FEE_RATE }}
+          HYPERLIQUID_DEFAULT_REFERRAL_CODE: ${{ vars.HYPERLIQUID_DEFAULT_REFERRAL_CODE }}
+        run: cargo build --locked --release --bin hyperliquid --target ${{ matrix.target }}
+
+      - name: Package archive (Unix)
+        if: matrix.runner != 'windows-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist package
+          cp "target/${{ matrix.target }}/release/hyperliquid" package/hyperliquid
+          cp README.md LICENSE package/
+          tar -C package -czf "dist/hyperliquid-${{ matrix.target }}.tar.gz" .
+          if command -v sha256sum >/dev/null 2>&1; then
+            (cd dist && sha256sum "hyperliquid-${{ matrix.target }}.tar.gz" > "hyperliquid-${{ matrix.target }}.tar.gz.sha256")
+          else
+            (cd dist && shasum -a 256 "hyperliquid-${{ matrix.target }}.tar.gz" > "hyperliquid-${{ matrix.target }}.tar.gz.sha256")
+          fi
+
+      - name: Package archive (Windows)
+        if: matrix.runner == 'windows-latest'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist, package | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/hyperliquid.exe" "package/hyperliquid.exe"
+          Copy-Item README.md, LICENSE package/
+          $asset = "hyperliquid-${{ matrix.target }}.zip"
+          Compress-Archive -Path package/* -DestinationPath "dist/$asset" -Force
+          $hash = (Get-FileHash "dist/$asset" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $asset" | Out-File -FilePath "dist/$asset.sha256" -Encoding ascii -NoNewline
+
+      - name: Smoke archive (Unix)
+        if: matrix.runner != 'windows-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          tmpdir="$(mktemp -d)"
+          tar -xzf "dist/hyperliquid-${{ matrix.target }}.tar.gz" -C "$tmpdir"
+          "$tmpdir/hyperliquid" --version
+
+      - name: Smoke archive (Windows)
+        if: matrix.runner == 'windows-latest'
+        shell: pwsh
+        run: |
+          $tmpdir = Join-Path $env:RUNNER_TEMP ([guid]::NewGuid().ToString())
+          New-Item -ItemType Directory -Force -Path $tmpdir | Out-Null
+          Expand-Archive -Path "dist/hyperliquid-${{ matrix.target }}.zip" -DestinationPath $tmpdir -Force
+          & (Join-Path $tmpdir "hyperliquid.exe") --version
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hyperliquid-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+      - name: Upload GitHub release assets
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          fail_on_unmatched_files: true

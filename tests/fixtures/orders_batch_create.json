@@ -1,0 +1,18 @@
+{
+  "orders": [
+    {
+      "coin": "BTC",
+      "side": "buy",
+      "price": "50000",
+      "size": "0.001",
+      "tif": "alo"
+    },
+    {
+      "coin": "ETH",
+      "side": "sell",
+      "price": "3000",
+      "size": "0.01",
+      "reduce_only": true
+    }
+  ]
+}
