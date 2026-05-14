@@ -16,6 +16,7 @@ type ValidFeedback = {
   scenarioJson: string;
   contact: string | null;
   tags: string[];
+  agentAddress: string | null;
 };
 
 type RateLimitResult =
@@ -26,9 +27,11 @@ const MAX_BODY_BYTES = 20 * 1024;
 const MAX_SCENARIO_BYTES = 16 * 1024;
 const MAX_CONTACT_BYTES = 256;
 const MAX_TAGS = 10;
-const RATE_LIMIT_WINDOW_SECONDS = 60;
-const MAX_REQUESTS_PER_WINDOW = 10;
-const RATE_LIMIT_RETENTION_SECONDS = 24 * 60 * 60;
+const GLOBAL_RATE_LIMIT_WINDOW_SECONDS = 60;
+const MAX_GLOBAL_SUBMISSIONS_PER_WINDOW = 1;
+const DAILY_RATE_LIMIT_WINDOW_SECONDS = 24 * 60 * 60;
+const MAX_SUBMISSIONS_PER_DAILY_KEY = 1;
+const RATE_LIMIT_RETENTION_SECONDS = 8 * 24 * 60 * 60;
 const textEncoder = new TextEncoder();
 
 export default {
@@ -45,21 +48,6 @@ export default {
 
     if (!isJsonRequest(request)) {
       return json({ status: "error", error: "unsupported_media_type" }, 415);
-    }
-
-    let rateLimit: RateLimitResult;
-    try {
-      rateLimit = await enforceRateLimit(request, env);
-    } catch {
-      return json({ status: "error", error: "internal_rate_limit_error" }, 500);
-    }
-    ctx.waitUntil(cleanupOldRateLimitWindows(env, Math.floor(Date.now() / 1000)));
-    if (!rateLimit.ok) {
-      return json(
-        { status: "error", error: "rate_limited" },
-        429,
-        { "retry-after": String(rateLimit.retryAfterSeconds) },
-      );
     }
 
     const contentLength = request.headers.get("content-length");
@@ -83,6 +71,21 @@ export default {
       return json({ status: "error", error: validation.error }, 400);
     }
     const feedback = validation.feedback;
+
+    let rateLimit: RateLimitResult;
+    try {
+      rateLimit = await enforceRateLimits(feedback.agentAddress, request, env);
+    } catch {
+      return json({ status: "error", error: "internal_rate_limit_error" }, 500);
+    }
+    ctx.waitUntil(cleanupOldRateLimitWindows(env, Math.floor(Date.now() / 1000)));
+    if (!rateLimit.ok) {
+      return json(
+        { status: "error", error: "rate_limited" },
+        429,
+        { "retry-after": String(rateLimit.retryAfterSeconds) },
+      );
+    }
 
     const id = crypto.randomUUID();
     const createdAt = new Date().toISOString();
@@ -165,8 +168,26 @@ function validatePayload(
       scenarioJson,
       contact,
       tags,
+      agentAddress: extractAgentAddress(payload.scenario),
     },
   };
+}
+
+function extractAgentAddress(scenario: object): string | null {
+  const candidate = stringField(scenario, "agent_address", "agentAddress")
+    ?? stringField(scenario, "signer_address", "signerAddress")
+    ?? stringField(scenario, "wallet_address", "walletAddress");
+  if (candidate === null) {
+    return null;
+  }
+  const normalized = candidate.trim().toLowerCase();
+  return /^0x[a-f0-9]{40}$/.test(normalized) ? normalized : null;
+}
+
+function stringField(source: object, snake: string, camel: string): string | null {
+  const record = source as Record<string, unknown>;
+  const value = record[snake] ?? record[camel];
+  return typeof value === "string" && value.trim() !== "" ? value : null;
 }
 
 function isJsonRequest(request: Request): boolean {
@@ -174,36 +195,111 @@ function isJsonRequest(request: Request): boolean {
   return contentType.toLowerCase().split(";", 1)[0].trim() === "application/json";
 }
 
-async function enforceRateLimit(request: Request, env: Env): Promise<RateLimitResult> {
+async function enforceRateLimits(
+  agentAddress: string | null,
+  request: Request,
+  env: Env,
+): Promise<RateLimitResult> {
   const nowSeconds = Math.floor(Date.now() / 1000);
-  const windowStart = nowSeconds - (nowSeconds % RATE_LIMIT_WINDOW_SECONDS);
   const ipHash = await sha256Hex(clientIp(request));
-  const updatedAt = new Date(nowSeconds * 1000).toISOString();
+  const ipKey = `ip:${ipHash}`;
+  const agentKey = agentAddress !== null ? `agent:${await sha256Hex(agentAddress)}` : null;
+  const dayStart = nowSeconds - (nowSeconds % DAILY_RATE_LIMIT_WINDOW_SECONDS);
+  const minuteStart = nowSeconds - (nowSeconds % GLOBAL_RATE_LIMIT_WINDOW_SECONDS);
 
+  const ipLimit = await incrementRateLimitWindow(
+    env,
+    ipKey,
+    dayStart,
+    nowSeconds,
+    MAX_SUBMISSIONS_PER_DAILY_KEY,
+    DAILY_RATE_LIMIT_WINDOW_SECONDS,
+  );
+  if (!ipLimit.ok) {
+    return ipLimit;
+  }
+
+  if (agentKey !== null) {
+    const agentLimit = await incrementRateLimitWindow(
+      env,
+      agentKey,
+      dayStart,
+      nowSeconds,
+      MAX_SUBMISSIONS_PER_DAILY_KEY,
+      DAILY_RATE_LIMIT_WINDOW_SECONDS,
+    );
+    if (!agentLimit.ok) {
+      await decrementRateLimitWindow(env, ipKey, dayStart);
+      return agentLimit;
+    }
+  }
+
+  const globalLimit = await incrementRateLimitWindow(
+    env,
+    "global",
+    minuteStart,
+    nowSeconds,
+    MAX_GLOBAL_SUBMISSIONS_PER_WINDOW,
+    GLOBAL_RATE_LIMIT_WINDOW_SECONDS,
+  );
+  if (!globalLimit.ok) {
+    await decrementRateLimitWindow(env, ipKey, dayStart);
+    if (agentKey !== null) {
+      await decrementRateLimitWindow(env, agentKey, dayStart);
+    }
+    return globalLimit;
+  }
+
+  return { ok: true, ipHash };
+}
+
+async function incrementRateLimitWindow(
+  env: Env,
+  keyHash: string,
+  windowStart: number,
+  nowSeconds: number,
+  maxSubmissions: number,
+  windowSeconds: number,
+): Promise<{ ok: true } | { ok: false; retryAfterSeconds: number }> {
+  const updatedAt = new Date(nowSeconds * 1000).toISOString();
   await env.DB.prepare(
     `INSERT INTO feedback_rate_limits (ip_hash, window_start, count, updated_at)
      VALUES (?, ?, 1, ?)
      ON CONFLICT(ip_hash, window_start)
      DO UPDATE SET count = count + 1, updated_at = excluded.updated_at`,
   )
-    .bind(ipHash, windowStart, updatedAt)
+    .bind(keyHash, windowStart, updatedAt)
     .run();
 
   const row = await env.DB.prepare(
     `SELECT count FROM feedback_rate_limits WHERE ip_hash = ? AND window_start = ?`,
   )
-    .bind(ipHash, windowStart)
+    .bind(keyHash, windowStart)
     .first<{ count: number }>();
 
-  const count = row?.count ?? MAX_REQUESTS_PER_WINDOW + 1;
-  if (count > MAX_REQUESTS_PER_WINDOW) {
+  const count = row?.count ?? maxSubmissions + 1;
+  if (count > maxSubmissions) {
     return {
       ok: false,
-      retryAfterSeconds: Math.max(1, windowStart + RATE_LIMIT_WINDOW_SECONDS - nowSeconds),
+      retryAfterSeconds: Math.max(1, windowStart + windowSeconds - nowSeconds),
     };
   }
 
-  return { ok: true, ipHash };
+  return { ok: true };
+}
+
+async function decrementRateLimitWindow(
+  env: Env,
+  keyHash: string,
+  windowStart: number,
+): Promise<void> {
+  await env.DB.prepare(
+    `UPDATE feedback_rate_limits
+     SET count = MAX(count - 1, 0)
+     WHERE ip_hash = ? AND window_start = ?`,
+  )
+    .bind(keyHash, windowStart)
+    .run();
 }
 
 function clientIp(request: Request): string {

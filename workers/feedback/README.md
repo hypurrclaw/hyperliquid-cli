@@ -34,7 +34,9 @@ The Worker is intentionally public so released CLIs can submit feedback without 
 
 - accepts only `POST /feedback` with `Content-Type: application/json`;
 - caps request bodies at 20 KiB and scenario JSON at 16 KiB;
-- rate-limits each client IP hash to 10 requests per 60-second window;
+- rate-limits each client IP hash to 1 accepted submission per day;
+- rate-limits each agent/signer/wallet address found in the scenario JSON to 1 accepted submission per day;
+- rate-limits total accepted submissions to 1 per minute across the Worker;
 - stores only a SHA-256 hash of the client IP for rate limiting and triage.
 
 For high-volume releases, also configure Cloudflare dashboard WAF/rate-limiting rules for `/feedback` as a perimeter control.
