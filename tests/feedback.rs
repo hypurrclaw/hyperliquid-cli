@@ -173,7 +173,7 @@ async fn feedback_maps_worker_rate_limit_to_exit_code_11() {
         ])
         .assert()
         .code(11)
-        .stderr(predicate::str::contains("Rate limited"));
+        .stdout(predicate::str::contains("Rate limited"));
 }
 
 #[test]
