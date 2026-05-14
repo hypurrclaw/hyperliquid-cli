@@ -148,12 +148,11 @@ async fn api_wallet_create_submits_approve_agent_and_prints_generated_key_once()
     let body: Value = serde_json::from_slice(&exchange.body).unwrap();
     assert_eq!(body["action"]["type"], "approveAgent");
     assert_eq!(body["action"]["hyperliquidChain"], "Mainnet");
-    assert_eq!(
+    assert!(
         body["action"]["agentName"]
             .as_str()
             .unwrap()
-            .starts_with("bot-live valid_until "),
-        true
+            .starts_with("bot-live valid_until ")
     );
     assert_eq!(body["action"]["nonce"], body["nonce"]);
     assert!(body["signature"]["r"].as_str().unwrap().starts_with("0x"));

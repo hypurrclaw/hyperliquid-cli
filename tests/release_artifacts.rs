@@ -452,14 +452,13 @@ fn top_level_help_lists_all_release_command_groups() {
 fn live_command_dispatch_has_no_unclassified_local_signer_bypasses() {
     let registry = CommandRegistry::load().unwrap();
 
-    for path in [&["prio", "bid"][..]] {
-        let command = registry.find_path(path).unwrap();
-        assert_eq!(
-            command.ows_signer,
-            OwsSupport::LocalOnly,
-            "{path:?} must advertise local-only signer support"
-        );
-    }
+    let path = &["prio", "bid"][..];
+    let command = registry.find_path(path).unwrap();
+    assert_eq!(
+        command.ows_signer,
+        OwsSupport::LocalOnly,
+        "{path:?} must advertise local-only signer support"
+    );
 }
 
 #[test]
