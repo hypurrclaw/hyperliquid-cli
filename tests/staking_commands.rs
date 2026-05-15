@@ -1,10 +1,10 @@
 mod support;
 
 use alloy::dyn_abi::{Eip712Types, Resolver, TypedData};
-use alloy::signers::SignerSync;
 use alloy::sol;
 use alloy::sol_types::SolStruct;
 use alloy_primitives::keccak256;
+use alloy_v1::signers::SignerSync;
 use hyperliquid_cli::auth::parse_private_key;
 use hypersdk::Address;
 use hypersdk::hypercore::Chain;

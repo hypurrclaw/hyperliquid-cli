@@ -5,7 +5,7 @@
 //! as the stable boundary that future OWS support will implement.
 
 use alloy::dyn_abi::TypedData;
-use alloy::signers::SignerSync;
+use alloy_v1::signers::SignerSync;
 use hypersdk::Address;
 use hypersdk::hypercore::signing::{agent_signing_hash, sign_l1_action};
 use hypersdk::hypercore::types::{Action, ActionRequest, Signature};

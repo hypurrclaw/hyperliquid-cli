@@ -21,7 +21,11 @@ path = "src/main.rs"
 hypersdk = "0.2"
 reqwest = { version = "0.13", features = ["json"] }
 alloy-signer-local = { version = "1.8", features = ["keystore"] }
-alloy = { version = "2.0.4", features = ["eip712", "sol-types", "signers"], default-features = false }
+# hypersdk 0.2 still re-exports Alloy 1.x signer types. Keep a v1 Alloy
+# import available until hypersdk moves to Alloy 2 so synchronous signing
+# continues to compile while app-level EIP-712 helpers use Alloy 2.
+alloy-v1 = { package = "alloy", version = "1.8", features = ["signers"], default-features = false }
+alloy = { version = "2.0.4", features = ["dyn-abi", "eip712", "sol-types", "signers"], default-features = false }
 
 # CLI framework
 clap = { version = "4", features = ["derive"] }

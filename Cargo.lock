@@ -3597,7 +3597,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -3610,6 +3610,7 @@ name = "hyperliquid-cli"
 version = "0.1.0"
 dependencies = [
  "aes-gcm",
+ "alloy 1.8.3",
  "alloy 2.0.4",
  "alloy-primitives",
  "alloy-signer-local 1.8.3",
@@ -4978,7 +4979,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash",
  "rustls",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -5016,7 +5017,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.60.2",
 ]

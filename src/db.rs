@@ -10,7 +10,7 @@ use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
-use rand::TryRngCore;
+use rand::TryRng;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use sha2::{Digest, Sha256};
 
@@ -757,7 +757,7 @@ fn load_encryption_key(
     }
 
     let mut material = [0_u8; 32];
-    rand::rngs::OsRng.try_fill_bytes(&mut material)?;
+    rand::rngs::SysRng.try_fill_bytes(&mut material)?;
     if let Err(err) = key_store.store_key_material(&material) {
         if std::io::stdin().is_terminal() {
             let passphrase_store = prompt_passphrase_key_store_after_keychain_error(err)?;
@@ -864,7 +864,7 @@ pub fn encrypt_private_key(private_key: &str, key: &[u8; 32]) -> Result<String, 
     let cipher = Aes256Gcm::new_from_slice(key)
         .map_err(|err| anyhow::anyhow!("failed to initialize encryption: {err}"))?;
     let mut nonce_bytes = [0_u8; 12];
-    rand::rngs::OsRng.try_fill_bytes(&mut nonce_bytes)?;
+    rand::rngs::SysRng.try_fill_bytes(&mut nonce_bytes)?;
     let nonce = Nonce::from_slice(&nonce_bytes);
     let ciphertext = cipher
         .encrypt(nonce, private_key.as_bytes())
