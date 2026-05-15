@@ -170,7 +170,7 @@ See [`SKILL.md`](SKILL.md) for the agent operating guide.
 
 | Domain | Examples |
 | --- | --- |
-| OWS wallet/account record | An OWS wallet record managed by `account add`, `account ls`, `account set-default`, and related commands. |
+| Local signing account / OWS wallet account record | An OWS wallet record managed by `account add`, `account ls`, `account set-default`, and related commands. |
 | Selected signer | The key used to sign authenticated actions, chosen from flags, environment/config, global `--account`, or the OWS selector. |
 | Protocol user address | A public Hyperliquid user address used for info queries such as fills, portfolio, fees, or order status. |
 | Master account | The protocol owner account that can approve API wallets and own subaccounts. |

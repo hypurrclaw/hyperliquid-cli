@@ -10,6 +10,7 @@
 pub mod account;
 pub(crate) mod actions;
 pub mod api_wallet;
+pub mod asset;
 pub mod borrowlend;
 pub mod builder;
 pub mod feedback;
@@ -597,6 +598,46 @@ impl AssetResolver {
             .and_then(|internal_id| self.spot_symbol_for_internal_id(internal_id))
             .map(ToOwned::to_owned)
             .unwrap_or_else(|| coin.to_string())
+    }
+
+    #[must_use]
+    pub fn perp_by_protocol_asset_id(&self, asset_id: usize) -> Option<ResolvedAsset> {
+        self.metadata
+            .perps
+            .iter()
+            .find(|asset| asset.index == asset_id)
+            .map(|asset| ResolvedAsset::Perp {
+                name: asset.name.clone(),
+                index: asset.index,
+                dex: asset.dex.clone(),
+                sz_decimals: asset.sz_decimals,
+                collateral: asset.collateral.clone(),
+            })
+    }
+
+    #[must_use]
+    pub fn spot_by_protocol_asset_id(&self, asset_id: usize) -> Option<ResolvedAsset> {
+        self.metadata
+            .spots
+            .iter()
+            .find(|spot| spot.index == asset_id)
+            .map(|spot| ResolvedAsset::Spot {
+                symbol: spot.symbol.clone(),
+                index: spot.index,
+                base: spot.base.clone(),
+                quote: spot.quote.clone(),
+                base_sz_decimals: spot.base_sz_decimals,
+            })
+    }
+
+    #[must_use]
+    pub fn perps(&self) -> &[PerpAsset] {
+        self.metadata.perps()
+    }
+
+    #[must_use]
+    pub fn spots(&self) -> &[SpotAsset] {
+        self.metadata.spots()
     }
 
     fn resolve_default_perp(&self, input: &str, symbol: &str) -> Result<ResolvedAsset, CliError> {
