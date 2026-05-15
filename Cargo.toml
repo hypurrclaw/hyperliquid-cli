@@ -20,10 +20,11 @@ path = "src/main.rs"
 # Primary SDK for Hyperliquid API
 hypersdk = "0.2"
 reqwest = { version = "0.13", features = ["json"] }
-alloy-signer-local = { version = "1.8", features = ["keystore"] }
-# hypersdk 0.2 still re-exports Alloy 1.x signer types. Keep a v1 Alloy
-# import available until hypersdk moves to Alloy 2 so synchronous signing
-# continues to compile while app-level EIP-712 helpers use Alloy 2.
+alloy-signer-local = { version = "2.0", features = ["keystore"] }
+# hypersdk 0.2 still re-exports Alloy 1.x signer types. Keep the v1 crates
+# feature-enabled until hypersdk moves to Alloy 2 so local keystores and
+# synchronous signing continue to compile.
+alloy-signer-local-v1 = { package = "alloy-signer-local", version = "1.8", features = ["keystore"] }
 alloy-v1 = { package = "alloy", version = "1.8", features = ["signers"], default-features = false }
 alloy = { version = "2.0.4", features = ["dyn-abi", "eip712", "sol-types", "signers"], default-features = false }
 
