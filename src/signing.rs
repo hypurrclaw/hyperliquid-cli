@@ -4,6 +4,11 @@
 //! use `PrivateKeySigner` directly, while new code can depend on `SelectedSigner`
 //! as the stable boundary that future OWS support will implement.
 
+// TypedData comes from the app-level Alloy 2 dependency, while local signing
+// still uses hypersdk's Alloy 1 signer trait. This is intentionally temporary:
+// both versions share the same alloy-dyn-abi/core typed-data representation in
+// this dependency set, and `alloy_v1` can be removed when hypersdk moves to
+// Alloy 2.
 use alloy::dyn_abi::TypedData;
 use alloy_v1::signers::SignerSync;
 use hypersdk::Address;
