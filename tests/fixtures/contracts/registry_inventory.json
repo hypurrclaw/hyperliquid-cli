@@ -653,6 +653,127 @@
     {
       "aliases": [],
       "auth_required": false,
+      "command": "hyperliquid asset decode <ASSET_ID>",
+      "command_path": [
+        "asset",
+        "decode"
+      ],
+      "confirmation": "none",
+      "dangerous": false,
+      "description": "Decode a raw Hyperliquid protocol asset ID from exchange errors, schemas, or payloads into reusable market notation when metadata is available.",
+      "dry_run": "not_supported",
+      "group": "market",
+      "handler": {
+        "dispatch": "typed_in_process",
+        "fallbacks": [
+          "cli_dispatch"
+        ],
+        "id": "asset_decode",
+        "purity": {
+          "direct_stdio": false,
+          "local_state": false,
+          "process_global_cli_state": false,
+          "process_global_output": false,
+          "prompts": false,
+          "signs_or_submits": false
+        }
+      },
+      "inputs": [
+        {
+          "arg_type": "integer",
+          "default": null,
+          "description": "Raw non-negative decimal protocol asset ID, for example 100000400.",
+          "enum_values": [],
+          "id": "asset_id",
+          "kind": "identifier",
+          "long": null,
+          "multiple": false,
+          "positional_index": 0,
+          "required": true,
+          "short": null
+        }
+      ],
+      "lifecycle": "read_only",
+      "mutability": "read_only",
+      "one_of_required": [],
+      "output_contract": "json_value",
+      "ows_signer": "not_required",
+      "raw_payload": "unsupported",
+      "risk": "none",
+      "transport": [
+        "cli_process"
+      ]
+    },
+    {
+      "aliases": [],
+      "auth_required": false,
+      "command": "hyperliquid asset search <QUERY>",
+      "command_path": [
+        "asset",
+        "search"
+      ],
+      "confirmation": "none",
+      "dangerous": false,
+      "description": "Search Hyperliquid assets by symbol, market title, app slug, outcome notation, or protocol asset ID and return reusable CLI selectors plus protocol IDs.",
+      "dry_run": "not_supported",
+      "group": "market",
+      "handler": {
+        "dispatch": "typed_in_process",
+        "fallbacks": [
+          "cli_dispatch"
+        ],
+        "id": "asset_search",
+        "purity": {
+          "direct_stdio": false,
+          "local_state": false,
+          "process_global_cli_state": false,
+          "process_global_output": false,
+          "prompts": false,
+          "signs_or_submits": false
+        }
+      },
+      "inputs": [
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Asset search query, for example BTC, xyz:TSLA, PURR/USDC, #400, or btc-above-79779-yes-may-15-0600.",
+          "enum_values": [],
+          "id": "query",
+          "kind": "identifier",
+          "long": null,
+          "multiple": false,
+          "positional_index": 0,
+          "required": true,
+          "short": null
+        },
+        {
+          "arg_type": "integer",
+          "default": "20",
+          "description": "Maximum number of matching assets to return.",
+          "enum_values": [],
+          "id": "limit",
+          "kind": null,
+          "long": "limit",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        }
+      ],
+      "lifecycle": "read_only",
+      "mutability": "read_only",
+      "one_of_required": [],
+      "output_contract": "json_value",
+      "ows_signer": "not_required",
+      "raw_payload": "unsupported",
+      "risk": "none",
+      "transport": [
+        "cli_process"
+      ]
+    },
+    {
+      "aliases": [],
+      "auth_required": false,
       "command": "hyperliquid outcomes list",
       "command_path": [
         "outcomes",

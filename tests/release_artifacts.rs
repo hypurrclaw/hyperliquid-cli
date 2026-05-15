@@ -79,7 +79,11 @@ fn release_install_path_uses_public_repo_and_checksums() {
     for required in [
         "push:",
         "tags:",
-        "hyperliquid-${{ matrix.target }}.tar.gz",
+        "hyperliquid-linux-x86_64.tar.gz",
+        "hyperliquid-linux-aarch64.tar.gz",
+        "hyperliquid-macos-x86_64.tar.gz",
+        "hyperliquid-macos-aarch64.tar.gz",
+        "hyperliquid-windows-x86_64.zip",
         "sha256sum",
         "softprops/action-gh-release",
     ] {

@@ -271,6 +271,58 @@
       "ows_signer": "not_required"
     },
     {
+      "command": "hyperliquid asset decode <ASSET_ID>",
+      "group": "market",
+      "auth_required": false,
+      "dangerous": false,
+      "description": "Decode a raw Hyperliquid protocol asset ID from exchange errors, schemas, or payloads into reusable market notation when metadata is available.",
+      "args": [
+        {
+          "id": "asset_id",
+          "positional_index": 0,
+          "required": true,
+          "arg_type": "integer",
+          "description": "Raw non-negative decimal protocol asset ID, for example 100000400.",
+          "input_kind": "identifier"
+        }
+      ],
+      "lifecycle": "read_only",
+      "risk": "none",
+      "dry_run": "not_supported",
+      "raw_payload": "unsupported",
+      "confirmation": "none",
+      "ows_signer": "not_required"
+    },
+    {
+      "command": "hyperliquid asset search <QUERY>",
+      "group": "market",
+      "auth_required": false,
+      "dangerous": false,
+      "description": "Search Hyperliquid assets by symbol, market title, app slug, outcome notation, or protocol asset ID and return reusable CLI selectors plus protocol IDs.",
+      "args": [
+        {
+          "id": "query",
+          "positional_index": 0,
+          "required": true,
+          "description": "Asset search query, for example BTC, xyz:TSLA, PURR/USDC, #400, or btc-above-79779-yes-may-15-0600.",
+          "input_kind": "identifier"
+        },
+        {
+          "id": "limit",
+          "long": "limit",
+          "arg_type": "integer",
+          "default": "20",
+          "description": "Maximum number of matching assets to return."
+        }
+      ],
+      "lifecycle": "read_only",
+      "risk": "none",
+      "dry_run": "not_supported",
+      "raw_payload": "unsupported",
+      "confirmation": "none",
+      "ows_signer": "not_required"
+    },
+    {
       "command": "hyperliquid outcomes list",
       "group": "market",
       "auth_required": false,

@@ -595,7 +595,9 @@ mod tests {
     #[test]
     fn registry_enumerates_current_catalog_inventory() {
         let registry = CommandRegistry::from_embedded_catalog().unwrap();
-        assert_eq!(registry.commands().len(), 110);
+        assert_eq!(registry.commands().len(), 112);
+        assert!(registry.find_path(&["asset", "decode"]).is_some());
+        assert!(registry.find_path(&["asset", "search"]).is_some());
         assert!(registry.find_path(&["orders", "create"]).is_some());
         assert!(registry.find_path(&["wallet", "create"]).is_some());
         assert!(registry.find_path(&["feedback"]).is_some());
@@ -652,6 +654,8 @@ mod tests {
         let perps_get = registry.find_path(&["perps", "get"]).unwrap();
         let spot_list = registry.find_path(&["spot", "list"]).unwrap();
         let spot_get = registry.find_path(&["spot", "get"]).unwrap();
+        let asset_decode = registry.find_path(&["asset", "decode"]).unwrap();
+        let asset_search = registry.find_path(&["asset", "search"]).unwrap();
         let builder_max_fee = registry.find_path(&["builder", "max-fee"]).unwrap();
         let builder_approved = registry.find_path(&["builder", "approved"]).unwrap();
         let prio_status = registry.find_path(&["prio", "status"]).unwrap();
@@ -713,6 +717,20 @@ mod tests {
         assert_eq!(spot_get.handler.id, Some(HandlerId::SpotGet));
         assert_eq!(spot_get.handler.dispatch, HandlerDispatch::TypedInProcess);
         assert!(spot_get.handler.is_in_process_safe());
+
+        assert_eq!(asset_decode.handler.id, Some(HandlerId::AssetDecode));
+        assert_eq!(
+            asset_decode.handler.dispatch,
+            HandlerDispatch::TypedInProcess
+        );
+        assert!(asset_decode.handler.is_in_process_safe());
+
+        assert_eq!(asset_search.handler.id, Some(HandlerId::AssetSearch));
+        assert_eq!(
+            asset_search.handler.dispatch,
+            HandlerDispatch::TypedInProcess
+        );
+        assert!(asset_search.handler.is_in_process_safe());
 
         assert_eq!(builder_max_fee.handler.id, Some(HandlerId::BuilderMaxFee));
         assert_eq!(

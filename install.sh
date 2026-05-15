@@ -93,10 +93,10 @@ install_binary="$BINARY_NAME"
 windows=0
 
 case "$os" in
-  Darwin) os_target="apple-darwin" ;;
-  Linux) os_target="unknown-linux-gnu" ;;
+  Darwin) platform="macos" ;;
+  Linux) platform="linux" ;;
   MINGW* | MSYS* | CYGWIN*)
-    os_target="pc-windows-msvc"
+    platform="windows"
     archive_ext="zip"
     install_binary="${BINARY_NAME}.exe"
     windows=1
@@ -121,7 +121,7 @@ if [ "$windows" -eq 1 ] && [ "$arch_target" != "x86_64" ]; then
   exit 1
 fi
 
-target="${arch_target}-${os_target}"
+target="${platform}-${arch_target}"
 
 if [ "$CHECK" -eq 0 ]; then
   if [ "$archive_ext" = "tar.gz" ]; then
@@ -172,7 +172,7 @@ windows_path() {
   fi
 }
 
-asset="${BINARY_NAME}-${target}.${archive_ext}"
+asset="${BINARY_NAME}-${platform}-${arch_target}.${archive_ext}"
 url="https://github.com/${REPO}/releases/download/${VERSION}/${asset}"
 tmpdir="$(mktemp -d)"
 

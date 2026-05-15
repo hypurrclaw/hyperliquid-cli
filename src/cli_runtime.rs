@@ -101,6 +101,18 @@ async fn run_command(cli: &Cli, registry_path: Option<&[String]>) -> Result<(), 
         Some(Commands::Spot {
             subcommand: SpotCommands::Get { pair },
         }) => resolve_and_print_spot(&context, pair, cli.format).await,
+        Some(Commands::Asset {
+            subcommand: AssetCommands::Decode(args),
+        }) => {
+            let command_context = cli_command_context(&context, cli, None, payload.is_some());
+            hyperliquid_cli::commands::asset::decode_with_context(&command_context, args).await
+        }
+        Some(Commands::Asset {
+            subcommand: AssetCommands::Search(args),
+        }) => {
+            let command_context = cli_command_context(&context, cli, None, payload.is_some());
+            hyperliquid_cli::commands::asset::search_with_context(&command_context, args).await
+        }
         Some(Commands::Book { coin, watch }) => {
             if watch.watch {
                 watch_book(&context, coin, cli.format, watch.max_ticks).await
@@ -838,6 +850,12 @@ fn validate_cli_inputs(cli: &Cli) -> Result<(), errors::CliError> {
         Some(Commands::Spot {
             subcommand: SpotCommands::Get { pair },
         }) => validate_resource_id("spot pair", pair)?,
+        Some(Commands::Asset { subcommand }) => match subcommand {
+            AssetCommands::Decode(_) => {}
+            AssetCommands::Search(args) => {
+                validate_asset_input("asset search query", &args.query)?;
+            }
+        },
         Some(Commands::Feedback(args)) => {
             if let Some(path) = args.scenario_file.as_deref()
                 && path != "-"

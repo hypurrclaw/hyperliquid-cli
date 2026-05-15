@@ -22,14 +22,19 @@ jobs:
         include:
           - runner: ubuntu-latest
             target: x86_64-unknown-linux-gnu
+            asset: hyperliquid-linux-x86_64.tar.gz
           - runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
+            asset: hyperliquid-linux-aarch64.tar.gz
           - runner: macos-15-intel
             target: x86_64-apple-darwin
+            asset: hyperliquid-macos-x86_64.tar.gz
           - runner: macos-14
             target: aarch64-apple-darwin
+            asset: hyperliquid-macos-aarch64.tar.gz
           - runner: windows-latest
             target: x86_64-pc-windows-msvc
+            asset: hyperliquid-windows-x86_64.zip
     runs-on: ${{ matrix.runner }}
 
     steps:
@@ -62,11 +67,12 @@ jobs:
           mkdir -p dist package
           cp "target/${{ matrix.target }}/release/hyperliquid" package/hyperliquid
           cp README.md LICENSE package/
-          tar -C package -czf "dist/hyperliquid-${{ matrix.target }}.tar.gz" .
+          asset="${{ matrix.asset }}"
+          tar -C package -czf "dist/$asset" .
           if command -v sha256sum >/dev/null 2>&1; then
-            (cd dist && sha256sum "hyperliquid-${{ matrix.target }}.tar.gz" > "hyperliquid-${{ matrix.target }}.tar.gz.sha256")
+            (cd dist && sha256sum "$asset" > "$asset.sha256")
           else
-            (cd dist && shasum -a 256 "hyperliquid-${{ matrix.target }}.tar.gz" > "hyperliquid-${{ matrix.target }}.tar.gz.sha256")
+            (cd dist && shasum -a 256 "$asset" > "$asset.sha256")
           fi
 
       - name: Package archive (Windows)
@@ -76,7 +82,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path dist, package | Out-Null
           Copy-Item "target/${{ matrix.target }}/release/hyperliquid.exe" "package/hyperliquid.exe"
           Copy-Item README.md, LICENSE package/
-          $asset = "hyperliquid-${{ matrix.target }}.zip"
+          $asset = "${{ matrix.asset }}"
           Compress-Archive -Path package/* -DestinationPath "dist/$asset" -Force
           $hash = (Get-FileHash "dist/$asset" -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  $asset" | Out-File -FilePath "dist/$asset.sha256" -Encoding ascii -NoNewline
@@ -87,7 +93,7 @@ jobs:
         run: |
           set -euo pipefail
           tmpdir="$(mktemp -d)"
-          tar -xzf "dist/hyperliquid-${{ matrix.target }}.tar.gz" -C "$tmpdir"
+          tar -xzf "dist/${{ matrix.asset }}" -C "$tmpdir"
           "$tmpdir/hyperliquid" --version
 
       - name: Smoke archive (Windows)
@@ -96,13 +102,13 @@ jobs:
         run: |
           $tmpdir = Join-Path $env:RUNNER_TEMP ([guid]::NewGuid().ToString())
           New-Item -ItemType Directory -Force -Path $tmpdir | Out-Null
-          Expand-Archive -Path "dist/hyperliquid-${{ matrix.target }}.zip" -DestinationPath $tmpdir -Force
+          Expand-Archive -Path "dist/${{ matrix.asset }}" -DestinationPath $tmpdir -Force
           & (Join-Path $tmpdir "hyperliquid.exe") --version
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: hyperliquid-${{ matrix.target }}
+          name: ${{ matrix.asset }}
           path: dist/*
           if-no-files-found: error
 
