@@ -451,14 +451,18 @@ async fn search_assets(
 ) -> Vec<DecodedAssetId> {
     let mut candidates = Vec::new();
 
-    if let Ok(resolver) =
-        crate::commands::orders::load_perp_resolver_from_api_base(api_base_url).await
-    {
-        candidates.extend(search_resolver_assets(&resolver, network));
+    let resolver = crate::commands::orders::load_perp_resolver_from_api_base(api_base_url)
+        .await
+        .ok();
+    if let Some(resolver) = resolver.as_ref() {
+        candidates.extend(search_resolver_assets(resolver, network));
     }
 
-    if let Ok(rows) = crate::commands::outcomes::outcome_side_rows(api_base_url).await {
-        candidates.extend(rows.into_iter().filter_map(|row| {
+    let outcome_rows = crate::commands::outcomes::outcome_side_rows(api_base_url)
+        .await
+        .ok();
+    if let Some(rows) = outcome_rows.as_ref() {
+        candidates.extend(rows.iter().cloned().filter_map(|row| {
             let asset_id = row.asset_id;
             let mut decoded = decode_asset_id(asset_id, network);
             apply_outcome_row(&mut decoded, row);
@@ -469,9 +473,22 @@ async fn search_assets(
     if let Ok(asset_id) = parse_asset_id(query) {
         let mut decoded = decode_asset_id(asset_id, network);
         match decoded.kind {
-            AssetIdKind::Outcome => enrich_outcome(api_base_url, &mut decoded).await,
+            AssetIdKind::Outcome => {
+                if let Some(row) = outcome_rows
+                    .as_ref()
+                    .and_then(|rows| {
+                        rows.iter()
+                            .find(|row| Some(row.encoding) == decoded.encoding)
+                    })
+                    .cloned()
+                {
+                    apply_outcome_row(&mut decoded, row);
+                }
+            }
             AssetIdKind::Perp | AssetIdKind::Spot | AssetIdKind::Hip3Perp => {
-                enrich_from_resolver(api_base_url, &mut decoded).await;
+                if let Some(resolver) = resolver.as_ref() {
+                    enrich_from_loaded_resolver(resolver, &mut decoded);
+                }
             }
         }
         if !candidates
@@ -550,12 +567,18 @@ fn search_score(query: &str, candidate: &DecodedAssetId) -> Option<usize> {
                 Some(10)
             } else if field.contains(&query) {
                 Some(20)
-            } else {
+            } else if fuzzy_search_allowed(&query, &field) {
                 let distance = levenshtein(&query, &field);
                 (distance <= fuzzy_search_threshold(&query)).then_some(50 + distance)
+            } else {
+                None
             }
         })
         .min()
+}
+
+fn fuzzy_search_allowed(query: &str, field: &str) -> bool {
+    query.len() <= 32 && field.len() <= 64
 }
 
 fn fuzzy_search_threshold(query: &str) -> usize {

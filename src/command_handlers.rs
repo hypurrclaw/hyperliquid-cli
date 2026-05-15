@@ -428,6 +428,8 @@ mod tests {
             ("perps get", HandlerId::PerpsGet),
             ("spot list", HandlerId::SpotList),
             ("spot get", HandlerId::SpotGet),
+            ("asset decode", HandlerId::AssetDecode),
+            ("asset search", HandlerId::AssetSearch),
             ("outcomes list", HandlerId::OutcomesList),
             ("outcomes get", HandlerId::OutcomesGet),
             ("builder max-fee", HandlerId::BuilderMaxFee),
