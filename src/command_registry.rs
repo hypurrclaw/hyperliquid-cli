@@ -595,7 +595,9 @@ mod tests {
     #[test]
     fn registry_enumerates_current_catalog_inventory() {
         let registry = CommandRegistry::from_embedded_catalog().unwrap();
-        assert_eq!(registry.commands().len(), 110);
+        assert_eq!(registry.commands().len(), 112);
+        assert!(registry.find_path(&["asset", "decode"]).is_some());
+        assert!(registry.find_path(&["asset", "search"]).is_some());
         assert!(registry.find_path(&["orders", "create"]).is_some());
         assert!(registry.find_path(&["wallet", "create"]).is_some());
         assert!(registry.find_path(&["feedback"]).is_some());

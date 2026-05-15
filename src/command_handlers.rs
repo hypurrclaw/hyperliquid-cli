@@ -20,6 +20,8 @@ pub enum HandlerId {
     PerpsGet,
     SpotList,
     SpotGet,
+    AssetDecode,
+    AssetSearch,
     OutcomesList,
     OutcomesGet,
     BuilderMaxFee,
@@ -139,6 +141,18 @@ impl HandlerBinding {
             },
             "spot get" => Self {
                 id: Some(HandlerId::SpotGet),
+                dispatch: HandlerDispatch::TypedInProcess,
+                fallbacks: legacy_fallbacks(),
+                purity: HandlerPurity::pure(),
+            },
+            "asset decode" => Self {
+                id: Some(HandlerId::AssetDecode),
+                dispatch: HandlerDispatch::TypedInProcess,
+                fallbacks: legacy_fallbacks(),
+                purity: HandlerPurity::pure(),
+            },
+            "asset search" => Self {
+                id: Some(HandlerId::AssetSearch),
                 dispatch: HandlerDispatch::TypedInProcess,
                 fallbacks: legacy_fallbacks(),
                 purity: HandlerPurity::pure(),

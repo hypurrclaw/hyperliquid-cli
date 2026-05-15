@@ -127,6 +127,11 @@ enum Commands {
         #[command(subcommand)]
         subcommand: SpotCommands,
     },
+    /// Decode protocol asset IDs from exchange errors
+    Asset {
+        #[command(subcommand)]
+        subcommand: AssetCommands,
+    },
     /// L2 order book, candles, spread, funding
     Book {
         /// Asset name (e.g., BTC)
@@ -321,6 +326,14 @@ enum SpotCommands {
         /// Spot pair (e.g., PURR/USDC, HYPE/USDC)
         pair: String,
     },
+}
+
+#[derive(Subcommand, Debug)]
+enum AssetCommands {
+    /// Decode a raw protocol asset ID
+    Decode(hyperliquid_cli::commands::asset::AssetDecodeArgs),
+    /// Search assets by symbol, market title, slug, notation, or protocol ID
+    Search(hyperliquid_cli::commands::asset::AssetSearchArgs),
 }
 
 #[derive(Subcommand, Debug)]

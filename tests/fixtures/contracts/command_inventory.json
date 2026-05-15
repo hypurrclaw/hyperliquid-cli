@@ -235,6 +235,50 @@
     },
     {
       "auth_required": false,
+      "command": "hyperliquid asset decode <ASSET_ID>",
+      "command_path": [
+        "asset",
+        "decode"
+      ],
+      "confirmation": "none",
+      "dangerous": false,
+      "dry_run": "not_supported",
+      "group": "market",
+      "input_kinds": {
+        "asset_id": "identifier"
+      },
+      "mutability": "read_only",
+      "output_contract": "json_value",
+      "raw_payload": "unsupported",
+      "risk": "none",
+      "transport": [
+        "cli_process"
+      ]
+    },
+    {
+      "auth_required": false,
+      "command": "hyperliquid asset search <QUERY>",
+      "command_path": [
+        "asset",
+        "search"
+      ],
+      "confirmation": "none",
+      "dangerous": false,
+      "dry_run": "not_supported",
+      "group": "market",
+      "input_kinds": {
+        "query": "identifier"
+      },
+      "mutability": "read_only",
+      "output_contract": "json_value",
+      "raw_payload": "unsupported",
+      "risk": "none",
+      "transport": [
+        "cli_process"
+      ]
+    },
+    {
+      "auth_required": false,
       "command": "hyperliquid outcomes list",
       "command_path": [
         "outcomes",
