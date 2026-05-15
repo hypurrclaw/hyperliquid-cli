@@ -16,11 +16,11 @@ Languages: [English](README.md) | [简体中文](README.zh-CN.md) | [日本語](
 ## hyperliquid-cli を選ぶ理由
 
 - **エージェント優先。** エージェントループのために構築されています。すべてのコマンドは `--format json`、フィールド投影 (`--select`)、結果上限 (`--max-results`)、機械可読な `schema` 出力で JSON を扱います。`HYPERLIQUID_AGENT=1`（または非 TTY stdout）では自動的に JSON がデフォルトになります。エージェントは安定した snake_case キー、構造化エラーオブジェクト、明確な終了コードを読み取れます。スクレイピングも推測も不要です。
-- **エージェント用ウォレット。** 取引はできても出金はできない API wallet（別名 agent wallet）を作成できます。OpenClaw、Hermes、Claude、または任意の自動化に渡せば、限定された権限で動作します。ウォレットは暗号化された OWS vault に保存され、シークレットが stdout、ログ、シェル履歴に触れることはありません。
+- **エージェント用ウォレット。** 取引はできても出金はできない API wallet（別名 agent wallet）を作成できます。OpenClaw、Hermes、Claude、または任意の自動化に渡せば、限定された権限で動作します。OWS wallet secrets は暗号化 vault に保存されます。CLI が生成する API wallet private key は安全に保管できるよう一度だけ表示されます。
 - **1 つのツールで広範なプロトコルをカバー。** マーケット、perps、spot、HIP-3 DEX、注文、送金、サブアカウント、Vault、ステーキング、借入/貸付、ビルダー手数料、リファラル、account abstraction、WebSocket サブスクリプションまで、すべて 1 つのバイナリの背後にあります。
-- **デフォルトで安全。** mainnet の変更操作は確認プロンプトで保護されます。`--dry-run` は副作用が発生する前にすべてをプレビューします。testnet は 1 つのフラグで利用できます。API wallet はプロトコル設計上、出金できません。
+- **デフォルトで安全。** schema で prompt-gated と示された live mainnet の変更操作は確認を要求します。`--dry-run` は対応する副作用を実行前にプレビューします。testnet は 1 つのフラグで利用できます。API wallet はプロトコル設計上、出金できません。
 - **Decimal 正確性。** すべての価格、サイズ、金額は `rust_decimal` を使用します。float も予期しない丸めもありません。
-- **単一の静的バイナリ。** [`hypersdk`](https://github.com/infinitefield/hypersdk) の上に Rust で構築されています。数秒でインストールでき、コンテナに同梱でき、どこでも実行できます。
+- **単一のバイナリ。** [`hypersdk`](https://github.com/infinitefield/hypersdk) の上に Rust で構築されています。数秒でインストールでき、コンテナに同梱でき、どこでも実行できます。
 
 ## インストール
 
@@ -30,7 +30,7 @@ sh install.sh
 hyperliquid --version
 ```
 
-インストーラはバイナリを `~/.local/bin` にコピーする前に SHA-256 チェックサムを検証します。デフォルトは `HYPERLIQUID_CLI_REPO=OWNER/REPO`、`HYPERLIQUID_CLI_VERSION=v0.1.0`、`BIN_DIR=/path/to/bin` で上書きできます。
+インストーラはバイナリを `~/.local/bin` にコピーする前に SHA-256 チェックサムを検証します。デフォルトでは最新 release をインストールします。repo、固定 version、install directory は `HYPERLIQUID_CLI_REPO=OWNER/REPO`、`HYPERLIQUID_CLI_VERSION=v0.1.0`、`BIN_DIR=/path/to/bin` で上書きできます。
 
 ソースから:
 
@@ -66,7 +66,7 @@ hyperliquid --format json schema orders create
 
 ## ウォレット設定
 
-`hyperliquid` は唯一のウォレットバックエンドとして **Open Wallet Standard (OWS)** を使用します。ウォレットはディスク上の暗号化 vault（デフォルトは `~/.hyperliquid`、`HYPERLIQUID_OWS_VAULT_PATH` で上書き可能）に保存されます。シークレットは非表示プロンプトで対話的に入力され、エコー、ログ出力、表示されることはありません。
+`hyperliquid` は唯一のウォレットバックエンドとして **Open Wallet Standard (OWS)** を使用します。ウォレットはディスク上の暗号化 vault（デフォルトは `~/.hyperliquid`、`HYPERLIQUID_OWS_VAULT_PATH` で上書き可能）に保存されます。非表示プロンプトで対話的に入力されたシークレットはエコー、ログ出力、表示されません。明示的な `wallet export` と API wallet 生成フローは、secret を一度表示し得る意図的な例外です。
 
 ### ガイド付きセットアップ
 
@@ -170,7 +170,7 @@ export OWS_PASSPHRASE=...               # unlock encrypted OWS wallet
 
 | Domain | Examples |
 | --- | --- |
-| Local signing account | `account add`、`account ls`、`account set-default`、および関連コマンドで管理される OWS wallet。 |
+| OWS wallet/account record | `account add`、`account ls`、`account set-default`、および関連コマンドで管理される OWS wallet record。 |
 | Selected signer | 認証済みアクションの署名に使われるキー。フラグ、環境/設定、グローバル `--account`、または OWS selector から選択されます。 |
 | Protocol user address | fills、portfolio、fees、order status などの info クエリで使われる公開 Hyperliquid user address。 |
 | Master account | API wallet を承認し、subaccount を所有できるプロトコル上の所有者アカウント。 |
@@ -184,7 +184,7 @@ export OWS_PASSPHRASE=...               # unlock encrypted OWS wallet
 | Class | Accepted values | Used for |
 | --- | --- | --- |
 | `ACCOUNT_SELECTOR` | 保存済み account alias、保存済み account id、または `0x` address | `--account` で signer を選択する、または OWS wallet レコードを管理するため。 |
-| `USER` | `0x` user address、または文書化された安全な stored-account selector | `account portfolio`、`orders status --user`、fee クエリなどの公開 lookup。保存済み API/agent wallet selector は、これらの読み取りでは承認元の master account に解決されます。 |
+| `USER` | `0x` user address、または文書化された安全な stored-account selector | `account portfolio`、`orders status --user`、fee クエリなどの公開 lookup。 |
 | `*_ADDRESS` | 明示的な `0x` protocol address のみ | 送金 recipient、vault、validator、builder、その他のプロトコルオブジェクト。ローカル alias がこれらのフィールドに代入されることはありません。 |
 
 エージェントにとって、`hyperliquid --format json schema ...` のツールスキーマは、例や説明文と矛盾する場合の入力セマンティクスの信頼できる情報源です。
@@ -202,7 +202,7 @@ CLI が受け付ける正規のトップレベル alias:
 
 | Option | Description |
 | --- | --- |
-| `-f, --format pretty\|table\|json` | 出力形式。デフォルトは `pretty`。 |
+| `-f, --format pretty\|table\|json` | 出力形式。有効なデフォルトは TTY では `pretty`、非 TTY stdout または `HYPERLIQUID_AGENT=1` では JSON です。明示的な `--format` は `HYPERLIQUID_FORMAT` より優先されます。 |
 | `--private-key <PRIVATE_KEY>` | 生の秘密鍵で署名します。環境と設定を上書きします。 |
 | `--keystore <PATH>` | Foundry 互換 keystore ファイルで署名します。 |
 | `--keystore-password <PASSWORD>` | Keystore パスワード。人間にはより安全なシークレットソースを推奨します。 |
@@ -214,6 +214,8 @@ CLI が受け付ける正規のトップレベル alias:
 | `--max-results <N>` | クライアント側でトップレベルの list/map 結果を制限します。 |
 | `--dry-run` | 副作用なしで変更コマンドを検証しプレビューします。 |
 | `--payload-json <JSON>` / `--payload-file <PATH\|->` | 変更 dry-run 用の raw JSON payload context を提供します。 |
+| `--no-update-check` | この呼び出しの release update check を無効にします。 |
+| `-h, --help` / `-V, --version` | help または version 情報を表示します。 |
 
 ### マーケットデータ
 
@@ -225,9 +227,9 @@ CLI が受け付ける正規のトップレベル alias:
 | `spot get <PAIR>` | 1 つの spot pair を表示します。例: `PURR/USDC`。 |
 | `outcomes list [--limit <N>]` | `outcomeMeta` からアクティブな outcome market side を一覧表示します。 |
 | `outcomes get #<ENCODING>` / `outcomes get +<ENCODING>` | outcome side metadata と派生 asset ID を表示します。 |
-| `book <COIN_OR_PAIR> [-w]` | L2 order book snapshot を表示するか、更新を watch します。 |
-| `mids [-w]` | すべての mid price を表示します。 |
-| `candles <COIN> [--interval <INTERVAL>] [--limit <N>] [-w]` | candle 履歴を表示します。 |
+| `book <COIN> [-w] [--max-ticks <TICKS>]` | L2 order book snapshot を表示するか、更新を watch します。 |
+| `mids [-w] [--max-ticks <TICKS>]` | すべての mid price を表示します。 |
+| `candles <COIN> [--interval <INTERVAL>] [--limit <N>] [-w] [--max-ticks <TICKS>]` | candle 履歴を表示します。 |
 | `spread <COIN>` | bid、ask、spread を表示します。 |
 | `funding <COIN>` | 現在および予測 funding を表示します。 |
 | `meta` | raw exchange metadata を表示します。 |
@@ -237,69 +239,69 @@ CLI が受け付ける正規のトップレベル alias:
 
 | Command | Description |
 | --- | --- |
-| `setup` | 初回セットアップのガイド付きウィザードを実行します。 |
+| `setup [-y] [--approve-builder\|--no-approve-builder]` | 初回セットアップのガイド付きウィザードを実行します。 |
 | `wallet create` | 新しいウォレットを作成して保存します。 |
 | `wallet import [PRIVATE_KEY]` | ウォレットをインポートします。非表示プロンプトを使う場合はキーを省略します。 |
 | `wallet show` | 現在のウォレット metadata を表示します。 |
 | `wallet address` | 設定済み wallet address のみを出力します。 |
-| `wallet import-mnemonic [MNEMONIC]` | BIP-39 mnemonic phrase からウォレットをインポートします。 |
+| `wallet import-mnemonic [MNEMONIC] [--alias <ALIAS>]` | BIP-39 mnemonic phrase からウォレットをインポートします。 |
 | `wallet list` | OWS vault 内のすべてのウォレットを一覧表示します。 |
 | `wallet rename <SELECTOR> <NEW_NAME>` | ウォレットの名前を変更します。 |
 | `wallet delete <SELECTOR>` | ウォレットを削除します。`-y` がない限りプロンプトを表示します。 |
-| `wallet export <SELECTOR>` | ウォレットシークレット（mnemonic または private key）をエクスポートします。 |
-| `wallet reset` | 確認後にウォレット設定を削除します。 |
-| `account fees <ADDRESS>` | fee schedule と volume context を照会します。 |
-| `account fills <ADDRESS> [--start <TIME>] [--end <TIME>] [--aggregate-by-time]` | 公開 fill 履歴を照会します。必要に応じて時間単位で集計します。 |
-| `account ledger <ADDRESS> --start <TIME> [--end <TIME>]` | 入金、出金、送金、その他の funding 以外の ledger update を照会します。 |
-| `account funding <ADDRESS> --start <TIME> [--end <TIME>]` | ユーザーの funding payment 履歴を照会します。 |
-| `account orders <ADDRESS>` | 公開 open orders を照会します。 |
-| `account portfolio <ADDRESS>` | 公開 portfolio summary を照会します。 |
-| `account portfolio-history <ADDRESS>` | frontend portfolio graph/history data を照会します。 |
-| `account rate-limit <ADDRESS>` | user rate-limit context を照会します。 |
-| `account subaccounts <ADDRESS>` | 公開 subaccounts を照会します。 |
-| `account twap-history <ADDRESS>` | user TWAP order history を照会します。 |
-| `account twap-fills <ADDRESS> [--start <TIME>] [--end <TIME>]` | user TWAP slice fills を照会します。 |
+| `wallet export <SELECTOR> [-y]` | ウォレットシークレット（mnemonic または private key）をエクスポートします。 |
+| `wallet reset [-y]` | 確認後にウォレット設定を削除します。 |
+| `account fees [ADDRESS_OR_WALLET]` | fee schedule と volume context を照会します。 |
+| `account fills [ADDRESS_OR_WALLET] [--start <TIME>] [--end <TIME>] [--aggregate-by-time]` | 公開 fill 履歴を照会します。必要に応じて時間単位で集計します。 |
+| `account ledger [ADDRESS_OR_WALLET] --start <TIME> [--end <TIME>]` | 入金、出金、送金、その他の funding 以外の ledger update を照会します。 |
+| `account funding [ADDRESS_OR_WALLET] --start <TIME> [--end <TIME>]` | ユーザーの funding payment 履歴を照会します。 |
+| `account orders [ADDRESS_OR_WALLET]` | 公開 open orders を照会します。 |
+| `account portfolio [ADDRESS_OR_WALLET]` | 公開 portfolio summary を照会します。 |
+| `account portfolio-history [ADDRESS_OR_WALLET]` | frontend portfolio graph/history data を照会します。 |
+| `account rate-limit [ADDRESS_OR_WALLET]` | user rate-limit context を照会します。 |
+| `account subaccounts [ADDRESS_OR_WALLET]` | 公開 subaccounts を照会します。 |
+| `account twap-history [ADDRESS_OR_WALLET]` | user TWAP order history を照会します。 |
+| `account twap-fills [ADDRESS_OR_WALLET] [--start <TIME>] [--end <TIME>] [--aggregate-by-time]` | user TWAP slice fills を照会します。 |
 | `account abstraction [ADDRESS]` | アドレスの account abstraction mode を読み取ります。`ADDRESS` が省略された場合は selected account を読み取ります。 |
 | `account abstraction set --mode disabled\|unified-account\|portfolio-margin` | 設定済み signer の account abstraction を設定します。`-y` がない限りプロンプトを表示します。 |
-| `subaccount list <ADDRESS>` | master address の公開 subaccounts を照会します。 |
+| `subaccount list [ADDRESS_OR_WALLET]` | master address の公開 subaccounts を照会します。 |
 | `subaccount create --name <NAME>` | master account によって署名された subaccount を作成します。 |
-| `account add` / `account ls` / `account set-default` / `account remove` | 保存済みウォレットを管理します。 |
-| `api-wallet create --name <NAME> [--expires-in <DURATION>]` | Hyperliquid API/agent wallet を生成し承認します。 |
-| `api-wallet approve --agent-address <ADDRESS>` | 既存または生成済みの agent wallet address を承認します。 |
+| `account add [PRIVATE_KEY] [--alias <ALIAS>] [--type <TYPE>] [--default]` / `account ls` / `account set-default [SELECTOR]` / `account remove [SELECTOR] [-y]` | 保存済みウォレットを管理します。 |
+| `api-wallet create [--name <NAME>] [--expires-in <DURATION>] [--agent-address <ADDRESS>] [--generate]` | Hyperliquid API/agent wallet を生成し承認します。 |
+| `api-wallet approve [--name <NAME>] [--expires-in <DURATION>] (--agent-address <ADDRESS>\|--generate)` | 既存または生成済みの agent wallet address を承認します。 |
 | `api-wallet list [ACCOUNT]` | master account によって承認された API wallet を一覧表示します。 |
 | `api-wallet revoke --name <NAME>` | 名前付き API wallet を短命の使い捨て agent に置き換えます。 |
 
-API wallet は承認元の master account のために取引アクションへ署名できますが、出金はできません。info クエリには master または subaccount address を使用してください。CLI は生成された API wallet を master address 付きの `agent-wallet` レコードとして保存するため、保存済み agent の読み取りは master account に解決されます。`api-wallet create` がローカル agent keypair を生成する場合、そのアドレスに対する `approveAgent` を送信する前に private key を一度だけ表示します。
+API wallet は承認元の master account のために取引アクションへ署名できますが、出金はできません。info クエリには master または subaccount address を使用してください。`api-wallet create` がローカル agent keypair を生成する場合、そのアドレスに対する `approveAgent` を送信する前に private key を一度だけ表示します。その key は CLI が後から自動復元しないため安全に保管してください。
 
 ### 取引と送金
 
 | Command | Description |
 | --- | --- |
-| `orders open [-w]` | open orders を一覧表示します。 |
+| `orders open [-w] [--max-ticks <TICKS>]` | open orders を一覧表示します。 |
 | `orders history` | order history を一覧表示します。 |
-| `orders status --user <ADDRESS> --oid <OID>` | 公開 order status を照会します。 |
-| `orders create --coin <COIN> --side buy\|sell ... [--reduce-only] [--on-behalf-of <ACCOUNT_SELECTOR>]` | limit、market、stop-loss、take-profit、stop-limit、take-limit 注文を作成します。`--on-behalf-of` は `vaultAddress` として使われる acting-account selector です。 |
+| `orders status --user <ADDRESS> (--oid <OID>\|--cloid <CLOID>)` | 公開 order status を照会します。 |
+| `orders create --coin <COIN> --side buy\|sell [--type limit\|market\|stop-loss\|take-profit\|stop-limit\|take-limit] [--price <PX>] [--trigger-price <PX>] [--size <SIZE>\|--amount <USDC>] [--dex <DEX>] [--reduce-only] [--on-behalf-of <ACCOUNT_SELECTOR>] [--cloid <CLOID>] [-y]` | limit、market、stop-loss、take-profit、stop-limit、take-limit 注文を作成します。`--on-behalf-of` は `vaultAddress` として使われる acting-account selector です。 |
 | `orders scale --coin <COIN> --side buy\|sell --start-price <PX> --end-price <PX> --total-size <SIZE> --orders <N>` | 等間隔に並べた limit order のバッチを作成します。 |
 | `orders batch-create --orders-file <PATH>` | JSON から limit order のバッチを作成します。 |
-| `orders create --coin <COIN> --side buy\|sell --take-profit <PX> [--stop-loss <PX>] --grouping normal-tpsl ...` | 固定サイズの TP/SL 子注文を持つ親注文を作成します。 |
-| `orders tpsl --coin <COIN> --take-profit <PX> [--stop-loss <PX>] --grouping position-tpsl` | 現在のポジションに紐づく TP/SL 注文を作成します。 |
-| `orders cancel <OID>` / `orders cancel --cloid <CLOID>` | order ID または client order ID でキャンセルします。 |
-| `orders cancel-all [--coin <COIN>] [-y]` | すべての open orders をキャンセルします。必要に応じて coin で絞り込みます。 |
-| `orders modify <OID> [--price <PRICE>] [--size <SIZE>]` | 既存の注文を変更します。 |
-| `orders twap-create --coin <COIN> --side buy\|sell --size <SIZE> --duration <SECONDS>` | TWAP order を作成します。 |
-| `orders twap-cancel <TWAP_ID> --coin <COIN>` | TWAP order をキャンセルします。 |
-| `orders schedule-cancel --in <DURATION>` | dead man's switch を設定します。 |
-| `positions list [-w]` | open positions を一覧表示します。 |
-| `positions update-leverage --coin <COIN> --leverage <N>` | leverage を更新します。 |
+| `orders create --coin <COIN> --side buy\|sell [--take-profit <PX>] [--stop-loss <PX>] [--grouping normal-tpsl] ...` | 固定サイズの TP/SL 子注文を持つ親注文を作成します。 |
+| `orders tpsl --coin <COIN> (--take-profit <PX>\|--stop-loss <PX>) [--grouping position-tpsl] [--side buy\|sell] [--size <SIZE>] [--margin-mode cross\|isolated]` | 現在のポジションに紐づく TP/SL 注文を作成します。 |
+| `orders cancel (ORDER_ID\|--cloid <CLOID>)` | order ID または client order ID でキャンセルします。 |
+| `orders cancel-all [--coin <COIN>] [--dex <DEX>] [-y]` | すべての open orders をキャンセルします。必要に応じて coin または DEX で絞り込みます。 |
+| `orders modify (ORDER_ID\|--cloid <CLOID>) [--price <PRICE>] [--trigger-price <PRICE>] [--size <SIZE>]` | 既存の注文を変更します。 |
+| `orders twap-create --coin <COIN> --side buy\|sell --size <SIZE> --duration <SECONDS> [--dex <DEX>] [--margin-mode cross\|isolated] [-y]` | TWAP order を作成します。 |
+| `orders twap-cancel <TWAP_ID> --coin <COIN> [--dex <DEX>]` | TWAP order をキャンセルします。 |
+| `orders schedule-cancel (--in <DURATION>\|--clear)` | dead man's switch を設定します。 |
+| `positions list [-w] [--max-ticks <TICKS>]` | open positions を一覧表示します。 |
+| `positions update-leverage --coin <COIN> --leverage <N> [--isolated]` | leverage を更新します。 |
 | `positions update-margin --coin <COIN> --amount <AMOUNT>` | isolated margin を追加または削除します。 |
-| `transfer spot-to-perp --amount <USDC>` | USDC を spot から perp に移動します。 |
-| `transfer perp-to-spot --amount <USDC>` | USDC を perp から spot に移動します。 |
-| `transfer send --to <ADDRESS> --amount <USDC>` | USDC を別のアドレスに送信します。 |
-| `transfer spot-send --to <ADDRESS> --token <TOKEN> --amount <AMOUNT>` | spot token を別のアドレスに送信します。 |
-| `transfer send-asset --to <ADDRESS> --source perp\|spot\|dex:<DEX> --dest perp\|spot\|dex:<DEX> --token <TOKEN> --amount <AMOUNT>` | アカウント、spot、perp、または DEX context 間で asset を送信します。 |
-| `transfer withdraw --to <ADDRESS> --amount <USDC>` | USDC を Arbitrum に出金します。 |
-| `subaccount transfer --subaccount <ACCOUNT_SELECTOR> --amount <USDC> --direction deposit\|withdraw` | USDC を subaccount に、または subaccount から移動します。subaccount フィールドは acting-account selector であり、汎用の transfer recipient ではありません。 |
-| `subaccount spot-transfer --subaccount <ACCOUNT_SELECTOR> --token <TOKEN> --amount <AMOUNT> --direction deposit\|withdraw` | spot token を subaccount に、または subaccount から移動します。subaccount フィールドは acting-account selector であり、汎用の transfer recipient ではありません。 |
+| `transfer spot-to-perp --amount <USDC> [-y]` | USDC を spot から perp に移動します。 |
+| `transfer perp-to-spot --amount <USDC> [-y]` | USDC を perp から spot に移動します。 |
+| `transfer send --to <ADDRESS> --amount <USDC> [-y]` | USDC を別のアドレスに送信します。 |
+| `transfer spot-send --to <ADDRESS> --token <TOKEN> --amount <AMOUNT> [-y]` | spot token を別のアドレスに送信します。 |
+| `transfer send-asset --to <ADDRESS> --source perp\|spot\|dex:<DEX> --dest perp\|spot\|dex:<DEX> --token <TOKEN> --amount <AMOUNT> [--from-subaccount <ADDRESS>] [-y]` | アカウント、spot、perp、または DEX context 間で asset を送信します。 |
+| `transfer withdraw --to <ADDRESS> --amount <USDC> [-y]` | USDC を Arbitrum に出金します。 |
+| `subaccount transfer --subaccount <ACCOUNT_SELECTOR> --amount <USDC> --direction deposit\|withdraw [-y]` | USDC を subaccount に、または subaccount から移動します。subaccount フィールドは acting-account selector であり、汎用の transfer recipient ではありません。 |
+| `subaccount spot-transfer --subaccount <ACCOUNT_SELECTOR> --token <TOKEN> --amount <AMOUNT> --direction deposit\|withdraw [-y]` | spot token を subaccount に、または subaccount から移動します。subaccount フィールドは acting-account selector であり、汎用の transfer recipient ではありません。 |
 
 `api-wallets` は `api-wallet` の alias として受け付けられます。
 `subaccounts` は `subaccount` の alias として受け付けられます。
@@ -326,21 +328,22 @@ Outcome market notation（`#N` spot coin と `+N` token name）は、`outcomes l
 
 | Command | Description |
 | --- | --- |
-| `staking summary <ADDRESS>` / `staking validators` / `staking rewards <ADDRESS>` / `staking history <ADDRESS>` | staking state と history を読み取ります。 |
-| `staking delegate` / `staking undelegate` / `staking deposit` / `staking withdraw` / `staking claim-rewards` | staking action を送信します。 |
+| `staking summary [ADDRESS]` / `staking validators` / `staking rewards [ADDRESS]` / `staking history [ADDRESS]` | staking state と history を読み取ります。 |
+| `staking delegate --validator <ADDRESS> --amount <AMOUNT>` / `staking undelegate --validator <ADDRESS> --amount <AMOUNT>` / `staking deposit --amount <AMOUNT>` / `staking withdraw --amount <AMOUNT>` / `staking claim-rewards` | staking action を送信します。 |
 | `staking link initiate --user <ADDRESS>` / `staking link finalize --user <ADDRESS>` | fee discount attribution のために trading account と staking account をリンクします。Dry-run には永続性/制御に関する警告が含まれます。live コマンドには確認または `--yes` が必要です。 |
-| `vault list [--kind protocol|user|normal|child|parent] [--user <ADDRESS>]` / `vault search <QUERY> [--user <ADDRESS>]` / `vault get <ADDRESS>` / `vault positions <ADDRESS>` | vault state を発見および照会します。API が返す場合、`--user` は user deposit context を含めます。 |
-| `vault deposit` / `vault withdraw` | vault transfer を送信します。 |
-| `borrowlend rates` / `borrowlend get <TOKEN>` / `borrowlend user <ADDRESS>` | borrow/lend market を照会します。 |
-| `borrowlend supply <TOKEN> --amount <AMOUNT>` / `borrowlend withdraw <TOKEN> --amount <AMOUNT|--max>` | 検証済み wallet-signed exchange `borrowLend` supply/withdraw action を送信します。まず `--dry-run` を使って action を確認してください。 |
+| `vault list [--kind protocol\|user\|normal\|child\|parent] [--user <ADDRESS>] [--limit <N>] [--sort tvl\|apr\|age\|name]` / `vault search <QUERY> [--user <ADDRESS>] [--limit <N>] [--sort tvl\|apr\|age\|name]` / `vault get <ADDRESS>` / `vault positions <ADDRESS>` | vault state を発見および照会します。API が返す場合、`--user` は user deposit context を含めます。 |
+| `vault deposit --vault <ADDRESS> --amount <AMOUNT>` / `vault withdraw --vault <ADDRESS> --amount <AMOUNT>` | vault transfer を送信します。 |
+| `borrowlend rates` / `borrowlend get <TOKEN>` / `borrowlend user [ADDRESS]` | borrow/lend market を照会します。 |
+| `borrowlend supply <TOKEN> --amount <AMOUNT>` / `borrowlend withdraw <TOKEN> (--amount <AMOUNT>\|--max)` | 検証済み wallet-signed exchange `borrowLend` supply/withdraw action を送信します。まず `--dry-run` を使って action を確認してください。 |
 | `builder max-fee --user <ADDRESS> --builder <ADDRESS>` | ユーザーが承認した max builder fee を照会します。 |
 | `builder approved --user <ADDRESS>` | ユーザーが fee cap 付きで承認したすべての builder を一覧表示します。 |
-| `builder approve --builder <ADDRESS> --max-fee-rate <PERCENT>` | 設定済み master signer の builder fee cap を承認または取り消します。 |
-| `prio status` / `prio bid` | gossip priority auction を照会するか入札します。 |
+| `builder approve --builder <ADDRESS> --max-fee-rate <PERCENT> [-y]` | 設定済み master signer の builder fee cap を承認または取り消します。 |
+| `prio status` / `prio bid --max <HYPE> --ip <IP> [--slot <N>]` | gossip priority auction を照会するか入札します。 |
 | `referral register <CODE>` / `referral set [CODE]` / `referral status` | 自分の referral code を登録する、referrer を設定する、または referral state を確認します。 |
-| `feedback --scenario-json <JSON>` / `feedback --scenario-file <PATH\|->` | 構造化された CLI feedback を scenario JSON object として設定済み feedback endpoint に送信します。rate-limit attribution のために scenario に `agent_address`、`signer_address`、または `wallet_address` を含め、デフォルトを上書きするには `--url` を使用します。 |
+| `feedback (--scenario-json <JSON>\|--scenario-file <PATH\|->) [--contact <CONTACT>] [--tags <TAG>] [--url <URL>]` | 構造化された CLI feedback を scenario JSON object として設定済み feedback endpoint に送信します。rate-limit attribution のために scenario に `agent_address`、`signer_address`、または `wallet_address` を含め、デフォルトを上書きするには `--url` を使用します。 |
 | `schema [COMMAND...]` | エージェント向けの機械可読な command schema を表示します。 |
-| `subscribe trades\|orderbook\|candles\|all-mids\|order-updates\|fills` | WebSocket event をストリーミングします。 |
+| `subscribe trades --asset <ASSET>` / `subscribe orderbook --asset <ASSET>` / `subscribe candles --asset <ASSET> [--interval <INTERVAL>]` / `subscribe all-mids` / `subscribe order-updates` / `subscribe fills` `[--max-events <N>] [--idle-timeout-ms <MS>]` | WebSocket event をストリーミングします。 |
+| `update` | 最新の GitHub release からこのバイナリを更新します。グローバル `--dry-run` でプレビューできます。 |
 
 `vaults` は `vault` の alias として受け付けられます。
 
@@ -376,7 +379,7 @@ CLI は副作用を可視化するように設計されています:
 - 署名は明示的な `--account`、`--ows-signer`、`--keystore`、`--private-key`、または保存済み OWS wallet 経由でのみ発生します。
 - `--testnet` は API 呼び出しと署名済みアクションを Hyperliquid testnet に明確にルーティングします。
 - `--dry-run` は対応するすべての変更操作を送信せずに検証しプレビューします。
-- プロンプトで保護された live mainnet の変更操作と破壊的なローカルシークレット操作は、対応箇所で `-y` / `--yes` が指定されない限り確認を要求します。
+- live mainnet の変更操作と破壊的なローカルシークレット操作は、schema が prompt-gated と示す場合に確認を要求します。コマンドごとの確認ポリシーは `hyperliquid --format json schema ...` で確認してください。対応箇所では `-y` / `--yes` がプロンプトをスキップします。
 - 送金 recipient と protocol object address は明示的な `0x` address でなければなりません。ローカル alias が暗黙に代入されることはありません。
 
 ## 終了コード
@@ -407,6 +410,11 @@ CLI は副作用を可視化するように設計されています:
 | `HYPERLIQUID_SUBSCRIBE_MAX_EVENTS` | agent context の WebSocket subscribe commands 用 default event limit。 |
 | `OWS_PASSPHRASE` | 暗号化 OWS wallet を unlock するための passphrase。 |
 | `HYPERLIQUID_OWS_VAULT_PATH` | OWS vault path を上書きします（デフォルト `~/.hyperliquid`）。 |
+| `HYPERLIQUID_API_BASE_URL` / `HYPERLIQUID_MAINNET_API_BASE_URL` / `HYPERLIQUID_TESTNET_API_BASE_URL` | API base URL を上書きします。すべての override は loopback/local test endpoints に制限されます。 |
+| `HYPERLIQUID_DEFAULT_BUILDER_ADDRESS` / `HYPERLIQUID_DEFAULT_BUILDER_FEE_RATE` | per-order builder fee parameters と setup suggestions の runtime defaults。 |
+| `HYPERLIQUID_DEFAULT_REFERRAL_CODE` | setup と `referral set` の runtime default referral code。 |
+| `HYPERLIQUID_FEEDBACK_URL` | `hyperliquid feedback` の runtime または build-time default endpoint。 |
+| `HYPERLIQUID_NO_UPDATE_CHECK` | truthy の場合に release update checks を無効にします。 |
 
 ## 開発
 

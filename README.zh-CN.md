@@ -16,11 +16,11 @@ Languages: [English](README.md) | [简体中文](README.zh-CN.md) | [日本語](
 ## 为什么选择 hyperliquid-cli
 
 - **代理优先。** 为代理循环而构建。每个命令都支持通过 `--format json` 输出 JSON、字段投影（`--select`）、结果上限（`--max-results`）以及机器可读的 `schema` 输出。`HYPERLIQUID_AGENT=1`（或非 TTY stdout）会自动默认输出 JSON。你的代理读取稳定的 snake_case 键、结构化错误对象和定义明确的退出码——无需抓取文本，无需猜测。
-- **给代理使用的钱包。** 创建一个可以交易但永远不能提现的 API wallet（也称为 agent wallet）。把它交给 OpenClaw、Hermes、Claude 或任何自动化系统，它就能在受限权限内运行。钱包保存在加密的 OWS vault 中——秘密永远不会触碰 stdout、日志或 shell 历史。
+- **给代理使用的钱包。** 创建一个可以交易但永远不能提现的 API wallet（也称为 agent wallet）。把它交给 OpenClaw、Hermes、Claude 或任何自动化系统，它就能在受限权限内运行。OWS wallet secrets 保存在加密 vault 中；由 CLI 生成的 API wallet private key 会且只会打印一次，方便你安全保存。
 - **一个工具，覆盖广泛协议。** 市场、perps、spot、HIP-3 DEXes、订单、转账、子账户、金库、质押、借贷、builder 费用、推荐、账户抽象以及 WebSocket 订阅——全部在一个二进制文件后面。
-- **默认安全。** mainnet 上的可变更操作需要提示确认。`--dry-run` 会在每个副作用发生前预览。testnet 只需一个标志即可使用。API wallets 按协议设计无法提现。
+- **默认安全。** 被 schema 标记为 prompt-gated 的 live mainnet 可变更操作需要确认。`--dry-run` 会在受支持的副作用发生前预览。testnet 只需一个标志即可使用。API wallets 按协议设计无法提现。
 - **十进制正确。** 每个价格、数量和金额都使用 `rust_decimal`。没有浮点数，也没有意外舍入。
-- **单个静态二进制文件。** 使用 Rust 构建，并基于 [`hypersdk`](https://github.com/infinitefield/hypersdk)。数秒安装，可放入容器，随处运行。
+- **单个二进制文件。** 使用 Rust 构建，并基于 [`hypersdk`](https://github.com/infinitefield/hypersdk)。数秒安装，可放入容器，随处运行。
 
 ## 安装
 
@@ -30,7 +30,7 @@ sh install.sh
 hyperliquid --version
 ```
 
-安装器会在把二进制文件复制到 `~/.local/bin` 之前验证 SHA-256 校验和。可使用 `HYPERLIQUID_CLI_REPO=OWNER/REPO`、`HYPERLIQUID_CLI_VERSION=v0.1.0` 和 `BIN_DIR=/path/to/bin` 覆盖默认值。
+安装器会在把二进制文件复制到 `~/.local/bin` 之前验证 SHA-256 校验和。默认安装最新 release；可使用 `HYPERLIQUID_CLI_REPO=OWNER/REPO`、`HYPERLIQUID_CLI_VERSION=v0.1.0` 和 `BIN_DIR=/path/to/bin` 覆盖仓库、固定版本或安装目录。
 
 从源码安装：
 
@@ -66,7 +66,7 @@ hyperliquid --format json schema orders create
 
 ## 钱包设置
 
-`hyperliquid` 使用 **Open Wallet Standard (OWS)** 作为其唯一钱包后端。钱包保存在磁盘上的加密 vault 中（默认 `~/.hyperliquid`，可通过 `HYPERLIQUID_OWS_VAULT_PATH` 覆盖）。秘密通过隐藏提示交互式输入——永远不会回显、记录到日志或打印。
+`hyperliquid` 使用 **Open Wallet Standard (OWS)** 作为其唯一钱包后端。钱包保存在磁盘上的加密 vault 中（默认 `~/.hyperliquid`，可通过 `HYPERLIQUID_OWS_VAULT_PATH` 覆盖）。通过隐藏提示交互式输入的秘密不会回显、记录到日志或打印；显式的 `wallet export` 和生成 API wallet 的流程是有意例外，可能一次性显示 secret。
 
 ### 引导式设置
 
@@ -170,7 +170,7 @@ export OWS_PASSPHRASE=...               # unlock encrypted OWS wallet
 
 | 领域 | 示例 |
 | --- | --- |
-| Local signing account | 由 `account add`、`account ls`、`account set-default` 及相关命令管理的 OWS wallet。 |
+| OWS wallet/account record | 由 `account add`、`account ls`、`account set-default` 及相关命令管理的 OWS wallet record。 |
 | Selected signer | 用于签署认证操作的密钥，来自标志、环境/配置、全局 `--account` 或 OWS selector。 |
 | Protocol user address | 用于 fills、portfolio、fees 或 order status 等 info queries 的公开 Hyperliquid 用户地址。 |
 | Master account | 可以批准 API wallets 并拥有 subaccounts 的协议所有者账户。 |
@@ -184,7 +184,7 @@ export OWS_PASSPHRASE=...               # unlock encrypted OWS wallet
 | 类别 | 接受的值 | 用于 |
 | --- | --- | --- |
 | `ACCOUNT_SELECTOR` | Stored account alias、stored account id 或 `0x` address | 使用 `--account` 选择签名者，或管理 OWS wallet records。 |
-| `USER` | `0x` user address，或有文档说明的安全 stored-account selector | 公共查询，例如 `account portfolio`、`orders status --user` 或 fee queries。Stored API/agent wallet selectors 会解析到其 approving master account 以用于这些读取。 |
+| `USER` | `0x` user address，或有文档说明的安全 stored-account selector | 公共查询，例如 `account portfolio`、`orders status --user` 或 fee queries。 |
 | `*_ADDRESS` | 仅显式 `0x` protocol address | Transfer recipients、vaults、validators、builders 和其他 protocol objects。Local aliases 不会替换到这些字段。 |
 
 对于代理，当 `hyperliquid --format json schema ...` 工具 schema 与示例或说明性文字冲突时，它们是输入语义的权威来源。
@@ -202,7 +202,7 @@ CLI 接受的规范顶层别名：
 
 | 选项 | 描述 |
 | --- | --- |
-| `-f, --format pretty\|table\|json` | 输出格式。默认为 `pretty`。 |
+| `-f, --format pretty\|table\|json` | 输出格式。TTY 中有效默认值为 `pretty`，非 TTY stdout 或 `HYPERLIQUID_AGENT=1` 时为 JSON；显式 `--format` 优先于 `HYPERLIQUID_FORMAT`。 |
 | `--private-key <PRIVATE_KEY>` | 使用原始私钥签名。覆盖环境和配置。 |
 | `--keystore <PATH>` | 使用 Foundry 兼容 keystore 文件签名。 |
 | `--keystore-password <PASSWORD>` | Keystore 密码。对人类用户建议使用更安全的 secret 来源。 |
@@ -212,8 +212,10 @@ CLI 接受的规范顶层别名：
 | `--select <FIELDS>` | 将 JSON 输出投影到逗号分隔的字段。 |
 | `--results-only` | 去除常见 JSON envelopes，仅返回数据。 |
 | `--max-results <N>` | 在客户端限制顶层 list/map 结果。 |
-| `--dry-run` | 验证并预览没有副作用的可变更命令。 |
+| `--dry-run` | 验证并预览可变更命令，而不产生副作用。 |
 | `--payload-json <JSON>` / `--payload-file <PATH\|->` | 为可变更 dry-runs 提供原始 JSON payload context。 |
+| `--no-update-check` | 禁用本次调用的 release 更新检查。 |
+| `-h, --help` / `-V, --version` | 打印 help 或 version 信息。 |
 
 ### 市场数据
 
@@ -225,9 +227,9 @@ CLI 接受的规范顶层别名：
 | `spot get <PAIR>` | 显示一个 spot pair，例如 `PURR/USDC`。 |
 | `outcomes list [--limit <N>]` | 从 `outcomeMeta` 列出活跃的 outcome market sides。 |
 | `outcomes get #<ENCODING>` / `outcomes get +<ENCODING>` | 显示 outcome side metadata 和派生的 asset ID。 |
-| `book <COIN_OR_PAIR> [-w]` | 显示 L2 order book snapshot 或 watch updates。 |
-| `mids [-w]` | 显示所有 mid prices。 |
-| `candles <COIN> [--interval <INTERVAL>] [--limit <N>] [-w]` | 显示 candle history。 |
+| `book <COIN> [-w] [--max-ticks <TICKS>]` | 显示 L2 order book snapshot 或 watch updates。 |
+| `mids [-w] [--max-ticks <TICKS>]` | 显示所有 mid prices。 |
+| `candles <COIN> [--interval <INTERVAL>] [--limit <N>] [-w] [--max-ticks <TICKS>]` | 显示 candle history。 |
 | `spread <COIN>` | 显示 bid、ask 和 spread。 |
 | `funding <COIN>` | 显示当前和预测 funding。 |
 | `meta` | 显示原始 exchange metadata。 |
@@ -237,69 +239,69 @@ CLI 接受的规范顶层别名：
 
 | 命令 | 描述 |
 | --- | --- |
-| `setup` | 运行引导式首次设置向导。 |
+| `setup [-y] [--approve-builder\|--no-approve-builder]` | 运行引导式首次设置向导。 |
 | `wallet create` | 创建并存储新钱包。 |
 | `wallet import [PRIVATE_KEY]` | 导入钱包。省略 key 可使用隐藏提示。 |
 | `wallet show` | 显示当前 wallet metadata。 |
 | `wallet address` | 仅打印已配置 wallet address。 |
-| `wallet import-mnemonic [MNEMONIC]` | 从 BIP-39 mnemonic phrase 导入钱包。 |
+| `wallet import-mnemonic [MNEMONIC] [--alias <ALIAS>]` | 从 BIP-39 mnemonic phrase 导入钱包。 |
 | `wallet list` | 列出 OWS vault 中的所有 wallets。 |
 | `wallet rename <SELECTOR> <NEW_NAME>` | 重命名钱包。 |
 | `wallet delete <SELECTOR>` | 删除钱包。除非使用 `-y`，否则会提示。 |
-| `wallet export <SELECTOR>` | 导出 wallet secret（mnemonic 或 private key）。 |
-| `wallet reset` | 确认后移除 wallet configuration。 |
-| `account fees <ADDRESS>` | 查询 fee schedule 和 volume context。 |
-| `account fills <ADDRESS> [--start <TIME>] [--end <TIME>] [--aggregate-by-time]` | 查询公共 fill history，可选择按时间。 |
-| `account ledger <ADDRESS> --start <TIME> [--end <TIME>]` | 查询 deposits、withdrawals、transfers 和其他非 funding ledger updates。 |
-| `account funding <ADDRESS> --start <TIME> [--end <TIME>]` | 查询用户 funding payment history。 |
-| `account orders <ADDRESS>` | 查询公共 open orders。 |
-| `account portfolio <ADDRESS>` | 查询公共 portfolio summary。 |
-| `account portfolio-history <ADDRESS>` | 查询 frontend portfolio graph/history data。 |
-| `account rate-limit <ADDRESS>` | 查询用户 rate-limit context。 |
-| `account subaccounts <ADDRESS>` | 查询公共 subaccounts。 |
-| `account twap-history <ADDRESS>` | 查询用户 TWAP order history。 |
-| `account twap-fills <ADDRESS> [--start <TIME>] [--end <TIME>]` | 查询用户 TWAP slice fills。 |
+| `wallet export <SELECTOR> [-y]` | 导出 wallet secret（mnemonic 或 private key）。 |
+| `wallet reset [-y]` | 确认后移除 wallet configuration。 |
+| `account fees [ADDRESS_OR_WALLET]` | 查询 fee schedule 和 volume context。 |
+| `account fills [ADDRESS_OR_WALLET] [--start <TIME>] [--end <TIME>] [--aggregate-by-time]` | 查询公共 fill history，可选择按时间。 |
+| `account ledger [ADDRESS_OR_WALLET] --start <TIME> [--end <TIME>]` | 查询 deposits、withdrawals、transfers 和其他非 funding ledger updates。 |
+| `account funding [ADDRESS_OR_WALLET] --start <TIME> [--end <TIME>]` | 查询用户 funding payment history。 |
+| `account orders [ADDRESS_OR_WALLET]` | 查询公共 open orders。 |
+| `account portfolio [ADDRESS_OR_WALLET]` | 查询公共 portfolio summary。 |
+| `account portfolio-history [ADDRESS_OR_WALLET]` | 查询 frontend portfolio graph/history data。 |
+| `account rate-limit [ADDRESS_OR_WALLET]` | 查询用户 rate-limit context。 |
+| `account subaccounts [ADDRESS_OR_WALLET]` | 查询公共 subaccounts。 |
+| `account twap-history [ADDRESS_OR_WALLET]` | 查询用户 TWAP order history。 |
+| `account twap-fills [ADDRESS_OR_WALLET] [--start <TIME>] [--end <TIME>] [--aggregate-by-time]` | 查询用户 TWAP slice fills。 |
 | `account abstraction [ADDRESS]` | 读取某地址的 account abstraction mode；若省略 `ADDRESS`，则读取所选账户。 |
 | `account abstraction set --mode disabled\|unified-account\|portfolio-margin` | 为已配置签名者设置 account abstraction；除非使用 `-y`，否则会提示。 |
-| `subaccount list <ADDRESS>` | 查询 master address 的公共 subaccounts。 |
+| `subaccount list [ADDRESS_OR_WALLET]` | 查询 master address 的公共 subaccounts。 |
 | `subaccount create --name <NAME>` | 创建由 master account 签名的 subaccount。 |
-| `account add` / `account ls` / `account set-default` / `account remove` | 管理已存储 wallets。 |
-| `api-wallet create --name <NAME> [--expires-in <DURATION>]` | 生成并批准 Hyperliquid API/agent wallet。 |
-| `api-wallet approve --agent-address <ADDRESS>` | 批准现有或生成的 agent wallet address。 |
+| `account add [PRIVATE_KEY] [--alias <ALIAS>] [--type <TYPE>] [--default]` / `account ls` / `account set-default [SELECTOR]` / `account remove [SELECTOR] [-y]` | 管理已存储 wallets。 |
+| `api-wallet create [--name <NAME>] [--expires-in <DURATION>] [--agent-address <ADDRESS>] [--generate]` | 生成并批准 Hyperliquid API/agent wallet。 |
+| `api-wallet approve [--name <NAME>] [--expires-in <DURATION>] (--agent-address <ADDRESS>\|--generate)` | 批准现有或生成的 agent wallet address。 |
 | `api-wallet list [ACCOUNT]` | 列出由 master account 批准的 API wallets。 |
 | `api-wallet revoke --name <NAME>` | 用一个短期一次性 agent 替换命名 API wallet。 |
 
-API wallets 可以为批准它们的 master account 签署交易操作，但不能提现。使用 master 或 subaccount address 进行 info queries；CLI 会将生成的 API wallets 存储为 `agent-wallet` records，并附带其 master address，因此 stored-agent reads 会解析到 master account。当 `api-wallet create` 生成本地 agent keypair 时，它会在为该地址提交 `approveAgent` 之前打印一次 private key。
+API wallets 可以为批准它们的 master account 签署交易操作，但不能提现。使用 master 或 subaccount address 进行 info queries。当 `api-wallet create` 生成本地 agent keypair 时，它会在为该地址提交 `approveAgent` 之前打印一次 private key；请安全保存该 key，因为 CLI 不会在之后自动恢复它。
 
 ### 交易和转账
 
 | 命令 | 描述 |
 | --- | --- |
-| `orders open [-w]` | 列出 open orders。 |
+| `orders open [-w] [--max-ticks <TICKS>]` | 列出 open orders。 |
 | `orders history` | 列出 order history。 |
-| `orders status --user <ADDRESS> --oid <OID>` | 查询公共 order status。 |
-| `orders create --coin <COIN> --side buy\|sell ... [--reduce-only] [--on-behalf-of <ACCOUNT_SELECTOR>]` | 创建 limit、market、stop-loss、take-profit、stop-limit 或 take-limit orders。`--on-behalf-of` 是用作 `vaultAddress` 的 acting-account selector。 |
+| `orders status --user <ADDRESS> (--oid <OID>\|--cloid <CLOID>)` | 查询公共 order status。 |
+| `orders create --coin <COIN> --side buy\|sell [--type limit\|market\|stop-loss\|take-profit\|stop-limit\|take-limit] [--price <PX>] [--trigger-price <PX>] [--size <SIZE>\|--amount <USDC>] [--dex <DEX>] [--reduce-only] [--on-behalf-of <ACCOUNT_SELECTOR>] [--cloid <CLOID>] [-y]` | 创建 limit、market、stop-loss、take-profit、stop-limit 或 take-limit orders。`--on-behalf-of` 是用作 `vaultAddress` 的 acting-account selector。 |
 | `orders scale --coin <COIN> --side buy\|sell --start-price <PX> --end-price <PX> --total-size <SIZE> --orders <N>` | 创建一组等间距的 limit orders。 |
 | `orders batch-create --orders-file <PATH>` | 从 JSON 创建一批 limit orders。 |
-| `orders create --coin <COIN> --side buy\|sell --take-profit <PX> [--stop-loss <PX>] --grouping normal-tpsl ...` | 创建带固定大小 TP/SL 子订单的父订单。 |
-| `orders tpsl --coin <COIN> --take-profit <PX> [--stop-loss <PX>] --grouping position-tpsl` | 创建附加到当前 position 的 TP/SL orders。 |
-| `orders cancel <OID>` / `orders cancel --cloid <CLOID>` | 按 order ID 或 client order ID 取消。 |
-| `orders cancel-all [--coin <COIN>] [-y]` | 取消所有 open orders，可按 coin 过滤。 |
-| `orders modify <OID> [--price <PRICE>] [--size <SIZE>]` | 修改现有订单。 |
-| `orders twap-create --coin <COIN> --side buy\|sell --size <SIZE> --duration <SECONDS>` | 创建 TWAP order。 |
-| `orders twap-cancel <TWAP_ID> --coin <COIN>` | 取消 TWAP order。 |
-| `orders schedule-cancel --in <DURATION>` | 配置 dead man's switch。 |
-| `positions list [-w]` | 列出 open positions。 |
-| `positions update-leverage --coin <COIN> --leverage <N>` | 更新 leverage。 |
+| `orders create --coin <COIN> --side buy\|sell [--take-profit <PX>] [--stop-loss <PX>] [--grouping normal-tpsl] ...` | 创建带固定大小 TP/SL 子订单的父订单。 |
+| `orders tpsl --coin <COIN> (--take-profit <PX>\|--stop-loss <PX>) [--grouping position-tpsl] [--side buy\|sell] [--size <SIZE>] [--margin-mode cross\|isolated]` | 创建附加到当前 position 的 TP/SL orders。 |
+| `orders cancel (ORDER_ID\|--cloid <CLOID>)` | 按 order ID 或 client order ID 取消。 |
+| `orders cancel-all [--coin <COIN>] [--dex <DEX>] [-y]` | 取消所有 open orders，可按 coin 或 DEX 过滤。 |
+| `orders modify (ORDER_ID\|--cloid <CLOID>) [--price <PRICE>] [--trigger-price <PRICE>] [--size <SIZE>]` | 修改现有订单。 |
+| `orders twap-create --coin <COIN> --side buy\|sell --size <SIZE> --duration <SECONDS> [--dex <DEX>] [--margin-mode cross\|isolated] [-y]` | 创建 TWAP order。 |
+| `orders twap-cancel <TWAP_ID> --coin <COIN> [--dex <DEX>]` | 取消 TWAP order。 |
+| `orders schedule-cancel (--in <DURATION>\|--clear)` | 配置 dead man's switch。 |
+| `positions list [-w] [--max-ticks <TICKS>]` | 列出 open positions。 |
+| `positions update-leverage --coin <COIN> --leverage <N> [--isolated]` | 更新 leverage。 |
 | `positions update-margin --coin <COIN> --amount <AMOUNT>` | 增加或移除 isolated margin。 |
-| `transfer spot-to-perp --amount <USDC>` | 将 USDC 从 spot 移到 perp。 |
-| `transfer perp-to-spot --amount <USDC>` | 将 USDC 从 perp 移到 spot。 |
-| `transfer send --to <ADDRESS> --amount <USDC>` | 向另一个地址发送 USDC。 |
-| `transfer spot-send --to <ADDRESS> --token <TOKEN> --amount <AMOUNT>` | 向另一个地址发送 spot token。 |
-| `transfer send-asset --to <ADDRESS> --source perp\|spot\|dex:<DEX> --dest perp\|spot\|dex:<DEX> --token <TOKEN> --amount <AMOUNT>` | 在账户、spot、perp 或 DEX contexts 之间发送资产。 |
-| `transfer withdraw --to <ADDRESS> --amount <USDC>` | 将 USDC 提现到 Arbitrum。 |
-| `subaccount transfer --subaccount <ACCOUNT_SELECTOR> --amount <USDC> --direction deposit\|withdraw` | 将 USDC 移入或移出 subaccount。subaccount 字段是 acting-account selector，不是通用 transfer recipient。 |
-| `subaccount spot-transfer --subaccount <ACCOUNT_SELECTOR> --token <TOKEN> --amount <AMOUNT> --direction deposit\|withdraw` | 将 spot token 移入或移出 subaccount。subaccount 字段是 acting-account selector，不是通用 transfer recipient。 |
+| `transfer spot-to-perp --amount <USDC> [-y]` | 将 USDC 从 spot 移到 perp。 |
+| `transfer perp-to-spot --amount <USDC> [-y]` | 将 USDC 从 perp 移到 spot。 |
+| `transfer send --to <ADDRESS> --amount <USDC> [-y]` | 向另一个地址发送 USDC。 |
+| `transfer spot-send --to <ADDRESS> --token <TOKEN> --amount <AMOUNT> [-y]` | 向另一个地址发送 spot token。 |
+| `transfer send-asset --to <ADDRESS> --source perp\|spot\|dex:<DEX> --dest perp\|spot\|dex:<DEX> --token <TOKEN> --amount <AMOUNT> [--from-subaccount <ADDRESS>] [-y]` | 在账户、spot、perp 或 DEX contexts 之间发送资产。 |
+| `transfer withdraw --to <ADDRESS> --amount <USDC> [-y]` | 将 USDC 提现到 Arbitrum。 |
+| `subaccount transfer --subaccount <ACCOUNT_SELECTOR> --amount <USDC> --direction deposit\|withdraw [-y]` | 将 USDC 移入或移出 subaccount。subaccount 字段是 acting-account selector，不是通用 transfer recipient。 |
+| `subaccount spot-transfer --subaccount <ACCOUNT_SELECTOR> --token <TOKEN> --amount <AMOUNT> --direction deposit\|withdraw [-y]` | 将 spot token 移入或移出 subaccount。subaccount 字段是 acting-account selector，不是通用 transfer recipient。 |
 
 `api-wallets` 可作为 `api-wallet` 的别名。
 `subaccounts` 可作为 `subaccount` 的别名。
@@ -326,21 +328,22 @@ Outcome market 表示法（`#N` spot coin 和 `+N` token name）可通过 `outco
 
 | 命令 | 描述 |
 | --- | --- |
-| `staking summary <ADDRESS>` / `staking validators` / `staking rewards <ADDRESS>` / `staking history <ADDRESS>` | 读取 staking state 和 history。 |
-| `staking delegate` / `staking undelegate` / `staking deposit` / `staking withdraw` / `staking claim-rewards` | 提交 staking actions。 |
+| `staking summary [ADDRESS]` / `staking validators` / `staking rewards [ADDRESS]` / `staking history [ADDRESS]` | 读取 staking state 和 history。 |
+| `staking delegate --validator <ADDRESS> --amount <AMOUNT>` / `staking undelegate --validator <ADDRESS> --amount <AMOUNT>` / `staking deposit --amount <AMOUNT>` / `staking withdraw --amount <AMOUNT>` / `staking claim-rewards` | 提交 staking actions。 |
 | `staking link initiate --user <ADDRESS>` / `staking link finalize --user <ADDRESS>` | 关联 trading 和 staking accounts 以进行 fee discount attribution。Dry-runs 包含永久性/控制权警告；live commands 需要确认或 `--yes`。 |
-| `vault list [--kind protocol|user|normal|child|parent] [--user <ADDRESS>]` / `vault search <QUERY> [--user <ADDRESS>]` / `vault get <ADDRESS>` / `vault positions <ADDRESS>` | 发现并查询 vault state。当 API 返回时，`--user` 包含用户存款 context。 |
-| `vault deposit` / `vault withdraw` | 提交 vault transfers。 |
-| `borrowlend rates` / `borrowlend get <TOKEN>` / `borrowlend user <ADDRESS>` | 查询 borrow/lend markets。 |
-| `borrowlend supply <TOKEN> --amount <AMOUNT>` / `borrowlend withdraw <TOKEN> --amount <AMOUNT|--max>` | 提交已验证、由钱包签名的 exchange `borrowLend` supply/withdraw actions；先使用 `--dry-run` 检查 action。 |
+| `vault list [--kind protocol\|user\|normal\|child\|parent] [--user <ADDRESS>] [--limit <N>] [--sort tvl\|apr\|age\|name]` / `vault search <QUERY> [--user <ADDRESS>] [--limit <N>] [--sort tvl\|apr\|age\|name]` / `vault get <ADDRESS>` / `vault positions <ADDRESS>` | 发现并查询 vault state。当 API 返回时，`--user` 包含用户存款 context。 |
+| `vault deposit --vault <ADDRESS> --amount <AMOUNT>` / `vault withdraw --vault <ADDRESS> --amount <AMOUNT>` | 提交 vault transfers。 |
+| `borrowlend rates` / `borrowlend get <TOKEN>` / `borrowlend user [ADDRESS]` | 查询 borrow/lend markets。 |
+| `borrowlend supply <TOKEN> --amount <AMOUNT>` / `borrowlend withdraw <TOKEN> (--amount <AMOUNT>\|--max)` | 提交已验证、由钱包签名的 exchange `borrowLend` supply/withdraw actions；先使用 `--dry-run` 检查 action。 |
 | `builder max-fee --user <ADDRESS> --builder <ADDRESS>` | 查询用户已批准的 max builder fee。 |
 | `builder approved --user <ADDRESS>` | 列出用户批准的所有 builders 及 fee caps。 |
-| `builder approve --builder <ADDRESS> --max-fee-rate <PERCENT>` | 为已配置 master signer 批准或撤销 builder fee cap。 |
-| `prio status` / `prio bid` | 查询 gossip priority auction 或出价。 |
+| `builder approve --builder <ADDRESS> --max-fee-rate <PERCENT> [-y]` | 为已配置 master signer 批准或撤销 builder fee cap。 |
+| `prio status` / `prio bid --max <HYPE> --ip <IP> [--slot <N>]` | 查询 gossip priority auction 或出价。 |
 | `referral register <CODE>` / `referral set [CODE]` / `referral status` | 注册你自己的 referral code、设置 referrer 或检查 referral state。 |
-| `feedback --scenario-json <JSON>` / `feedback --scenario-file <PATH\|->` | 将结构化 CLI feedback 作为 scenario JSON object 发送到已配置的 feedback endpoint；在 scenario 中包含 `agent_address`、`signer_address` 或 `wallet_address` 以用于 rate-limit attribution，并使用 `--url` 覆盖默认值。 |
+| `feedback (--scenario-json <JSON>\|--scenario-file <PATH\|->) [--contact <CONTACT>] [--tags <TAG>] [--url <URL>]` | 将结构化 CLI feedback 作为 scenario JSON object 发送到已配置的 feedback endpoint；在 scenario 中包含 `agent_address`、`signer_address` 或 `wallet_address` 以用于 rate-limit attribution，并使用 `--url` 覆盖默认值。 |
 | `schema [COMMAND...]` | 显示供代理使用的机器可读 command schemas。 |
-| `subscribe trades\|orderbook\|candles\|all-mids\|order-updates\|fills` | 流式传输 WebSocket events。 |
+| `subscribe trades --asset <ASSET>` / `subscribe orderbook --asset <ASSET>` / `subscribe candles --asset <ASSET> [--interval <INTERVAL>]` / `subscribe all-mids` / `subscribe order-updates` / `subscribe fills` `[--max-events <N>] [--idle-timeout-ms <MS>]` | 流式传输 WebSocket events。 |
+| `update` | 从最新 GitHub release 更新此二进制文件。使用全局 `--dry-run` 可先预览。 |
 
 `vaults` 可作为 `vault` 的别名。
 
@@ -376,7 +379,7 @@ CLI 旨在让副作用可见：
 - 签名只会通过显式的 `--account`、`--ows-signer`、`--keystore`、`--private-key` 或已存储的 OWS wallets 发生。
 - `--testnet` 会清晰地将 API 调用和已签名操作路由到 Hyperliquid testnet。
 - `--dry-run` 会验证并预览任何受支持的变更，而不会发送它。
-- 受提示保护的 live mainnet mutations 和破坏性本地 secret 操作需要确认，除非在支持的地方提供了 `-y` / `--yes`。
+- 当 schema 将其标记为 prompt-gated 时，live mainnet mutations 和破坏性本地 secret 操作需要确认；使用 `hyperliquid --format json schema ...` 查看每个命令的确认策略。支持时，`-y` / `--yes` 可跳过提示。
 - 转账接收者和协议对象地址必须是显式 `0x` addresses——local aliases 永远不会被静默替换。
 
 ## 退出码
@@ -407,6 +410,11 @@ CLI 旨在让副作用可见：
 | `HYPERLIQUID_SUBSCRIBE_MAX_EVENTS` | agent contexts 中 WebSocket subscribe commands 的默认 event limit。 |
 | `OWS_PASSPHRASE` | 用于解锁加密 OWS wallet 的 passphrase。 |
 | `HYPERLIQUID_OWS_VAULT_PATH` | 覆盖 OWS vault path（默认 `~/.hyperliquid`）。 |
+| `HYPERLIQUID_API_BASE_URL` / `HYPERLIQUID_MAINNET_API_BASE_URL` / `HYPERLIQUID_TESTNET_API_BASE_URL` | 覆盖 API base URLs；所有 override 都限制为 loopback/local test endpoints。 |
+| `HYPERLIQUID_DEFAULT_BUILDER_ADDRESS` / `HYPERLIQUID_DEFAULT_BUILDER_FEE_RATE` | per-order builder fee parameters 和 setup suggestions 的运行时默认值。 |
+| `HYPERLIQUID_DEFAULT_REFERRAL_CODE` | setup 和 `referral set` 的运行时默认 referral code。 |
+| `HYPERLIQUID_FEEDBACK_URL` | `hyperliquid feedback` 的运行时或构建时默认 endpoint。 |
+| `HYPERLIQUID_NO_UPDATE_CHECK` | 为 truthy 时禁用 release 更新检查。 |
 
 ## 开发
 

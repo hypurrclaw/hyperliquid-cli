@@ -16,11 +16,11 @@ Drop it into your agent's tool belt and it can check prices, place orders, manag
 ## Why hyperliquid-cli
 
 - **Agent-first.** Built for the agent loop. Every command speaks JSON with `--format json`, field projection (`--select`), result caps (`--max-results`), and machine-readable `schema` output. `HYPERLIQUID_AGENT=1` (or non-TTY stdout) defaults to JSON automatically. Your agent reads stable snake_case keys, structured error objects, and well-defined exit codes — no scraping, no guessing.
-- **Wallet for your agent.** Create an API wallet (aka agent wallet) that can trade but never withdraw. Hand it to OpenClaw, Hermes, Claude, or any automation and it operates with bounded authority. Wallets live in the encrypted OWS vault — secrets never touch stdout, logs, or shell history.
+- **Wallet for your agent.** Create an API wallet (aka agent wallet) that can trade but never withdraw. Hand it to OpenClaw, Hermes, Claude, or any automation and it operates with bounded authority. OWS wallet secrets live in the encrypted vault; generated API wallet private keys are printed exactly once so you can store them securely.
 - **One tool, broad protocol coverage.** Markets, perps, spot, HIP-3 DEXes, orders, transfers, subaccounts, vaults, staking, borrow/lend, builder fees, referrals, account abstraction, and WebSocket subscriptions — all behind one binary.
-- **Safe by default.** Prompt-gated mainnet mutations require confirmation. `--dry-run` previews every side effect before it happens. Testnet is one flag away. API wallets are withdraw-proof by protocol design.
+- **Safe by default.** Commands marked prompt-gated require confirmation for live mainnet mutations. `--dry-run` previews supported side effects before they happen. Testnet is one flag away. API wallets are withdraw-proof by protocol design.
 - **Decimal-correct.** Every price, size, and amount uses `rust_decimal`. No floats, no surprise rounding.
-- **Single static binary.** Built in Rust on top of [`hypersdk`](https://github.com/infinitefield/hypersdk). Install in seconds, ship in containers, run anywhere.
+- **Single binary.** Built in Rust on top of [`hypersdk`](https://github.com/infinitefield/hypersdk). Install in seconds, ship in containers, run anywhere.
 
 ## Install
 
@@ -30,7 +30,7 @@ sh install.sh
 hyperliquid --version
 ```
 
-The installer verifies a SHA-256 checksum before copying the binary to `~/.local/bin`. Override defaults with `HYPERLIQUID_CLI_REPO=OWNER/REPO`, `HYPERLIQUID_CLI_VERSION=v0.1.0`, and `BIN_DIR=/path/to/bin`.
+The installer verifies a SHA-256 checksum before copying the binary to `~/.local/bin`. By default it installs the latest release; override the repo, pinned version, or install directory with `HYPERLIQUID_CLI_REPO=OWNER/REPO`, `HYPERLIQUID_CLI_VERSION=v0.1.0`, and `BIN_DIR=/path/to/bin`.
 
 From source:
 
@@ -66,7 +66,7 @@ hyperliquid --format json schema orders create
 
 ## Wallet Setup
 
-`hyperliquid` uses the **Open Wallet Standard (OWS)** as its only wallet backend. Wallets live in an encrypted vault on disk (`~/.hyperliquid` by default, overridable via `HYPERLIQUID_OWS_VAULT_PATH`). Secrets are entered interactively at hidden prompts — never echoed, logged, or printed.
+`hyperliquid` uses the **Open Wallet Standard (OWS)** as its only wallet backend. Wallets live in an encrypted vault on disk (`~/.hyperliquid` by default, overridable via `HYPERLIQUID_OWS_VAULT_PATH`). Secrets entered interactively at hidden prompts are not echoed, logged, or printed; explicit `wallet export` and generated API wallet flows are deliberate exceptions that can reveal a secret once.
 
 ### Guided setup
 
@@ -170,7 +170,7 @@ See [`SKILL.md`](SKILL.md) for the agent operating guide.
 
 | Domain | Examples |
 | --- | --- |
-| Local signing account | An OWS wallet managed by `account add`, `account ls`, `account set-default`, and related commands. |
+| OWS wallet/account record | An OWS wallet record managed by `account add`, `account ls`, `account set-default`, and related commands. |
 | Selected signer | The key used to sign authenticated actions, chosen from flags, environment/config, global `--account`, or the OWS selector. |
 | Protocol user address | A public Hyperliquid user address used for info queries such as fills, portfolio, fees, or order status. |
 | Master account | The protocol owner account that can approve API wallets and own subaccounts. |
@@ -184,7 +184,7 @@ Address-like command inputs fall into three safety classes:
 | Class | Accepted values | Used for |
 | --- | --- | --- |
 | `ACCOUNT_SELECTOR` | Stored account alias, stored account id, or `0x` address | Selecting a signer with `--account` or managing OWS wallet records. |
-| `USER` | `0x` user address, or a documented safe stored-account selector | Public lookups such as `account portfolio`, `orders status --user`, or fee queries. Stored API/agent wallet selectors resolve to their approving master account for these reads. |
+| `USER` | `0x` user address, or a documented safe stored-account selector | Public lookups such as `account portfolio`, `orders status --user`, or fee queries. |
 | `*_ADDRESS` | Explicit `0x` protocol address only | Transfer recipients, vaults, validators, builders, and other protocol objects. Local aliases are not substituted for these fields. |
 
 For agents, `hyperliquid --format json schema ...` tool schemas are the authoritative source for input semantics when they conflict with examples or prose.
@@ -202,7 +202,7 @@ Canonical top-level aliases accepted by the CLI:
 
 | Option | Description |
 | --- | --- |
-| `-f, --format pretty\|table\|json` | Output format. Defaults to `pretty`. |
+| `-f, --format pretty\|table\|json` | Output format. Effective default is `pretty` on a TTY and JSON for non-TTY stdout or `HYPERLIQUID_AGENT=1`; explicit `--format` wins over `HYPERLIQUID_FORMAT`. |
 | `--private-key <PRIVATE_KEY>` | Sign with a raw private key. Overrides environment and config. |
 | `--keystore <PATH>` | Sign with a Foundry-compatible keystore file. |
 | `--keystore-password <PASSWORD>` | Keystore password. Prefer safer secret sources for humans. |
@@ -214,6 +214,8 @@ Canonical top-level aliases accepted by the CLI:
 | `--max-results <N>` | Limit top-level list/map results client-side. |
 | `--dry-run` | Validate and preview mutating commands without side effects. |
 | `--payload-json <JSON>` / `--payload-file <PATH\|->` | Provide raw JSON payload context for mutating dry-runs. |
+| `--no-update-check` | Disable release update checks for this invocation. |
+| `-h, --help` / `-V, --version` | Print help or version information. |
 
 ### Market data
 
@@ -225,9 +227,9 @@ Canonical top-level aliases accepted by the CLI:
 | `spot get <PAIR>` | Show one spot pair, for example `PURR/USDC`. |
 | `outcomes list [--limit <N>]` | List active outcome market sides from `outcomeMeta`. |
 | `outcomes get #<ENCODING>` / `outcomes get +<ENCODING>` | Show outcome side metadata and derived asset ID. |
-| `book <COIN_OR_PAIR> [-w]` | Show L2 order book snapshot or watch updates. |
-| `mids [-w]` | Show all mid prices. |
-| `candles <COIN> [--interval <INTERVAL>] [--limit <N>] [-w]` | Show candle history. |
+| `book <COIN> [-w] [--max-ticks <TICKS>]` | Show L2 order book snapshot or watch updates. |
+| `mids [-w] [--max-ticks <TICKS>]` | Show all mid prices. |
+| `candles <COIN> [--interval <INTERVAL>] [--limit <N>] [-w] [--max-ticks <TICKS>]` | Show candle history. |
 | `spread <COIN>` | Show bid, ask, and spread. |
 | `funding <COIN>` | Show current and predicted funding. |
 | `meta` | Show raw exchange metadata. |
@@ -237,69 +239,69 @@ Canonical top-level aliases accepted by the CLI:
 
 | Command | Description |
 | --- | --- |
-| `setup` | Run the guided first-time setup wizard. |
+| `setup [-y] [--approve-builder\|--no-approve-builder]` | Run the guided first-time setup wizard. |
 | `wallet create` | Create and store a new wallet. |
 | `wallet import [PRIVATE_KEY]` | Import a wallet. Omit the key to use a hidden prompt. |
 | `wallet show` | Show current wallet metadata. |
 | `wallet address` | Print only the configured wallet address. |
-| `wallet import-mnemonic [MNEMONIC]` | Import a wallet from a BIP-39 mnemonic phrase. |
+| `wallet import-mnemonic [MNEMONIC] [--alias <ALIAS>]` | Import a wallet from a BIP-39 mnemonic phrase. |
 | `wallet list` | List all wallets in the OWS vault. |
 | `wallet rename <SELECTOR> <NEW_NAME>` | Rename a wallet. |
 | `wallet delete <SELECTOR>` | Delete a wallet. Prompts unless `-y`. |
-| `wallet export <SELECTOR>` | Export wallet secret (mnemonic or private key). |
-| `wallet reset` | Remove wallet configuration after confirmation. |
-| `account fees <ADDRESS>` | Query fee schedule and volume context. |
-| `account fills <ADDRESS> [--start <TIME>] [--end <TIME>] [--aggregate-by-time]` | Query public fill history, optionally by time. |
-| `account ledger <ADDRESS> --start <TIME> [--end <TIME>]` | Query deposits, withdrawals, transfers, and other non-funding ledger updates. |
-| `account funding <ADDRESS> --start <TIME> [--end <TIME>]` | Query user funding payment history. |
-| `account orders <ADDRESS>` | Query public open orders. |
-| `account portfolio <ADDRESS>` | Query public portfolio summary. |
-| `account portfolio-history <ADDRESS>` | Query frontend portfolio graph/history data. |
-| `account rate-limit <ADDRESS>` | Query user rate-limit context. |
-| `account subaccounts <ADDRESS>` | Query public subaccounts. |
-| `account twap-history <ADDRESS>` | Query user TWAP order history. |
-| `account twap-fills <ADDRESS> [--start <TIME>] [--end <TIME>]` | Query user TWAP slice fills. |
+| `wallet export <SELECTOR> [-y]` | Export wallet secret (mnemonic or private key). |
+| `wallet reset [-y]` | Remove wallet configuration after confirmation. |
+| `account fees [ADDRESS_OR_WALLET]` | Query fee schedule and volume context. |
+| `account fills [ADDRESS_OR_WALLET] [--start <TIME>] [--end <TIME>] [--aggregate-by-time]` | Query public fill history, optionally by time. |
+| `account ledger [ADDRESS_OR_WALLET] --start <TIME> [--end <TIME>]` | Query deposits, withdrawals, transfers, and other non-funding ledger updates. |
+| `account funding [ADDRESS_OR_WALLET] --start <TIME> [--end <TIME>]` | Query user funding payment history. |
+| `account orders [ADDRESS_OR_WALLET]` | Query public open orders. |
+| `account portfolio [ADDRESS_OR_WALLET]` | Query public portfolio summary. |
+| `account portfolio-history [ADDRESS_OR_WALLET]` | Query frontend portfolio graph/history data. |
+| `account rate-limit [ADDRESS_OR_WALLET]` | Query user rate-limit context. |
+| `account subaccounts [ADDRESS_OR_WALLET]` | Query public subaccounts. |
+| `account twap-history [ADDRESS_OR_WALLET]` | Query user TWAP order history. |
+| `account twap-fills [ADDRESS_OR_WALLET] [--start <TIME>] [--end <TIME>] [--aggregate-by-time]` | Query user TWAP slice fills. |
 | `account abstraction [ADDRESS]` | Read account abstraction mode for an address, or the selected account when `ADDRESS` is omitted. |
 | `account abstraction set --mode disabled\|unified-account\|portfolio-margin` | Set account abstraction for the configured signer; prompts unless `-y`. |
-| `subaccount list <ADDRESS>` | Query public subaccounts for a master address. |
+| `subaccount list [ADDRESS_OR_WALLET]` | Query public subaccounts for a master address. |
 | `subaccount create --name <NAME>` | Create a subaccount signed by the master account. |
-| `account add` / `account ls` / `account set-default` / `account remove` | Manage stored wallets. |
-| `api-wallet create --name <NAME> [--expires-in <DURATION>]` | Generate and approve a Hyperliquid API/agent wallet. |
-| `api-wallet approve --agent-address <ADDRESS>` | Approve an existing or generated agent wallet address. |
+| `account add [PRIVATE_KEY] [--alias <ALIAS>] [--type <TYPE>] [--default]` / `account ls` / `account set-default [SELECTOR]` / `account remove [SELECTOR] [-y]` | Manage stored wallets. |
+| `api-wallet create [--name <NAME>] [--expires-in <DURATION>] [--agent-address <ADDRESS>] [--generate]` | Generate and approve a Hyperliquid API/agent wallet. |
+| `api-wallet approve [--name <NAME>] [--expires-in <DURATION>] (--agent-address <ADDRESS>\|--generate)` | Approve an existing or generated agent wallet address. |
 | `api-wallet list [ACCOUNT]` | List API wallets approved by a master account. |
 | `api-wallet revoke --name <NAME>` | Replace a named API wallet with a short-lived throwaway agent. |
 
-API wallets can sign trading actions for the approving master account, but they cannot withdraw. Use the master or subaccount address for info queries; the CLI stores generated API wallets as `agent-wallet` records with their master address so stored-agent reads resolve to the master account. When `api-wallet create` generates a local agent keypair, it prints the private key once before submitting `approveAgent` for that address.
+API wallets can sign trading actions for the approving master account, but they cannot withdraw. Use the master or subaccount address for info queries. When `api-wallet create` generates a local agent keypair, it prints the private key once before submitting `approveAgent` for that address; store that key securely because the CLI does not automatically recover it later.
 
 ### Trading and transfers
 
 | Command | Description |
 | --- | --- |
-| `orders open [-w]` | List open orders. |
+| `orders open [-w] [--max-ticks <TICKS>]` | List open orders. |
 | `orders history` | List order history. |
-| `orders status --user <ADDRESS> --oid <OID>` | Query public order status. |
-| `orders create --coin <COIN> --side buy\|sell ... [--reduce-only] [--on-behalf-of <ACCOUNT_SELECTOR>]` | Create limit, market, stop-loss, take-profit, stop-limit, or take-limit orders. `--on-behalf-of` is an acting-account selector used as `vaultAddress`. |
+| `orders status --user <ADDRESS> (--oid <OID>\|--cloid <CLOID>)` | Query public order status. |
+| `orders create --coin <COIN> --side buy\|sell [--type limit\|market\|stop-loss\|take-profit\|stop-limit\|take-limit] [--price <PX>] [--trigger-price <PX>] [--size <SIZE>\|--amount <USDC>] [--dex <DEX>] [--reduce-only] [--on-behalf-of <ACCOUNT_SELECTOR>] [--cloid <CLOID>] [-y]` | Create limit, market, stop-loss, take-profit, stop-limit, or take-limit orders. `--on-behalf-of` is an acting-account selector used as `vaultAddress`. |
 | `orders scale --coin <COIN> --side buy\|sell --start-price <PX> --end-price <PX> --total-size <SIZE> --orders <N>` | Create an evenly spaced batch of limit orders. |
 | `orders batch-create --orders-file <PATH>` | Create a batch of limit orders from JSON. |
-| `orders create --coin <COIN> --side buy\|sell --take-profit <PX> [--stop-loss <PX>] --grouping normal-tpsl ...` | Create a parent order with fixed-size TP/SL children. |
-| `orders tpsl --coin <COIN> --take-profit <PX> [--stop-loss <PX>] --grouping position-tpsl` | Create TP/SL orders attached to the current position. |
-| `orders cancel <OID>` / `orders cancel --cloid <CLOID>` | Cancel by order ID or client order ID. |
-| `orders cancel-all [--coin <COIN>] [-y]` | Cancel all open orders, optionally filtered by coin. |
-| `orders modify <OID> [--price <PRICE>] [--size <SIZE>]` | Modify an existing order. |
-| `orders twap-create --coin <COIN> --side buy\|sell --size <SIZE> --duration <SECONDS>` | Create a TWAP order. |
-| `orders twap-cancel <TWAP_ID> --coin <COIN>` | Cancel a TWAP order. |
-| `orders schedule-cancel --in <DURATION>` | Configure a dead man's switch. |
-| `positions list [-w]` | List open positions. |
-| `positions update-leverage --coin <COIN> --leverage <N>` | Update leverage. |
+| `orders create --coin <COIN> --side buy\|sell [--take-profit <PX>] [--stop-loss <PX>] [--grouping normal-tpsl] ...` | Create a parent order with fixed-size TP/SL children. |
+| `orders tpsl --coin <COIN> (--take-profit <PX>\|--stop-loss <PX>) [--grouping position-tpsl] [--side buy\|sell] [--size <SIZE>] [--margin-mode cross\|isolated]` | Create TP/SL orders attached to the current position. |
+| `orders cancel (ORDER_ID\|--cloid <CLOID>)` | Cancel by order ID or client order ID. |
+| `orders cancel-all [--coin <COIN>] [--dex <DEX>] [-y]` | Cancel all open orders, optionally filtered by coin or DEX. |
+| `orders modify (ORDER_ID\|--cloid <CLOID>) [--price <PRICE>] [--trigger-price <PRICE>] [--size <SIZE>]` | Modify an existing order. |
+| `orders twap-create --coin <COIN> --side buy\|sell --size <SIZE> --duration <SECONDS> [--dex <DEX>] [--margin-mode cross\|isolated] [-y]` | Create a TWAP order. |
+| `orders twap-cancel <TWAP_ID> --coin <COIN> [--dex <DEX>]` | Cancel a TWAP order. |
+| `orders schedule-cancel (--in <DURATION>\|--clear)` | Configure a dead man's switch. |
+| `positions list [-w] [--max-ticks <TICKS>]` | List open positions. |
+| `positions update-leverage --coin <COIN> --leverage <N> [--isolated]` | Update leverage. |
 | `positions update-margin --coin <COIN> --amount <AMOUNT>` | Add or remove isolated margin. |
-| `transfer spot-to-perp --amount <USDC>` | Move USDC from spot to perp. |
-| `transfer perp-to-spot --amount <USDC>` | Move USDC from perp to spot. |
-| `transfer send --to <ADDRESS> --amount <USDC>` | Send USDC to another address. |
-| `transfer spot-send --to <ADDRESS> --token <TOKEN> --amount <AMOUNT>` | Send a spot token to another address. |
-| `transfer send-asset --to <ADDRESS> --source perp\|spot\|dex:<DEX> --dest perp\|spot\|dex:<DEX> --token <TOKEN> --amount <AMOUNT>` | Send an asset between accounts, spot, perp, or DEX contexts. |
-| `transfer withdraw --to <ADDRESS> --amount <USDC>` | Withdraw USDC to Arbitrum. |
-| `subaccount transfer --subaccount <ACCOUNT_SELECTOR> --amount <USDC> --direction deposit\|withdraw` | Move USDC to or from a subaccount. The subaccount field is an acting-account selector, not a generic transfer recipient. |
-| `subaccount spot-transfer --subaccount <ACCOUNT_SELECTOR> --token <TOKEN> --amount <AMOUNT> --direction deposit\|withdraw` | Move a spot token to or from a subaccount. The subaccount field is an acting-account selector, not a generic transfer recipient. |
+| `transfer spot-to-perp --amount <USDC> [-y]` | Move USDC from spot to perp. |
+| `transfer perp-to-spot --amount <USDC> [-y]` | Move USDC from perp to spot. |
+| `transfer send --to <ADDRESS> --amount <USDC> [-y]` | Send USDC to another address. |
+| `transfer spot-send --to <ADDRESS> --token <TOKEN> --amount <AMOUNT> [-y]` | Send a spot token to another address. |
+| `transfer send-asset --to <ADDRESS> --source perp\|spot\|dex:<DEX> --dest perp\|spot\|dex:<DEX> --token <TOKEN> --amount <AMOUNT> [--from-subaccount <ADDRESS>] [-y]` | Send an asset between accounts, spot, perp, or DEX contexts. |
+| `transfer withdraw --to <ADDRESS> --amount <USDC> [-y]` | Withdraw USDC to Arbitrum. |
+| `subaccount transfer --subaccount <ACCOUNT_SELECTOR> --amount <USDC> --direction deposit\|withdraw [-y]` | Move USDC to or from a subaccount. The subaccount field is an acting-account selector, not a generic transfer recipient. |
+| `subaccount spot-transfer --subaccount <ACCOUNT_SELECTOR> --token <TOKEN> --amount <AMOUNT> --direction deposit\|withdraw [-y]` | Move a spot token to or from a subaccount. The subaccount field is an acting-account selector, not a generic transfer recipient. |
 
 `api-wallets` is accepted as an alias for `api-wallet`.
 `subaccounts` is accepted as an alias for `subaccount`.
@@ -326,21 +328,22 @@ Outcome market notation (`#N` spot coin and `+N` token name) is available for di
 
 | Command | Description |
 | --- | --- |
-| `staking summary <ADDRESS>` / `staking validators` / `staking rewards <ADDRESS>` / `staking history <ADDRESS>` | Read staking state and history. |
-| `staking delegate` / `staking undelegate` / `staking deposit` / `staking withdraw` / `staking claim-rewards` | Submit staking actions. |
+| `staking summary [ADDRESS]` / `staking validators` / `staking rewards [ADDRESS]` / `staking history [ADDRESS]` | Read staking state and history. |
+| `staking delegate --validator <ADDRESS> --amount <AMOUNT>` / `staking undelegate --validator <ADDRESS> --amount <AMOUNT>` / `staking deposit --amount <AMOUNT>` / `staking withdraw --amount <AMOUNT>` / `staking claim-rewards` | Submit staking actions. |
 | `staking link initiate --user <ADDRESS>` / `staking link finalize --user <ADDRESS>` | Link trading and staking accounts for fee discount attribution. Dry-runs include permanence/control warnings; live commands require confirmation or `--yes`. |
-| `vault list [--kind protocol|user|normal|child|parent] [--user <ADDRESS>]` / `vault search <QUERY> [--user <ADDRESS>]` / `vault get <ADDRESS>` / `vault positions <ADDRESS>` | Discover and query vault state. `--user` includes user deposit context when the API returns it. |
-| `vault deposit` / `vault withdraw` | Submit vault transfers. |
-| `borrowlend rates` / `borrowlend get <TOKEN>` / `borrowlend user <ADDRESS>` | Query borrow/lend markets. |
-| `borrowlend supply <TOKEN> --amount <AMOUNT>` / `borrowlend withdraw <TOKEN> --amount <AMOUNT|--max>` | Submit verified wallet-signed exchange `borrowLend` supply/withdraw actions; use `--dry-run` to inspect the action first. |
+| `vault list [--kind protocol\|user\|normal\|child\|parent] [--user <ADDRESS>] [--limit <N>] [--sort tvl\|apr\|age\|name]` / `vault search <QUERY> [--user <ADDRESS>] [--limit <N>] [--sort tvl\|apr\|age\|name]` / `vault get <ADDRESS>` / `vault positions <ADDRESS>` | Discover and query vault state. `--user` includes user deposit context when the API returns it. |
+| `vault deposit --vault <ADDRESS> --amount <AMOUNT>` / `vault withdraw --vault <ADDRESS> --amount <AMOUNT>` | Submit vault transfers. |
+| `borrowlend rates` / `borrowlend get <TOKEN>` / `borrowlend user [ADDRESS]` | Query borrow/lend markets. |
+| `borrowlend supply <TOKEN> --amount <AMOUNT>` / `borrowlend withdraw <TOKEN> (--amount <AMOUNT>\|--max)` | Submit verified wallet-signed exchange `borrowLend` supply/withdraw actions; use `--dry-run` to inspect the action first. |
 | `builder max-fee --user <ADDRESS> --builder <ADDRESS>` | Query a user's approved max builder fee. |
 | `builder approved --user <ADDRESS>` | List all builders approved by a user with fee caps. |
-| `builder approve --builder <ADDRESS> --max-fee-rate <PERCENT>` | Approve or revoke a builder fee cap for the configured master signer. |
-| `prio status` / `prio bid` | Query or bid in the gossip priority auction. |
+| `builder approve --builder <ADDRESS> --max-fee-rate <PERCENT> [-y]` | Approve or revoke a builder fee cap for the configured master signer. |
+| `prio status` / `prio bid --max <HYPE> --ip <IP> [--slot <N>]` | Query or bid in the gossip priority auction. |
 | `referral register <CODE>` / `referral set [CODE]` / `referral status` | Register your own referral code, set a referrer, or inspect referral state. |
-| `feedback --scenario-json <JSON>` / `feedback --scenario-file <PATH\|->` | Send structured CLI feedback as a scenario JSON object to the configured feedback endpoint; include `agent_address`, `signer_address`, or `wallet_address` in the scenario for rate-limit attribution, and use `--url` to override defaults. |
+| `feedback (--scenario-json <JSON>\|--scenario-file <PATH\|->) [--contact <CONTACT>] [--tags <TAG>] [--url <URL>]` | Send structured CLI feedback as a scenario JSON object to the configured feedback endpoint; include `agent_address`, `signer_address`, or `wallet_address` in the scenario for rate-limit attribution, and use `--url` to override defaults. |
 | `schema [COMMAND...]` | Show machine-readable command schemas for agents. |
-| `subscribe trades\|orderbook\|candles\|all-mids\|order-updates\|fills` | Stream WebSocket events. |
+| `subscribe trades --asset <ASSET>` / `subscribe orderbook --asset <ASSET>` / `subscribe candles --asset <ASSET> [--interval <INTERVAL>]` / `subscribe all-mids` / `subscribe order-updates` / `subscribe fills` `[--max-events <N>] [--idle-timeout-ms <MS>]` | Stream WebSocket events. |
+| `update` | Update this binary from the latest GitHub release. Use global `--dry-run` to preview. |
 
 `vaults` is accepted as an alias for `vault`.
 
@@ -376,7 +379,7 @@ The CLI is designed to make side effects visible:
 - Signing only happens through explicit `--account`, `--ows-signer`, `--keystore`, `--private-key`, or stored OWS wallets.
 - `--testnet` cleanly routes API calls and signed actions to Hyperliquid testnet.
 - `--dry-run` validates and previews any supported mutation without sending it.
-- Prompt-gated live mainnet mutations and destructive local secret operations require confirmation unless `-y` / `--yes` is supplied where supported.
+- Live mainnet mutations and destructive local secret operations require confirmation when their schema marks them prompt-gated; use `hyperliquid --format json schema ...` for per-command confirmation policy. `-y` / `--yes` bypasses prompts where supported.
 - Transfer recipients and protocol object addresses must be explicit `0x` addresses — local aliases are never silently substituted.
 
 ## Exit Codes
@@ -407,6 +410,11 @@ Resolution order: CLI flags → environment variables → `~/.config/hyperliquid
 | `HYPERLIQUID_SUBSCRIBE_MAX_EVENTS` | Default event limit for WebSocket subscribe commands in agent contexts. |
 | `OWS_PASSPHRASE` | Passphrase to unlock an encrypted OWS wallet. |
 | `HYPERLIQUID_OWS_VAULT_PATH` | Override the OWS vault path (default `~/.hyperliquid`). |
+| `HYPERLIQUID_API_BASE_URL` / `HYPERLIQUID_MAINNET_API_BASE_URL` / `HYPERLIQUID_TESTNET_API_BASE_URL` | Override API base URLs; all overrides are restricted to loopback/local test endpoints. |
+| `HYPERLIQUID_DEFAULT_BUILDER_ADDRESS` / `HYPERLIQUID_DEFAULT_BUILDER_FEE_RATE` | Runtime defaults for per-order builder fee parameters and setup suggestions. |
+| `HYPERLIQUID_DEFAULT_REFERRAL_CODE` | Runtime default referral code for setup and `referral set`. |
+| `HYPERLIQUID_FEEDBACK_URL` | Runtime or build-time default endpoint for `hyperliquid feedback`. |
+| `HYPERLIQUID_NO_UPDATE_CHECK` | Disable release update checks when truthy. |
 
 ## Develop
 
