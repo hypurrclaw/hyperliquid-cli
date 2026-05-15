@@ -377,8 +377,14 @@ if not stdout:
 try:
     data = json.loads(stdout)
 except Exception as err:
-    print(f"{name}: stdout is not valid JSON: {err}", file=sys.stderr)
-    sys.exit(1)
+    # Streaming commands in --format json emit bounded NDJSON. Accept each
+    # non-empty line as a JSON value while retaining single-document checks for
+    # ordinary commands.
+    try:
+        data = [json.loads(line) for line in stdout.splitlines() if line.strip()]
+    except Exception:
+        print(f"{name}: stdout is not valid JSON/NDJSON: {err}", file=sys.stderr)
+        sys.exit(1)
 
 required_fields = {
     "schema orders create": ["command", "json_schema"],
@@ -528,11 +534,16 @@ run_case 0 "orders create cloid dry run" "${BASE[@]}" --dry-run orders create --
 run_case 0 "orders create on behalf dry run" "${BASE[@]}" --dry-run orders create --on-behalf-of "$HL_QA_TO" --coin "$HL_QA_COIN" --side buy --price "$HL_QA_PRICE" --size "$HL_QA_SIZE" --tif alo
 run_case 0 "orders create builder fee dry run" "${BASE[@]}" --dry-run orders create --coin "$HL_QA_COIN" --side buy --price "$HL_QA_PRICE" --size "$HL_QA_SIZE" --tif alo --builder "$HL_QA_TO" --builder-fee-rate 0.001%
 run_case 0 "orders create outcome dry run" "${BASE[@]}" --dry-run orders create --coin '#10' --side buy --price 0.5 --size 1 --tif alo
-run_case 0 "orders scale dry run" "${BASE[@]}" --dry-run orders scale --coin "$HL_QA_COIN" --side buy --start-price "$HL_QA_PRICE" --end-price "$HL_QA_PRICE" --total-size "$HL_QA_SIZE" --orders 2 --tif alo
+run_case 0 "orders scale dry run" "${BASE[@]}" --dry-run orders scale --coin "$HL_QA_COIN" --side buy --start-price "$HL_QA_PRICE" --end-price "$(python3 - "$HL_QA_PRICE" <<'PY'
+from decimal import Decimal
+import sys
+print(Decimal(sys.argv[1]) + Decimal('100'))
+PY
+)" --total-size "$HL_QA_SIZE" --orders 2 --tif alo
 run_case 0 "orders batch create dry run" "${BASE[@]}" --dry-run orders batch-create --orders-file tests/fixtures/orders_batch_create.json
 run_case 0 "orders tpsl dry run" "${BASE[@]}" --dry-run orders tpsl --coin "$HL_QA_COIN" --side sell --size "$HL_QA_SIZE" --take-profit 120000 --stop-loss 40000
 run_case 0 "orders cancel oid dry run" "${BASE[@]}" --dry-run orders cancel "$HL_QA_ORDER_ID"
-run_case 0 "orders cancel cloid dry run" "${BASE[@]}" --dry-run orders cancel --cloid qa-cloid
+run_case 0 "orders cancel cloid dry run" "${BASE[@]}" --dry-run orders cancel --cloid 0x1234567890abcdef1234567890abcdef
 run_case 0 "orders cancel all dry run" "${BASE[@]}" --dry-run orders cancel-all --coin "$HL_QA_COIN" -y
 run_case 0 "orders modify dry run" "${BASE[@]}" --dry-run orders modify "$HL_QA_ORDER_ID" --price "$HL_QA_PRICE"
 run_case 0 "orders modify cloid dry run" "${BASE[@]}" --dry-run orders modify --cloid 0x1234567890abcdef1234567890abcdef --price "$HL_QA_PRICE"
