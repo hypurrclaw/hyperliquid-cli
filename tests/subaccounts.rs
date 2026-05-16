@@ -550,6 +550,14 @@ fn schema_describes_acting_account_selectors_and_raw_destinations() {
         .unwrap();
     assert!(subaccount_description.contains("acting-account selector"));
     assert!(subaccount_description.contains("does not apply to transfer recipients"));
+    let subaccount_kind = subaccount_schema["args"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|arg| arg["id"] == "subaccount")
+        .and_then(|arg| arg["input_kind"].as_str())
+        .unwrap();
+    assert_eq!(subaccount_kind, "acting_account_selector");
     let yes_arg = subaccount_schema["args"]
         .as_array()
         .unwrap()

@@ -230,6 +230,51 @@ async fn orders_cancel_by_cloid_outputs_confirmation() {
 }
 
 #[tokio::test]
+async fn orders_cancel_on_behalf_looks_up_and_signs_with_vault_address() {
+    let env = IsolatedHome::new();
+    let subaccount = "0x0000000000000000000000000000000000000123";
+    let server = mock_order_management_server(
+        Some(basic_order("BTC", 12346, None)),
+        vec![],
+        vec![serde_json::json!("success")],
+        "cancel",
+    )
+    .await;
+
+    env.command()
+        .env(API_OVERRIDE_ENV, server.uri())
+        .env(PRIVATE_KEY_ENV, VALID_PRIVATE_KEY)
+        .args([
+            "orders",
+            "cancel",
+            "12346",
+            "--on-behalf-of",
+            subaccount,
+            "--testnet",
+        ])
+        .assert()
+        .success();
+
+    let requests = server.received_requests().await.unwrap();
+    let order_status = requests
+        .iter()
+        .find(|request| {
+            request.url.path() == "/info"
+                && String::from_utf8_lossy(&request.body).contains("orderStatus")
+        })
+        .expect("expected order status lookup");
+    let status_body: serde_json::Value = serde_json::from_slice(&order_status.body).unwrap();
+    assert_eq!(status_body["user"], subaccount);
+
+    let exchange = requests
+        .iter()
+        .find(|request| request.url.path() == "/exchange")
+        .expect("expected exchange request");
+    let exchange_body: serde_json::Value = serde_json::from_slice(&exchange.body).unwrap();
+    assert_eq!(exchange_body["vaultAddress"], subaccount);
+}
+
+#[tokio::test]
 async fn orders_cancel_outcome_order_uses_encoded_asset_id() {
     let env = IsolatedHome::new();
     let server = mock_order_management_server(

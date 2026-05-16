@@ -810,6 +810,118 @@ fn orders_twap_cancel_help_shows_required_coin() {
 }
 
 #[tokio::test]
+async fn orders_schedule_cancel_mainnet_prompts_and_aborts_without_submission() {
+    let env = IsolatedHome::new();
+    let server = mock_twap_server_without_exchange().await;
+
+    env.command()
+        .env(API_OVERRIDE_ENV, server.uri())
+        .env(PRIVATE_KEY_ENV, VALID_PRIVATE_KEY)
+        .write_stdin("n\n")
+        .args(["orders", "schedule-cancel", "--in", "5m"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains(
+            "Mainnet schedule-cancel confirmation required",
+        ))
+        .stderr(predicate::str::contains("action cancelled"));
+}
+
+#[tokio::test]
+async fn orders_schedule_cancel_clear_mainnet_prompts_and_aborts_without_submission() {
+    let env = IsolatedHome::new();
+    let server = mock_twap_server_without_exchange().await;
+
+    env.command()
+        .env(API_OVERRIDE_ENV, server.uri())
+        .env(PRIVATE_KEY_ENV, VALID_PRIVATE_KEY)
+        .write_stdin("n\n")
+        .args(["orders", "schedule-cancel", "--clear"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains(
+            "Mainnet schedule-cancel confirmation required",
+        ))
+        .stderr(predicate::str::contains("action cancelled"));
+}
+
+#[test]
+fn orders_schedule_cancel_requires_yes_in_json_machine_context() {
+    let env = IsolatedHome::new();
+
+    let output = env
+        .command()
+        .env(PRIVATE_KEY_ENV, VALID_PRIVATE_KEY)
+        .args([
+            "--format",
+            "json",
+            "orders",
+            "schedule-cancel",
+            "--in",
+            "5m",
+        ])
+        .assert()
+        .code(13)
+        .get_output()
+        .stdout
+        .clone();
+    let json: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(json["category"], "unsupported");
+    assert_eq!(json["exit_code"], 13);
+    assert!(
+        json["error"]
+            .as_str()
+            .unwrap()
+            .contains("requires confirmation")
+    );
+}
+
+#[test]
+fn orders_schedule_cancel_clear_requires_yes_in_agent_context() {
+    let env = IsolatedHome::new();
+
+    let output = env
+        .command()
+        .env(PRIVATE_KEY_ENV, VALID_PRIVATE_KEY)
+        .env("HYPERLIQUID_AGENT", "1")
+        .args(["--format", "json", "orders", "schedule-cancel", "--clear"])
+        .assert()
+        .code(13)
+        .get_output()
+        .stdout
+        .clone();
+    let json: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(json["category"], "unsupported");
+    assert_eq!(json["exit_code"], 13);
+    assert!(
+        json["error"]
+            .as_str()
+            .unwrap()
+            .contains("requires confirmation")
+    );
+}
+
+#[tokio::test]
+async fn orders_schedule_cancel_mainnet_yes_bypasses_confirmation_prompt() {
+    let env = IsolatedHome::new();
+    let server = mock_trading_server(serde_json::json!({
+        "status": "ok",
+        "response": {
+            "type": "default"
+        }
+    }))
+    .await;
+
+    env.command()
+        .env(API_OVERRIDE_ENV, server.uri())
+        .env(PRIVATE_KEY_ENV, VALID_PRIVATE_KEY)
+        .args(["orders", "schedule-cancel", "--in", "5m", "--yes"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("Mainnet schedule-cancel confirmation required").not());
+}
+
+#[tokio::test]
 async fn orders_schedule_cancel_outputs_scheduled_time() {
     let env = IsolatedHome::new();
     let server = mock_trading_server(serde_json::json!({
@@ -828,6 +940,17 @@ async fn orders_schedule_cancel_outputs_scheduled_time() {
         .success()
         .stdout(predicate::str::contains("scheduled"))
         .stdout(predicate::str::contains("Scheduled Time"));
+
+    let requests = server.received_requests().await.unwrap();
+    let exchange_requests: Vec<_> = requests
+        .iter()
+        .filter(|request| request.url.path() == "/exchange")
+        .collect();
+    assert_eq!(exchange_requests.len(), 1);
+    let body: serde_json::Value = serde_json::from_slice(&exchange_requests[0].body).unwrap();
+    assert_eq!(body["action"]["type"], "scheduleCancel");
+    assert!(body["action"]["time"].is_number());
+    assert!(body["vaultAddress"].is_null());
 }
 
 #[tokio::test]
@@ -848,6 +971,88 @@ async fn orders_schedule_cancel_clear_outputs_cleared_status() {
         .assert()
         .success()
         .stdout(predicate::str::contains("cleared"));
+
+    let requests = server.received_requests().await.unwrap();
+    let exchange_requests: Vec<_> = requests
+        .iter()
+        .filter(|request| request.url.path() == "/exchange")
+        .collect();
+    assert_eq!(exchange_requests.len(), 1);
+    let body: serde_json::Value = serde_json::from_slice(&exchange_requests[0].body).unwrap();
+    assert_eq!(body["action"]["type"], "scheduleCancel");
+    assert!(body["action"]["time"].is_null());
+}
+
+#[tokio::test]
+async fn orders_schedule_cancel_on_behalf_sets_vault_address() {
+    let env = IsolatedHome::new();
+    let subaccount = "0x0000000000000000000000000000000000000123";
+    let server = mock_trading_server(serde_json::json!({
+        "status": "ok",
+        "response": {
+            "type": "default"
+        }
+    }))
+    .await;
+
+    env.command()
+        .env(API_OVERRIDE_ENV, server.uri())
+        .env(PRIVATE_KEY_ENV, VALID_PRIVATE_KEY)
+        .args([
+            "orders",
+            "schedule-cancel",
+            "--in",
+            "5m",
+            "--on-behalf-of",
+            subaccount,
+            "--testnet",
+        ])
+        .assert()
+        .success();
+
+    let requests = server.received_requests().await.unwrap();
+    let exchange = requests
+        .iter()
+        .find(|request| request.url.path() == "/exchange")
+        .expect("expected exchange request");
+    let body: serde_json::Value = serde_json::from_slice(&exchange.body).unwrap();
+    assert_eq!(body["vaultAddress"], subaccount);
+}
+
+#[tokio::test]
+async fn orders_schedule_cancel_clear_on_behalf_sets_vault_address() {
+    let env = IsolatedHome::new();
+    let subaccount = "0x0000000000000000000000000000000000000123";
+    let server = mock_trading_server(serde_json::json!({
+        "status": "ok",
+        "response": {
+            "type": "default"
+        }
+    }))
+    .await;
+
+    env.command()
+        .env(API_OVERRIDE_ENV, server.uri())
+        .env(PRIVATE_KEY_ENV, VALID_PRIVATE_KEY)
+        .args([
+            "orders",
+            "schedule-cancel",
+            "--clear",
+            "--on-behalf-of",
+            subaccount,
+            "--testnet",
+        ])
+        .assert()
+        .success();
+
+    let requests = server.received_requests().await.unwrap();
+    let exchange = requests
+        .iter()
+        .find(|request| request.url.path() == "/exchange")
+        .expect("expected exchange request");
+    let body: serde_json::Value = serde_json::from_slice(&exchange.body).unwrap();
+    assert_eq!(body["vaultAddress"], subaccount);
+    assert!(body["action"]["time"].is_null());
 }
 
 #[test]

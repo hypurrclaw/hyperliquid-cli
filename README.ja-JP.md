@@ -1,6 +1,6 @@
 # Hyperliquid CLI
 
-[![Crates.io](https://img.shields.io/badge/crates.io-v0.1.0-orange.svg)](https://crates.io/crates/hyperliquid-cli)
+[![Crates.io](https://img.shields.io/badge/crates.io-v0.11.0-orange.svg)](https://crates.io/crates/hyperliquid-cli)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.93%2B-blue.svg)](https://www.rust-lang.org)
 [![Built on hypersdk](https://img.shields.io/badge/built%20on-hypersdk-blueviolet.svg)](https://github.com/infinitefield/hypersdk)
@@ -30,7 +30,7 @@ sh install.sh
 hyperliquid --version
 ```
 
-インストーラはバイナリを `~/.local/bin` にコピーする前に SHA-256 チェックサムを検証します。デフォルトでは最新 release をインストールします。repo、固定 version、install directory は `HYPERLIQUID_CLI_REPO=OWNER/REPO`、`HYPERLIQUID_CLI_VERSION=v0.1.0`、`BIN_DIR=/path/to/bin` で上書きできます。
+インストーラはバイナリを `~/.local/bin` にコピーする前に SHA-256 チェックサムを検証します。デフォルトでは最新 release をインストールします。repo、固定 version、install directory は `HYPERLIQUID_CLI_REPO=OWNER/REPO`、`HYPERLIQUID_CLI_VERSION=v0.11.0`、`BIN_DIR=/path/to/bin` で上書きできます。
 
 ソースから:
 
@@ -343,7 +343,7 @@ Outcome market notation（`#N` spot coin と `+N` token name）は、`outcomes l
 | `feedback (--scenario-json <JSON>\|--scenario-file <PATH\|->) [--contact <CONTACT>] [--tags <TAG>] [--url <URL>]` | 構造化された CLI feedback を scenario JSON object として設定済み feedback endpoint に送信します。rate-limit attribution のために scenario に `agent_address`、`signer_address`、または `wallet_address` を含め、デフォルトを上書きするには `--url` を使用します。 |
 | `schema [COMMAND...]` | エージェント向けの機械可読な command schema を表示します。 |
 | `subscribe trades --asset <ASSET>` / `subscribe orderbook --asset <ASSET>` / `subscribe candles --asset <ASSET> [--interval <INTERVAL>]` / `subscribe all-mids` / `subscribe order-updates` / `subscribe fills` `[--max-events <N>] [--idle-timeout-ms <MS>]` | WebSocket event をストリーミングします。 |
-| `update` | 最新の GitHub release からこのバイナリを更新します。グローバル `--dry-run` でプレビューできます。 |
+| `update` | Linux/macOS では最新の GitHub release からこのバイナリを更新します。Windows ユーザーは `install.sh` を再実行して最新の `.zip` release をインストールしてください。グローバル `--dry-run` でプレビューできます。 |
 
 `vaults` は `vault` の alias として受け付けられます。
 

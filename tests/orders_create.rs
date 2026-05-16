@@ -1215,6 +1215,49 @@ async fn orders_trigger_limit_live_request_keeps_limit_and_trigger_prices_distin
 }
 
 #[tokio::test]
+async fn orders_tpsl_on_behalf_uses_acting_account_for_position_and_submission() {
+    let env = IsolatedHome::new();
+    let subaccount = "0x0000000000000000000000000000000000000123";
+    let server = mock_order_server(12354).await;
+
+    env.command()
+        .env(API_OVERRIDE_ENV, server.uri())
+        .env(PRIVATE_KEY_ENV, VALID_PRIVATE_KEY)
+        .args([
+            "orders",
+            "tpsl",
+            "--coin",
+            "BTC",
+            "--take-profit",
+            "60000",
+            "--on-behalf-of",
+            subaccount,
+            "--testnet",
+        ])
+        .assert()
+        .success();
+
+    let requests = server.received_requests().await.unwrap();
+    let clearinghouse_state = requests
+        .iter()
+        .find(|request| {
+            request.url.path() == "/info"
+                && String::from_utf8_lossy(&request.body).contains("clearinghouseState")
+        })
+        .expect("expected clearinghouseState position lookup");
+    let state_body: Value = serde_json::from_slice(&clearinghouse_state.body).unwrap();
+    assert_eq!(state_body["user"], subaccount);
+
+    let exchange_request = requests
+        .iter()
+        .find(|request| request.url.path() == "/exchange")
+        .expect("expected TP/SL exchange request");
+    let body: Value = serde_json::from_slice(&exchange_request.body).unwrap();
+    assert_eq!(body["vaultAddress"], subaccount);
+    assert_eq!(body["action"]["orders"][0]["t"]["trigger"]["tpsl"], "tp");
+}
+
+#[tokio::test]
 async fn orders_create_live_request_sends_cloid_in_c() {
     let env = IsolatedHome::new();
     let server = mock_order_server(12354).await;

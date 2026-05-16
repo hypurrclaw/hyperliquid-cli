@@ -158,7 +158,7 @@ fn schema_single_command_outputs_schema_object() {
     );
     assert_eq!(
         json["json_schema"]["properties"]["on_behalf_of"]["input_kind"],
-        "signer_selector"
+        "acting_account_selector"
     );
     assert_eq!(
         json["json_schema"]["properties"]["price"]["input_kind"],
@@ -839,6 +839,29 @@ async fn orders_schedule_cancel_dry_run_shows_validated_intent() {
     assert_eq!(json["would_execute"], "schedule_dead_mans_switch");
     assert_eq!(json["args"]["mode"], "set");
     assert_eq!(json["args"]["in_duration_ms"], 300000);
+    assert!(json["signer"].is_null() || json["signer"].is_string());
+    assert!(json["vault_address"].is_null());
+}
+
+#[tokio::test]
+async fn orders_schedule_cancel_rejects_in_below_exchange_minimum() {
+    let env = IsolatedHome::new();
+    let mut command = env.account_command(TEST_ACCOUNT_PASSPHRASE);
+    command
+        .args([
+            "--format",
+            "json",
+            "--dry-run",
+            "orders",
+            "schedule-cancel",
+            "--in",
+            "4s",
+        ])
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains(
+            "orders schedule-cancel --in must be at least 5s",
+        ));
 }
 
 #[tokio::test]
@@ -863,6 +886,34 @@ async fn orders_schedule_cancel_clear_dry_run_shows_validated_intent() {
     assert_eq!(json["command"], "orders schedule-cancel");
     assert_eq!(json["would_execute"], "schedule_dead_mans_switch");
     assert_eq!(json["args"]["mode"], "clear");
+}
+
+#[tokio::test]
+async fn orders_schedule_cancel_dry_run_preserves_on_behalf_of_context() {
+    let env = IsolatedHome::new();
+    let subaccount = "0x0000000000000000000000000000000000000123";
+    let mut command = env.account_command(TEST_ACCOUNT_PASSPHRASE);
+    let output = command
+        .args([
+            "--format",
+            "json",
+            "--dry-run",
+            "orders",
+            "schedule-cancel",
+            "--in",
+            "5s",
+            "--on-behalf-of",
+            subaccount,
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let json: Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(json["args"]["on_behalf_of"], subaccount);
+    assert_eq!(json["acting_as"], subaccount);
+    assert_eq!(json["vault_address"], subaccount);
 }
 
 #[tokio::test]

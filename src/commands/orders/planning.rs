@@ -524,7 +524,7 @@ pub(crate) fn prepare_normal_tpsl_batch(
 pub(crate) async fn prepare_position_tpsl_batch(
     client: &HttpClient,
     resolver: &AssetResolver,
-    signer: &SelectedSigner,
+    user: Address,
     args: &TpslArgs,
 ) -> Result<PreparedTpslBatch, CliError> {
     validate_tpsl_args(args)?;
@@ -532,13 +532,9 @@ pub(crate) async fn prepare_position_tpsl_batch(
     let (side, size) = match (args.side, args.size) {
         (Some(side), Some(size)) => (side, size),
         (None, None) => {
-            let position = lookup_position_for_tpsl(
-                client,
-                signer.query_address(),
-                resolved.dex.clone(),
-                &resolved.name,
-            )
-            .await?;
+            let position =
+                lookup_position_for_tpsl(client, user, resolved.dex.clone(), &resolved.name)
+                    .await?;
             position_close_side_and_size(&position)?
         }
         _ => unreachable!("validate_tpsl_args rejects partial side/size"),
@@ -868,6 +864,12 @@ pub fn twap_create_dry_run_plan(
         &mut preview,
         args.margin_mode.unwrap_or(MarginModeArg::Cross),
     );
+    if let Some(args_object) = preview.as_object_mut() {
+        args_object.insert(
+            "on_behalf_of".to_string(),
+            serde_json::json!(args.on_behalf_of),
+        );
+    }
     Ok(OrderDryRunPlan::new(
         "orders twap-create",
         "create_twap_order",
@@ -880,10 +882,17 @@ pub fn twap_cancel_dry_run_plan(
     args: &TwapCancelArgs,
 ) -> Result<OrderDryRunPlan, CliError> {
     let plan = prepare_twap_cancel_plan(resolver, args)?;
+    let mut preview = plan.dry_run_args(&args.coin, args.dex.as_deref());
+    if let Some(args_object) = preview.as_object_mut() {
+        args_object.insert(
+            "on_behalf_of".to_string(),
+            serde_json::json!(args.on_behalf_of),
+        );
+    }
     Ok(OrderDryRunPlan::new(
         "orders twap-cancel",
         "cancel_twap_order",
-        plan.dry_run_args(&args.coin, args.dex.as_deref()),
+        preview,
     ))
 }
 
@@ -891,10 +900,17 @@ pub fn schedule_cancel_dry_run_plan(
     args: &ScheduleCancelArgs,
 ) -> Result<OrderDryRunPlan, CliError> {
     let plan = prepare_schedule_cancel_plan(args, Utc::now())?;
+    let mut preview = plan.dry_run_args();
+    if let Some(args_object) = preview.as_object_mut() {
+        args_object.insert(
+            "on_behalf_of".to_string(),
+            serde_json::json!(args.on_behalf_of),
+        );
+    }
     Ok(OrderDryRunPlan::new(
         "orders schedule-cancel",
         "schedule_dead_mans_switch",
-        plan.dry_run_args(),
+        preview,
     ))
 }
 
@@ -906,6 +922,7 @@ pub fn modify_dry_run_plan(args: &ModifyArgs) -> Result<OrderDryRunPlan, CliErro
         serde_json::json!({
             "order_id": args.order_id,
             "cloid": args.cloid,
+            "on_behalf_of": args.on_behalf_of,
             "price": args.price.map(|value| value.to_string()),
             "trigger_price": args.trigger_price.map(|value| value.to_string()),
             "size": args.size.map(|value| value.to_string()),
@@ -921,6 +938,7 @@ pub fn cancel_dry_run_plan(args: &CancelArgs) -> Result<OrderDryRunPlan, CliErro
         serde_json::json!({
             "order_id": args.order_id,
             "cloid": args.cloid,
+            "on_behalf_of": args.on_behalf_of,
             "identifier": identifier.display(),
         }),
     ))
@@ -938,6 +956,7 @@ pub fn cancel_all_dry_run_plan(
         serde_json::json!({
             "coin": args.coin,
             "dex": args.dex,
+            "on_behalf_of": args.on_behalf_of,
             "resolved_coin_filter": coin_filter,
         }),
     ))
@@ -1136,6 +1155,11 @@ pub(crate) fn prepare_schedule_cancel_plan(
 ) -> Result<ScheduleCancelPlan, CliError> {
     match (args.in_duration, args.clear) {
         (Some(in_duration), false) => {
+            if in_duration.as_secs() < 5 {
+                return Err(CliError::Configuration(
+                    "orders schedule-cancel --in must be at least 5s".to_string(),
+                ));
+            }
             let chrono_duration = chrono::Duration::from_std(in_duration)
                 .map_err(|err| CliError::Configuration(format!("invalid --in duration: {err}")))?;
             let scheduled_at = now + chrono_duration;
@@ -1292,6 +1316,7 @@ pub fn tpsl_dry_run_preview(
     let mut preview = serde_json::json!({
         "coin": args.coin,
         "dex": args.dex,
+        "on_behalf_of": args.on_behalf_of,
         "take_profit": args.take_profit.map(|value| value.to_string()),
         "stop_loss": args.stop_loss.map(|value| value.to_string()),
         "grouping": args.grouping.to_string(),

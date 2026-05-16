@@ -1,6 +1,6 @@
 [package]
 name = "hyperliquid-cli"
-version = "0.1.0"
+version = "0.11.0"
 edition = "2024"
 description = "Production-grade CLI for Hyperliquid DEX"
 license = "MIT"
@@ -20,8 +20,13 @@ path = "src/main.rs"
 # Primary SDK for Hyperliquid API
 hypersdk = "0.2"
 reqwest = { version = "0.13", features = ["json"] }
-alloy-signer-local = { version = "1.8", features = ["keystore"] }
-alloy = { version = "1.5.2", features = ["eip712", "sol-types", "signers"], default-features = false }
+alloy-signer-local = { version = "2.0.4", features = ["keystore"] }
+# hypersdk 0.2 still re-exports Alloy 1.x signer types. Keep the v1 crates
+# feature-enabled until hypersdk moves to Alloy 2 so local keystores and
+# synchronous signing continue to compile.
+alloy-signer-local-v1 = { package = "alloy-signer-local", version = "1.8", features = ["keystore"] }
+alloy-v1 = { package = "alloy", version = "1.8", features = ["signers"], default-features = false }
+alloy = { version = "2.0.4", features = ["dyn-abi", "eip712", "sol-types", "signers"], default-features = false }
 
 # CLI framework
 clap = { version = "4", features = ["derive"] }
@@ -62,7 +67,7 @@ rusqlite = { version = "0.38", features = ["bundled"] }
 aes-gcm = "0.10"
 base64 = "0.22"
 hex = "0.4"
-rand = "0.9"
+rand = "0.10"
 sha2 = "0.11"
 rpassword = "7"
 keyring = { version = "3", features = ["apple-native", "linux-native", "windows-native"] }

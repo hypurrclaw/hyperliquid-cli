@@ -125,15 +125,14 @@ pub async fn update(format: OutputFormat, dry_run: bool) -> Result<(), anyhow::E
         return Ok(());
     }
 
-    let target = current_target()?;
-    let asset = format!("hyperliquid-{target}.tar.gz");
+    let asset = current_release_asset()?;
     let base_url = format!("https://github.com/{REPO}/releases/download/{latest_version}/{asset}");
     let archive = download_bytes(&base_url).await?;
     let checksum = download_text(&format!("{base_url}.sha256")).await?;
-    verify_sha256(&archive, &asset, &checksum)?;
+    verify_sha256(&archive, asset, &checksum)?;
 
     let tmpdir = create_temp_dir()?;
-    let archive_path = tmpdir.path().join(&asset);
+    let archive_path = tmpdir.path().join(asset);
     std::fs::write(&archive_path, archive)?;
     extract_archive(&archive_path, tmpdir.path()).await?;
     let new_binary = find_extracted_binary(tmpdir.path())?;
@@ -276,12 +275,16 @@ fn normalize_version(version: &str) -> String {
     version.trim().trim_start_matches('v').to_string()
 }
 
-fn current_target() -> Result<&'static str, CliError> {
-    match (std::env::consts::OS, std::env::consts::ARCH) {
-        ("macos", "x86_64") => Ok("x86_64-apple-darwin"),
-        ("macos", "aarch64") => Ok("aarch64-apple-darwin"),
-        ("linux", "x86_64") => Ok("x86_64-unknown-linux-gnu"),
-        ("linux", "aarch64") => Ok("aarch64-unknown-linux-gnu"),
+fn current_release_asset() -> Result<&'static str, CliError> {
+    release_asset_for(std::env::consts::OS, std::env::consts::ARCH)
+}
+
+fn release_asset_for(os: &str, arch: &str) -> Result<&'static str, CliError> {
+    match (os, arch) {
+        ("macos", "x86_64") => Ok("hyperliquid-macos-x86_64.tar.gz"),
+        ("macos", "aarch64") => Ok("hyperliquid-macos-aarch64.tar.gz"),
+        ("linux", "x86_64") => Ok("hyperliquid-linux-x86_64.tar.gz"),
+        ("linux", "aarch64") => Ok("hyperliquid-linux-aarch64.tar.gz"),
         (os, arch) => Err(CliError::Unsupported(format!(
             "update is not supported on {os}/{arch}"
         ))),
@@ -547,7 +550,36 @@ mod tests {
     }
 
     #[test]
-    fn current_target_supports_this_platform() {
-        let _ = current_target();
+    fn release_asset_matches_published_unix_archive_names() {
+        assert_eq!(
+            release_asset_for("linux", "x86_64").unwrap(),
+            "hyperliquid-linux-x86_64.tar.gz"
+        );
+        assert_eq!(
+            release_asset_for("linux", "aarch64").unwrap(),
+            "hyperliquid-linux-aarch64.tar.gz"
+        );
+        assert_eq!(
+            release_asset_for("macos", "x86_64").unwrap(),
+            "hyperliquid-macos-x86_64.tar.gz"
+        );
+        assert_eq!(
+            release_asset_for("macos", "aarch64").unwrap(),
+            "hyperliquid-macos-aarch64.tar.gz"
+        );
+    }
+
+    #[test]
+    fn windows_self_update_is_explicitly_unsupported() {
+        let err = release_asset_for("windows", "x86_64").unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("update is not supported on windows/x86_64")
+        );
+    }
+
+    #[test]
+    fn current_release_asset_supports_this_platform() {
+        let _ = current_release_asset();
     }
 }

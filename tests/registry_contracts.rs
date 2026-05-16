@@ -237,7 +237,7 @@ fn registry_explicitly_classifies_critical_command_classes() {
         .unwrap();
     assert_eq!(
         subaccount_input.kind.as_ref().map(|kind| kind.as_str()),
-        Some("signer_selector")
+        Some("acting_account_selector")
     );
 
     let builder_approve = registry.find_path(&["builder", "approve"]).unwrap();

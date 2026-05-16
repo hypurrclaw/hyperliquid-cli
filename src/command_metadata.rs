@@ -281,7 +281,7 @@ fn inferred_input_kind(arg: &impl CatalogArgMetadata) -> Option<String> {
         return Some("public_user_selector".to_string());
     }
     if description.contains("acting-account selector") {
-        return Some("signer_selector".to_string());
+        return Some("acting_account_selector".to_string());
     }
     if description.contains("validator address")
         || description.contains("vault address")

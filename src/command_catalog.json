@@ -865,7 +865,7 @@
           "long": "subaccount",
           "required": true,
           "description": "Subaccount acting-account selector: subaccount address, wallet name, or wallet id. This does not apply to transfer recipients.",
-          "input_kind": "signer_selector"
+          "input_kind": "acting_account_selector"
         },
         {
           "id": "amount",
@@ -912,7 +912,7 @@
           "long": "subaccount",
           "required": true,
           "description": "Subaccount acting-account selector: subaccount address, wallet name, or wallet id. This does not apply to transfer recipients.",
-          "input_kind": "signer_selector"
+          "input_kind": "acting_account_selector"
         },
         {
           "id": "token",
@@ -1990,7 +1990,7 @@
           "id": "on_behalf_of",
           "long": "on-behalf-of",
           "description": "Acting-account selector for vaultAddress: subaccount/vault address, wallet name, or wallet id.",
-          "input_kind": "signer_selector"
+          "input_kind": "acting_account_selector"
         },
         {
           "id": "margin_mode",
@@ -2112,7 +2112,7 @@
           "id": "on_behalf_of",
           "long": "on-behalf-of",
           "description": "Acting-account selector for vaultAddress: subaccount/vault address, wallet name, or wallet id.",
-          "input_kind": "signer_selector"
+          "input_kind": "acting_account_selector"
         },
         {
           "id": "margin_mode",
@@ -2157,7 +2157,7 @@
           "id": "on_behalf_of",
           "long": "on-behalf-of",
           "description": "Acting-account selector for vaultAddress: subaccount/vault address, wallet name, or wallet id.",
-          "input_kind": "signer_selector"
+          "input_kind": "acting_account_selector"
         },
         {
           "id": "yes",
@@ -2194,6 +2194,12 @@
           "long": "dex",
           "description": "HIP-3 DEX name.",
           "input_kind": "venue_selector"
+        },
+        {
+          "id": "on_behalf_of",
+          "long": "on-behalf-of",
+          "description": "Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id.",
+          "input_kind": "acting_account_selector"
         },
         {
           "id": "take_profit",
@@ -2274,6 +2280,12 @@
           "long": "cloid",
           "description": "Client order id.",
           "input_kind": "identifier"
+        },
+        {
+          "id": "on_behalf_of",
+          "long": "on-behalf-of",
+          "description": "Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id.",
+          "input_kind": "acting_account_selector"
         }
       ],
       "lifecycle": "live_mutating",
@@ -2301,6 +2313,12 @@
           "long": "dex",
           "description": "HIP-3 DEX name for the coin filter.",
           "input_kind": "venue_selector"
+        },
+        {
+          "id": "on_behalf_of",
+          "long": "on-behalf-of",
+          "description": "Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id.",
+          "input_kind": "acting_account_selector"
         },
         {
           "id": "yes",
@@ -2363,6 +2381,12 @@
           "long": "size",
           "description": "Replacement size.",
           "input_kind": "amount"
+        },
+        {
+          "id": "on_behalf_of",
+          "long": "on-behalf-of",
+          "description": "Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id.",
+          "input_kind": "acting_account_selector"
         }
       ],
       "lifecycle": "live_mutating",
@@ -2391,6 +2415,12 @@
           "long": "dex",
           "description": "HIP-3 DEX name.",
           "input_kind": "venue_selector"
+        },
+        {
+          "id": "on_behalf_of",
+          "long": "on-behalf-of",
+          "description": "Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id.",
+          "input_kind": "acting_account_selector"
         },
         {
           "id": "side",
@@ -2469,6 +2499,12 @@
           "long": "dex",
           "description": "HIP-3 DEX name.",
           "input_kind": "venue_selector"
+        },
+        {
+          "id": "on_behalf_of",
+          "long": "on-behalf-of",
+          "description": "Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id.",
+          "input_kind": "acting_account_selector"
         }
       ],
       "lifecycle": "live_mutating",
@@ -2563,13 +2599,27 @@
           "required": false,
           "description": "Remove an existing scheduled cancel trigger instead of setting one.",
           "input_kind": "boolean"
+        },
+        {
+          "id": "on_behalf_of",
+          "long": "on-behalf-of",
+          "description": "Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id.",
+          "input_kind": "acting_account_selector"
+        },
+        {
+          "id": "yes",
+          "long": "yes",
+          "short": "y",
+          "arg_type": "boolean",
+          "description": "Skip confirmation prompt for deliberate automation.",
+          "input_kind": "boolean"
         }
       ],
       "lifecycle": "live_mutating",
       "risk": "funds_movement",
       "dry_run": "optional",
       "raw_payload": "dry_run_only",
-      "confirmation": "none",
+      "confirmation": "prompt",
       "ows_signer": "experimental_feature_gated"
     },
     {
@@ -3391,7 +3441,7 @@
       "group": "system",
       "auth_required": false,
       "dangerous": true,
-      "description": "Update this binary from the latest GitHub release. Use --dry-run to preview without replacing the executable.",
+      "description": "Update this binary from the latest GitHub release on Linux/macOS. Windows users should rerun install.sh to install the latest .zip release. Use --dry-run to preview without replacing the executable.",
       "args": [],
       "lifecycle": "interactive_local",
       "risk": "local_state",

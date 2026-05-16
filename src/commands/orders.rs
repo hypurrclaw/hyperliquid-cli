@@ -42,10 +42,10 @@ mod validation;
 
 pub use args::*;
 use planning::{
-    CreateOrderSubmission, prepare_batch_create_order_plan, prepare_cancel_all_orders_plan,
-    prepare_cancel_order_plan, prepare_create_order_plan, prepare_modify_order_plan,
-    prepare_position_tpsl_batch, prepare_scale_batch, prepare_schedule_cancel_plan,
-    prepare_twap_cancel_plan, prepare_twap_create_plan,
+    CreateOrderSubmission, ScheduleCancelPlan, prepare_batch_create_order_plan,
+    prepare_cancel_all_orders_plan, prepare_cancel_order_plan, prepare_create_order_plan,
+    prepare_modify_order_plan, prepare_position_tpsl_batch, prepare_scale_batch,
+    prepare_schedule_cancel_plan, prepare_twap_cancel_plan, prepare_twap_create_plan,
 };
 pub use planning::{
     OrderDryRunPlan, batch_create_dry_run_args, batch_create_dry_run_plan, cancel_all_dry_run_plan,
@@ -386,16 +386,13 @@ async fn place_order_batch(
 pub async fn tpsl(
     context: OrderExecutionContext<'_>,
     args: &TpslArgs,
+    vault_address: Option<Address>,
     format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
     let start = Instant::now();
-    let prepared = prepare_position_tpsl_batch(
-        context.client,
-        context.resolver,
-        context.submission.signer,
-        args,
-    )
-    .await?;
+    let user = vault_address.unwrap_or_else(|| context.submission.signer.query_address());
+    let prepared =
+        prepare_position_tpsl_batch(context.client, context.resolver, user, args).await?;
     if context.submission.require_mainnet_confirmation
         && !args.yes
         && !confirm_mainnet_tpsl_batch(&prepared, format)?
@@ -412,7 +409,7 @@ pub async fn tpsl(
         context.submission.chain,
         context.submission.signer,
         prepared.batch.clone(),
-        None,
+        vault_address,
     )
     .await?;
     let rows = tpsl_confirmation_rows(&prepared, statuses)?;
@@ -429,6 +426,7 @@ pub async fn cancel(
     context: OrderExecutionContext<'_>,
     user: Address,
     args: &CancelArgs,
+    vault_address: Option<Address>,
     format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
     context
@@ -444,7 +442,7 @@ pub async fn cancel(
         context.submission.signer,
         plan.action,
         nonce,
-        None,
+        vault_address,
         "cancel failed",
     )
     .await?;
@@ -471,6 +469,7 @@ pub async fn cancel_all(
     context: OrderExecutionContext<'_>,
     user: Address,
     args: &CancelAllArgs,
+    vault_address: Option<Address>,
     format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
     context
@@ -493,7 +492,7 @@ pub async fn cancel_all(
             context.submission.signer,
             action,
             nonce,
-            None,
+            vault_address,
             "cancel-all failed",
         )
         .await?;
@@ -521,6 +520,7 @@ pub async fn modify(
     context: OrderExecutionContext<'_>,
     user: Address,
     args: &ModifyArgs,
+    vault_address: Option<Address>,
     format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
     context
@@ -536,7 +536,7 @@ pub async fn modify(
         context.submission.signer,
         plan.action,
         nonce,
-        None,
+        vault_address,
         "modify failed",
     )
     .await?;
@@ -560,6 +560,7 @@ pub async fn twap_create(
     context: OrderSubmissionContext<'_>,
     resolver: &AssetResolver,
     args: &TwapCreateArgs,
+    vault_address: Option<Address>,
     format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
     let start = Instant::now();
@@ -580,7 +581,7 @@ pub async fn twap_create(
         context.chain,
         context.signer,
         &plan.action,
-        actions::RawL1ActionMetadata::new(actions::nonce_now()),
+        actions::RawL1ActionMetadata::new(actions::nonce_now()).with_vault_address(vault_address),
         "twap-create rejected",
     )
     .await?;
@@ -609,6 +610,7 @@ pub async fn twap_cancel(
     context: OrderSubmissionContext<'_>,
     resolver: &AssetResolver,
     args: &TwapCancelArgs,
+    vault_address: Option<Address>,
     format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
     let start = Instant::now();
@@ -619,7 +621,7 @@ pub async fn twap_cancel(
         context.chain,
         context.signer,
         &plan.action,
-        actions::RawL1ActionMetadata::new(actions::nonce_now()),
+        actions::RawL1ActionMetadata::new(actions::nonce_now()).with_vault_address(vault_address),
         "twap-cancel rejected",
     )
     .await?;
@@ -643,19 +645,35 @@ pub async fn twap_cancel(
 pub async fn schedule_cancel(
     context: OrderSubmissionContext<'_>,
     args: &ScheduleCancelArgs,
+    vault_address: Option<Address>,
     format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
     let start = Instant::now();
     context.signer.ensure_can_attempt_live_signing()?;
-    let plan = prepare_schedule_cancel_plan(args, Utc::now())?;
+    let mut plan = prepare_schedule_cancel_plan(args, Utc::now())?;
+    if context.require_mainnet_confirmation
+        && !args.yes
+        && !confirm_mainnet_schedule_cancel(&plan, format)?
+    {
+        return Err(CliError::Configuration(
+            "Mainnet schedule-cancel confirmation required; action cancelled. Rerun with --yes for deliberate automation."
+                .to_string(),
+        )
+        .into());
+    }
+    if plan.scheduled_at.is_some() {
+        plan = prepare_schedule_cancel_plan(args, Utc::now())?;
+    }
     let nonce = actions::nonce_now();
     if plan.scheduled_at.is_some() {
-        actions::send_l1_action(
+        actions::send_l1_action_raw(
             context.api_base_url,
             context.chain,
             context.signer,
             plan.action,
             nonce,
+            vault_address,
+            "schedule-cancel rejected",
         )
         .await?;
     } else {
@@ -667,7 +685,7 @@ pub async fn schedule_cancel(
                 action_type: "scheduleCancel",
                 time: None,
             },
-            actions::RawL1ActionMetadata::new(nonce),
+            actions::RawL1ActionMetadata::new(nonce).with_vault_address(vault_address),
             "schedule-cancel clear rejected",
         )
         .await?;
@@ -1625,6 +1643,32 @@ fn confirm_cancel_all(coin: Option<&str>, format: OutputFormat) -> Result<bool, 
     Ok(is_yes(input.trim()))
 }
 
+fn confirm_mainnet_schedule_cancel(
+    plan: &ScheduleCancelPlan,
+    format: OutputFormat,
+) -> Result<bool, CliError> {
+    let mut stderr = io::stderr();
+    let prompt = if let Some(scheduled_at) = plan.scheduled_at.as_ref() {
+        format!(
+            "Schedule mainnet cancel-all for {}? [y/N] ",
+            scheduled_at.to_rfc3339()
+        )
+    } else {
+        "Clear mainnet scheduled cancel-all? [y/N] ".to_string()
+    };
+    write!(stderr, "{}", warning_prompt(&prompt, format))
+        .map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
+    stderr
+        .flush()
+        .map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
+
+    let mut input = String::new();
+    io::stdin()
+        .read_line(&mut input)
+        .map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
+    Ok(is_yes(input.trim()))
+}
+
 async fn market_mid_price(client: &HttpClient, lookup: &MidLookup) -> Result<Decimal, CliError> {
     let mids = client
         .all_mids(lookup.dex.clone())
@@ -2117,6 +2161,7 @@ mod tests {
             grouping: PositionTpslGroupingArg::PositionTpsl,
             side: Some(OrderSide::Sell),
             size: Some(Decimal::new(1, 1)),
+            on_behalf_of: None,
             margin_mode: None,
             yes: false,
             cloid: Some("not-a-hex-value".to_string()),
@@ -2155,6 +2200,7 @@ mod tests {
             grouping: PositionTpslGroupingArg::PositionTpsl,
             side: None,
             size: None,
+            on_behalf_of: None,
             margin_mode: None,
             yes: false,
             cloid: None,

@@ -1,6 +1,6 @@
 # Hyperliquid CLI
 
-[![Crates.io](https://img.shields.io/badge/crates.io-v0.1.0-orange.svg)](https://crates.io/crates/hyperliquid-cli)
+[![Crates.io](https://img.shields.io/badge/crates.io-v0.11.0-orange.svg)](https://crates.io/crates/hyperliquid-cli)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.93%2B-blue.svg)](https://www.rust-lang.org)
 [![Built on hypersdk](https://img.shields.io/badge/built%20on-hypersdk-blueviolet.svg)](https://github.com/infinitefield/hypersdk)
@@ -30,7 +30,7 @@ sh install.sh
 hyperliquid --version
 ```
 
-The installer verifies a SHA-256 checksum before copying the binary to `~/.local/bin`. By default it installs the latest release; override the repo, pinned version, or install directory with `HYPERLIQUID_CLI_REPO=OWNER/REPO`, `HYPERLIQUID_CLI_VERSION=v0.1.0`, and `BIN_DIR=/path/to/bin`.
+The installer verifies a SHA-256 checksum before copying the binary to `~/.local/bin`. By default it installs the latest release; override the repo, pinned version, or install directory with `HYPERLIQUID_CLI_REPO=OWNER/REPO`, `HYPERLIQUID_CLI_VERSION=v0.11.0`, and `BIN_DIR=/path/to/bin`.
 
 From source:
 
@@ -273,6 +273,8 @@ Canonical top-level aliases accepted by the CLI:
 
 API wallets can sign trading actions for the approving master account, but they cannot withdraw. Use the master or subaccount address for info queries. When `api-wallet create` generates a local agent keypair, it prints the private key once before submitting `approveAgent` for that address; store that key securely because the CLI does not automatically recover it later.
 
+Signer and acting-account flags intentionally share the same selector grammar where it is safe: raw `0x` address, stored wallet/account alias, or stored wallet/account id. Their roles differ. Global `--account` / `--wallet` selects the key that signs the action; per-command `--on-behalf-of` selects the protocol account, subaccount, or vault supplied as Hyperliquid `vaultAddress` for that action.
+
 ### Trading and transfers
 
 | Command | Description |
@@ -284,13 +286,13 @@ API wallets can sign trading actions for the approving master account, but they 
 | `orders scale --coin <COIN> --side buy\|sell --start-price <PX> --end-price <PX> --total-size <SIZE> --orders <N>` | Create an evenly spaced batch of limit orders. |
 | `orders batch-create --orders-file <PATH>` | Create a batch of limit orders from JSON. |
 | `orders create --coin <COIN> --side buy\|sell [--take-profit <PX>] [--stop-loss <PX>] [--grouping normal-tpsl] ...` | Create a parent order with fixed-size TP/SL children. |
-| `orders tpsl --coin <COIN> (--take-profit <PX>\|--stop-loss <PX>) [--grouping position-tpsl] [--side buy\|sell] [--size <SIZE>] [--margin-mode cross\|isolated]` | Create TP/SL orders attached to the current position. |
-| `orders cancel (ORDER_ID\|--cloid <CLOID>)` | Cancel by order ID or client order ID. |
-| `orders cancel-all [--coin <COIN>] [--dex <DEX>] [-y]` | Cancel all open orders, optionally filtered by coin or DEX. |
-| `orders modify (ORDER_ID\|--cloid <CLOID>) [--price <PRICE>] [--trigger-price <PRICE>] [--size <SIZE>]` | Modify an existing order. |
-| `orders twap-create --coin <COIN> --side buy\|sell --size <SIZE> --duration <SECONDS> [--dex <DEX>] [--margin-mode cross\|isolated] [-y]` | Create a TWAP order. |
-| `orders twap-cancel <TWAP_ID> --coin <COIN> [--dex <DEX>]` | Cancel a TWAP order. |
-| `orders schedule-cancel (--in <DURATION>\|--clear)` | Configure a dead man's switch. |
+| `orders tpsl --coin <COIN> (--take-profit <PX>\|--stop-loss <PX>) [--grouping position-tpsl] [--side buy\|sell] [--size <SIZE>] [--margin-mode cross\|isolated] [--on-behalf-of <ACCOUNT_SELECTOR>]` | Create TP/SL orders attached to the current position. `--on-behalf-of` targets the acting subaccount/vault position. |
+| `orders cancel (ORDER_ID\|--cloid <CLOID>) [--on-behalf-of <ACCOUNT_SELECTOR>]` | Cancel by order ID or client order ID. `--on-behalf-of` manages an order for the acting subaccount/vault. |
+| `orders cancel-all [--coin <COIN>] [--dex <DEX>] [--on-behalf-of <ACCOUNT_SELECTOR>] [-y]` | Cancel all open orders, optionally filtered by coin or DEX. |
+| `orders modify (ORDER_ID\|--cloid <CLOID>) [--price <PRICE>] [--trigger-price <PRICE>] [--size <SIZE>] [--on-behalf-of <ACCOUNT_SELECTOR>]` | Modify an existing order. |
+| `orders twap-create --coin <COIN> --side buy\|sell --size <SIZE> --duration <SECONDS> [--dex <DEX>] [--margin-mode cross\|isolated] [--on-behalf-of <ACCOUNT_SELECTOR>] [-y]` | Create a TWAP order. |
+| `orders twap-cancel <TWAP_ID> --coin <COIN> [--dex <DEX>] [--on-behalf-of <ACCOUNT_SELECTOR>]` | Cancel a TWAP order. |
+| `orders schedule-cancel (--in <DURATION>\|--clear) [--on-behalf-of <ACCOUNT_SELECTOR>] [-y]` | Configure or clear a dead man's switch. Mainnet set and clear flows prompt unless `--yes` is supplied. |
 | `positions list [-w] [--max-ticks <TICKS>]` | List open positions. |
 | `positions update-leverage --coin <COIN> --leverage <N> [--isolated]` | Update leverage. |
 | `positions update-margin --coin <COIN> --amount <AMOUNT>` | Add or remove isolated margin. |
@@ -343,7 +345,7 @@ Outcome market notation (`#N` spot coin and `+N` token name) is available for di
 | `feedback (--scenario-json <JSON>\|--scenario-file <PATH\|->) [--contact <CONTACT>] [--tags <TAG>] [--url <URL>]` | Send structured CLI feedback as a scenario JSON object to the configured feedback endpoint; include `agent_address`, `signer_address`, or `wallet_address` in the scenario for rate-limit attribution, and use `--url` to override defaults. |
 | `schema [COMMAND...]` | Show machine-readable command schemas for agents. |
 | `subscribe trades --asset <ASSET>` / `subscribe orderbook --asset <ASSET>` / `subscribe candles --asset <ASSET> [--interval <INTERVAL>]` / `subscribe all-mids` / `subscribe order-updates` / `subscribe fills` `[--max-events <N>] [--idle-timeout-ms <MS>]` | Stream WebSocket events. |
-| `update` | Update this binary from the latest GitHub release. Use global `--dry-run` to preview. |
+| `update` | Update this binary from the latest GitHub release on Linux/macOS. Windows users should rerun `install.sh` to install the latest `.zip` release. Use global `--dry-run` to preview. |
 
 `vaults` is accepted as an alias for `vault`.
 
