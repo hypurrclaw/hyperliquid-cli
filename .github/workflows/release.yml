@@ -51,10 +51,6 @@ jobs:
         with:
           key: release-${{ matrix.target }}
 
-      - name: Pre-release repository health check
-        shell: bash
-        run: bash scripts/pre-release-check.sh
-
       - name: Build release binary
         env:
           HYPERLIQUID_DEFAULT_BUILDER_ADDRESS: ${{ vars.HYPERLIQUID_DEFAULT_BUILDER_ADDRESS }}

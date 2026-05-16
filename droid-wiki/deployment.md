@@ -30,12 +30,11 @@ Triggered by version tags (`v*`) or manual dispatch. Builds for 5 targets:
 | `x86_64-pc-windows-msvc` | windows-latest |
 
 Each build:
-1. Runs `scripts/pre-release-check.sh` to verify no local-only secrets/artifacts
-2. Builds the release binary with `--locked`
-3. Packages the binary with README and LICENSE into a `.tar.gz` on Unix targets or `.zip` on Windows
-4. Generates a SHA-256 checksum
-5. Smoke-tests the archive by running `hyperliquid --version`
-6. Uploads artifacts
+1. Builds the release binary with `--locked`
+2. Packages the binary with README and LICENSE into a `.tar.gz` on Unix targets or `.zip` on Windows
+3. Generates a SHA-256 checksum
+4. Smoke-tests the archive by running `hyperliquid --version`
+5. Uploads artifacts
 
 ### Security (`security.yml`)
 
