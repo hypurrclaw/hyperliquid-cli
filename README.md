@@ -273,6 +273,8 @@ Canonical top-level aliases accepted by the CLI:
 
 API wallets can sign trading actions for the approving master account, but they cannot withdraw. Use the master or subaccount address for info queries. When `api-wallet create` generates a local agent keypair, it prints the private key once before submitting `approveAgent` for that address; store that key securely because the CLI does not automatically recover it later.
 
+Signer and acting-account flags intentionally share the same selector grammar where it is safe: raw `0x` address, stored wallet/account alias, or stored wallet/account id. Their roles differ. Global `--account` / `--wallet` selects the key that signs the action; per-command `--on-behalf-of` selects the protocol account, subaccount, or vault supplied as Hyperliquid `vaultAddress` for that action.
+
 ### Trading and transfers
 
 | Command | Description |
@@ -284,13 +286,13 @@ API wallets can sign trading actions for the approving master account, but they 
 | `orders scale --coin <COIN> --side buy\|sell --start-price <PX> --end-price <PX> --total-size <SIZE> --orders <N>` | Create an evenly spaced batch of limit orders. |
 | `orders batch-create --orders-file <PATH>` | Create a batch of limit orders from JSON. |
 | `orders create --coin <COIN> --side buy\|sell [--take-profit <PX>] [--stop-loss <PX>] [--grouping normal-tpsl] ...` | Create a parent order with fixed-size TP/SL children. |
-| `orders tpsl --coin <COIN> (--take-profit <PX>\|--stop-loss <PX>) [--grouping position-tpsl] [--side buy\|sell] [--size <SIZE>] [--margin-mode cross\|isolated]` | Create TP/SL orders attached to the current position. |
-| `orders cancel (ORDER_ID\|--cloid <CLOID>)` | Cancel by order ID or client order ID. |
-| `orders cancel-all [--coin <COIN>] [--dex <DEX>] [-y]` | Cancel all open orders, optionally filtered by coin or DEX. |
-| `orders modify (ORDER_ID\|--cloid <CLOID>) [--price <PRICE>] [--trigger-price <PRICE>] [--size <SIZE>]` | Modify an existing order. |
-| `orders twap-create --coin <COIN> --side buy\|sell --size <SIZE> --duration <SECONDS> [--dex <DEX>] [--margin-mode cross\|isolated] [-y]` | Create a TWAP order. |
-| `orders twap-cancel <TWAP_ID> --coin <COIN> [--dex <DEX>]` | Cancel a TWAP order. |
-| `orders schedule-cancel (--in <DURATION>\|--clear)` | Configure a dead man's switch. |
+| `orders tpsl --coin <COIN> (--take-profit <PX>\|--stop-loss <PX>) [--grouping position-tpsl] [--side buy\|sell] [--size <SIZE>] [--margin-mode cross\|isolated] [--on-behalf-of <ACCOUNT_SELECTOR>]` | Create TP/SL orders attached to the current position. `--on-behalf-of` targets the acting subaccount/vault position. |
+| `orders cancel (ORDER_ID\|--cloid <CLOID>) [--on-behalf-of <ACCOUNT_SELECTOR>]` | Cancel by order ID or client order ID. `--on-behalf-of` manages an order for the acting subaccount/vault. |
+| `orders cancel-all [--coin <COIN>] [--dex <DEX>] [--on-behalf-of <ACCOUNT_SELECTOR>] [-y]` | Cancel all open orders, optionally filtered by coin or DEX. |
+| `orders modify (ORDER_ID\|--cloid <CLOID>) [--price <PRICE>] [--trigger-price <PRICE>] [--size <SIZE>] [--on-behalf-of <ACCOUNT_SELECTOR>]` | Modify an existing order. |
+| `orders twap-create --coin <COIN> --side buy\|sell --size <SIZE> --duration <SECONDS> [--dex <DEX>] [--margin-mode cross\|isolated] [--on-behalf-of <ACCOUNT_SELECTOR>] [-y]` | Create a TWAP order. |
+| `orders twap-cancel <TWAP_ID> --coin <COIN> [--dex <DEX>] [--on-behalf-of <ACCOUNT_SELECTOR>]` | Cancel a TWAP order. |
+| `orders schedule-cancel (--in <DURATION>\|--clear) [--on-behalf-of <ACCOUNT_SELECTOR>] [-y]` | Configure or clear a dead man's switch. Mainnet set and clear flows prompt unless `--yes` is supplied. |
 | `positions list [-w] [--max-ticks <TICKS>]` | List open positions. |
 | `positions update-leverage --coin <COIN> --leverage <N> [--isolated]` | Update leverage. |
 | `positions update-margin --coin <COIN> --amount <AMOUNT>` | Add or remove isolated margin. |

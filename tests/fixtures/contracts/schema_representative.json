@@ -526,6 +526,19 @@
           "positional_index": null,
           "required": false,
           "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id.",
+          "enum_values": [],
+          "id": "on_behalf_of",
+          "input_kind": "signer_selector",
+          "long": "on-behalf-of",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
         }
       ],
       "auth_required": true,
@@ -561,6 +574,11 @@
           "cloid": {
             "description": "0x-prefixed 16-byte client order id.",
             "input_kind": "identifier",
+            "type": "string"
+          },
+          "on_behalf_of": {
+            "description": "Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id.",
+            "input_kind": "signer_selector",
             "type": "string"
           },
           "order_id": {

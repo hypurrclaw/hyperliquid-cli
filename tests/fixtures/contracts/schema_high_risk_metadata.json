@@ -389,7 +389,7 @@
     {
       "auth_required": true,
       "command": "hyperliquid orders schedule-cancel",
-      "confirmation": "none",
+      "confirmation": "prompt",
       "dangerous": true,
       "dry_run": "optional",
       "lifecycle": "live_mutating",

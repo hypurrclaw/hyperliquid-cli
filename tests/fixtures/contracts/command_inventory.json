@@ -1651,6 +1651,7 @@
       "input_kinds": {
         "coin": "market_symbol",
         "dex": "venue_selector",
+        "on_behalf_of": "signer_selector",
         "size": "amount",
         "stop_loss": "price",
         "take_profit": "price",
@@ -1677,6 +1678,7 @@
       "group": "trade",
       "input_kinds": {
         "cloid": "identifier",
+        "on_behalf_of": "signer_selector",
         "order_id": "identifier"
       },
       "mutability": "live_mutating",
@@ -1701,6 +1703,7 @@
       "input_kinds": {
         "coin": "market_symbol",
         "dex": "venue_selector",
+        "on_behalf_of": "signer_selector",
         "yes": "boolean"
       },
       "mutability": "live_mutating",
@@ -1724,6 +1727,7 @@
       "group": "trade",
       "input_kinds": {
         "cloid": "identifier",
+        "on_behalf_of": "signer_selector",
         "order_id": "identifier",
         "price": "price",
         "size": "amount",
@@ -1752,6 +1756,7 @@
         "coin": "market_symbol",
         "dex": "venue_selector",
         "duration": "duration",
+        "on_behalf_of": "signer_selector",
         "size": "amount",
         "yes": "boolean"
       },
@@ -1777,6 +1782,7 @@
       "input_kinds": {
         "coin": "market_symbol",
         "dex": "venue_selector",
+        "on_behalf_of": "signer_selector",
         "twap_id": "identifier"
       },
       "mutability": "live_mutating",
@@ -1840,13 +1846,15 @@
         "orders",
         "schedule-cancel"
       ],
-      "confirmation": "none",
+      "confirmation": "prompt",
       "dangerous": true,
       "dry_run": "optional",
       "group": "trade",
       "input_kinds": {
         "clear": "boolean",
-        "in_duration": "duration"
+        "in_duration": "duration",
+        "on_behalf_of": "signer_selector",
+        "yes": "boolean"
       },
       "mutability": "live_mutating",
       "output_contract": "command_result_or_dry_run_envelope",
