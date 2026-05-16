@@ -2196,6 +2196,12 @@
           "input_kind": "venue_selector"
         },
         {
+          "id": "on_behalf_of",
+          "long": "on-behalf-of",
+          "description": "Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id.",
+          "input_kind": "signer_selector"
+        },
+        {
           "id": "take_profit",
           "long": "take-profit",
           "description": "Take-profit trigger price for a market trigger order.",
@@ -2274,6 +2280,12 @@
           "long": "cloid",
           "description": "Client order id.",
           "input_kind": "identifier"
+        },
+        {
+          "id": "on_behalf_of",
+          "long": "on-behalf-of",
+          "description": "Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id.",
+          "input_kind": "signer_selector"
         }
       ],
       "lifecycle": "live_mutating",
@@ -2301,6 +2313,12 @@
           "long": "dex",
           "description": "HIP-3 DEX name for the coin filter.",
           "input_kind": "venue_selector"
+        },
+        {
+          "id": "on_behalf_of",
+          "long": "on-behalf-of",
+          "description": "Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id.",
+          "input_kind": "signer_selector"
         },
         {
           "id": "yes",
@@ -2363,6 +2381,12 @@
           "long": "size",
           "description": "Replacement size.",
           "input_kind": "amount"
+        },
+        {
+          "id": "on_behalf_of",
+          "long": "on-behalf-of",
+          "description": "Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id.",
+          "input_kind": "signer_selector"
         }
       ],
       "lifecycle": "live_mutating",
@@ -2391,6 +2415,12 @@
           "long": "dex",
           "description": "HIP-3 DEX name.",
           "input_kind": "venue_selector"
+        },
+        {
+          "id": "on_behalf_of",
+          "long": "on-behalf-of",
+          "description": "Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id.",
+          "input_kind": "signer_selector"
         },
         {
           "id": "side",
@@ -2469,6 +2499,12 @@
           "long": "dex",
           "description": "HIP-3 DEX name.",
           "input_kind": "venue_selector"
+        },
+        {
+          "id": "on_behalf_of",
+          "long": "on-behalf-of",
+          "description": "Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id.",
+          "input_kind": "signer_selector"
         }
       ],
       "lifecycle": "live_mutating",
@@ -2563,13 +2599,27 @@
           "required": false,
           "description": "Remove an existing scheduled cancel trigger instead of setting one.",
           "input_kind": "boolean"
+        },
+        {
+          "id": "on_behalf_of",
+          "long": "on-behalf-of",
+          "description": "Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id.",
+          "input_kind": "signer_selector"
+        },
+        {
+          "id": "yes",
+          "long": "yes",
+          "short": "y",
+          "arg_type": "boolean",
+          "description": "Skip confirmation prompt for deliberate automation.",
+          "input_kind": "boolean"
         }
       ],
       "lifecycle": "live_mutating",
       "risk": "funds_movement",
       "dry_run": "optional",
       "raw_payload": "dry_run_only",
-      "confirmation": "none",
+      "confirmation": "prompt",
       "ows_signer": "experimental_feature_gated"
     },
     {

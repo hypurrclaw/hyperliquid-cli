@@ -5165,6 +5165,19 @@
         {
           "arg_type": "string",
           "default": null,
+          "description": "Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id.",
+          "enum_values": [],
+          "id": "on_behalf_of",
+          "kind": "signer_selector",
+          "long": "on-behalf-of",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": null,
           "description": "Take-profit trigger price for a market trigger order.",
           "enum_values": [],
           "id": "take_profit",
@@ -5327,6 +5340,19 @@
           "positional_index": null,
           "required": false,
           "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id.",
+          "enum_values": [],
+          "id": "on_behalf_of",
+          "kind": "signer_selector",
+          "long": "on-behalf-of",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
         }
       ],
       "lifecycle": "live_mutating",
@@ -5390,6 +5416,19 @@
           "id": "dex",
           "kind": "venue_selector",
           "long": "dex",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id.",
+          "enum_values": [],
+          "id": "on_behalf_of",
+          "kind": "signer_selector",
+          "long": "on-behalf-of",
           "multiple": false,
           "positional_index": null,
           "required": false,
@@ -5513,6 +5552,19 @@
           "positional_index": null,
           "required": false,
           "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id.",
+          "enum_values": [],
+          "id": "on_behalf_of",
+          "kind": "signer_selector",
+          "long": "on-behalf-of",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
         }
       ],
       "lifecycle": "live_mutating",
@@ -5583,6 +5635,19 @@
           "id": "dex",
           "kind": "venue_selector",
           "long": "dex",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id.",
+          "enum_values": [],
+          "id": "on_behalf_of",
+          "kind": "signer_selector",
+          "long": "on-behalf-of",
           "multiple": false,
           "positional_index": null,
           "required": false,
@@ -5734,6 +5799,19 @@
           "id": "dex",
           "kind": "venue_selector",
           "long": "dex",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id.",
+          "enum_values": [],
+          "id": "on_behalf_of",
+          "kind": "signer_selector",
+          "long": "on-behalf-of",
           "multiple": false,
           "positional_index": null,
           "required": false,
@@ -5906,7 +5984,7 @@
         "orders",
         "schedule-cancel"
       ],
-      "confirmation": "none",
+      "confirmation": "prompt",
       "dangerous": true,
       "description": "Configure a dead man's switch.",
       "dry_run": "optional",
@@ -5952,6 +6030,32 @@
           "positional_index": null,
           "required": false,
           "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id.",
+          "enum_values": [],
+          "id": "on_behalf_of",
+          "kind": "signer_selector",
+          "long": "on-behalf-of",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        },
+        {
+          "arg_type": "boolean",
+          "default": null,
+          "description": "Skip confirmation prompt for deliberate automation.",
+          "enum_values": [],
+          "id": "yes",
+          "kind": "boolean",
+          "long": "yes",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": "y"
         }
       ],
       "lifecycle": "live_mutating",

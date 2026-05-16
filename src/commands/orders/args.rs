@@ -191,6 +191,10 @@ pub struct TpslArgs {
     #[arg(long, allow_hyphen_values = true)]
     pub size: Option<Decimal>,
 
+    /// Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id
+    #[arg(long)]
+    pub on_behalf_of: Option<String>,
+
     /// Margin mode intent for perpetual TP/SL attachment. Defaults to cross.
     #[arg(long, value_enum)]
     pub margin_mode: Option<MarginModeArg>,
@@ -218,6 +222,10 @@ pub struct CancelArgs {
     /// Client order ID (CLOID) to cancel
     #[arg(long, conflicts_with = "order_id")]
     pub cloid: Option<String>,
+
+    /// Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id
+    #[arg(long)]
+    pub on_behalf_of: Option<String>,
 }
 
 /// Arguments for `orders cancel-all`.
@@ -230,6 +238,10 @@ pub struct CancelAllArgs {
     /// HIP-3 DEX for the --coin filter
     #[arg(long, requires = "coin")]
     pub dex: Option<String>,
+
+    /// Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id
+    #[arg(long)]
+    pub on_behalf_of: Option<String>,
 
     /// Skip confirmation prompt
     #[arg(short = 'y', long)]
@@ -262,6 +274,10 @@ pub struct ModifyArgs {
     /// Replacement order size
     #[arg(long, allow_hyphen_values = true)]
     pub size: Option<Decimal>,
+
+    /// Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id
+    #[arg(long)]
+    pub on_behalf_of: Option<String>,
 }
 
 /// Arguments for `orders twap-create`.
@@ -291,6 +307,10 @@ pub struct TwapCreateArgs {
     #[arg(long, value_enum)]
     pub margin_mode: Option<MarginModeArg>,
 
+    /// Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id
+    #[arg(long)]
+    pub on_behalf_of: Option<String>,
+
     /// Skip the mainnet confirmation prompt for deliberate automation
     #[arg(short = 'y', long)]
     pub yes: bool,
@@ -309,6 +329,10 @@ pub struct TwapCancelArgs {
     /// HIP-3 DEX for the TWAP (equivalent to --coin dex:COIN)
     #[arg(long)]
     pub dex: Option<String>,
+
+    /// Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id
+    #[arg(long)]
+    pub on_behalf_of: Option<String>,
 }
 
 /// Arguments for `orders schedule-cancel`.
@@ -321,6 +345,14 @@ pub struct ScheduleCancelArgs {
     /// Remove an existing scheduled cancel trigger instead of setting one
     #[arg(long, conflicts_with = "in_duration")]
     pub clear: bool,
+
+    /// Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id
+    #[arg(long)]
+    pub on_behalf_of: Option<String>,
+
+    /// Skip confirmation prompt for deliberate automation
+    #[arg(short = 'y', long)]
+    pub yes: bool,
 }
 
 /// Arguments for `orders status`.

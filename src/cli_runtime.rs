@@ -731,6 +731,7 @@ fn prompt_required_for_invocation(cli: &Cli, command: &CommandContract) -> bool 
                 | "orders batch-create"
                 | "orders tpsl"
                 | "orders twap-create"
+                | "orders schedule-cancel"
         )
     {
         return false;
@@ -787,6 +788,7 @@ fn confirmation_bypassed(command: &Option<Commands>) -> bool {
             OrderCommands::Tpsl(args) => args.yes,
             OrderCommands::CancelAll(args) => args.yes,
             OrderCommands::TwapCreate(args) => args.yes,
+            OrderCommands::ScheduleCancel(args) => args.yes,
             _ => false,
         },
         Some(Commands::Transfer { subcommand }) => match subcommand {
@@ -1003,16 +1005,25 @@ fn validate_cli_inputs(cli: &Cli) -> Result<(), errors::CliError> {
                 if let Some(dex) = args.dex.as_deref() {
                     validate_resource_id("dex", dex)?;
                 }
+                if let Some(on_behalf_of) = args.on_behalf_of.as_deref() {
+                    validate_resource_id("on-behalf-of selector", on_behalf_of)?;
+                }
                 if let Some(cloid) = args.cloid.as_deref() {
                     validate_resource_id("cloid", cloid)?;
                 }
             }
             OrderCommands::Cancel(args) => {
+                if let Some(on_behalf_of) = args.on_behalf_of.as_deref() {
+                    validate_resource_id("on-behalf-of selector", on_behalf_of)?;
+                }
                 if let Some(cloid) = args.cloid.as_deref() {
                     validate_resource_id("cloid", cloid)?;
                 }
             }
             OrderCommands::Modify(args) => {
+                if let Some(on_behalf_of) = args.on_behalf_of.as_deref() {
+                    validate_resource_id("on-behalf-of selector", on_behalf_of)?;
+                }
                 if let Some(cloid) = args.cloid.as_deref() {
                     validate_resource_id("cloid", cloid)?;
                 }
@@ -1024,17 +1035,31 @@ fn validate_cli_inputs(cli: &Cli) -> Result<(), errors::CliError> {
                 if let Some(dex) = args.dex.as_deref() {
                     validate_resource_id("dex", dex)?;
                 }
+                if let Some(on_behalf_of) = args.on_behalf_of.as_deref() {
+                    validate_resource_id("on-behalf-of selector", on_behalf_of)?;
+                }
             }
             OrderCommands::TwapCreate(args) => {
                 validate_asset_input("coin", &args.coin)?;
                 if let Some(dex) = args.dex.as_deref() {
                     validate_resource_id("dex", dex)?;
                 }
+                if let Some(on_behalf_of) = args.on_behalf_of.as_deref() {
+                    validate_resource_id("on-behalf-of selector", on_behalf_of)?;
+                }
             }
             OrderCommands::TwapCancel(args) => {
                 validate_asset_input("coin", &args.coin)?;
                 if let Some(dex) = args.dex.as_deref() {
                     validate_resource_id("dex", dex)?;
+                }
+                if let Some(on_behalf_of) = args.on_behalf_of.as_deref() {
+                    validate_resource_id("on-behalf-of selector", on_behalf_of)?;
+                }
+            }
+            OrderCommands::ScheduleCancel(args) => {
+                if let Some(on_behalf_of) = args.on_behalf_of.as_deref() {
+                    validate_resource_id("on-behalf-of selector", on_behalf_of)?;
                 }
             }
             OrderCommands::Status(args) => {
@@ -1368,6 +1393,15 @@ fn dry_run_signing_addresses(context: &AppContext) -> (Option<String>, Option<St
             )
         })
         .unwrap_or((None, None))
+}
+
+fn dry_run_vault_signing_addresses(
+    context: &AppContext,
+    vault_address: Option<String>,
+) -> (Option<String>, Option<String>, Option<String>) {
+    let (signer, query_address) = dry_run_signing_addresses(context);
+    let acting_as = vault_address.clone().or(query_address);
+    (signer, acting_as, vault_address)
 }
 
 fn default_dry_run_signing_context(context: &AppContext) -> DryRunSigningContext {
@@ -2461,8 +2495,8 @@ async fn create_order(
     if dry_run {
         let plan = hyperliquid_cli::commands::orders::create_dry_run_plan(&client, &resolver, args)
             .await?;
-        let signer = dry_run_signer_address(context);
-        let acting_as = vault_address_string.clone().or_else(|| signer.clone());
+        let (signer, acting_as, vault_address_string) =
+            dry_run_vault_signing_addresses(context, vault_address_string);
         return print_dry_run(
             plan.command(),
             dry_run_signed_details(
@@ -2532,8 +2566,8 @@ async fn scale_orders(
     if dry_run {
         let plan =
             hyperliquid_cli::commands::orders::scale_dry_run_plan(&client, &resolver, args).await?;
-        let signer = dry_run_signer_address(context);
-        let acting_as = vault_address_string.clone().or_else(|| signer.clone());
+        let (signer, acting_as, vault_address_string) =
+            dry_run_vault_signing_addresses(context, vault_address_string);
         return print_dry_run(
             plan.command(),
             dry_run_signed_details(
@@ -2614,8 +2648,8 @@ async fn batch_create_orders(
             &client, &resolver, args, orders,
         )
         .await?;
-        let signer = dry_run_signer_address(context);
-        let acting_as = vault_address_string.clone().or_else(|| signer.clone());
+        let (signer, acting_as, vault_address_string) =
+            dry_run_vault_signing_addresses(context, vault_address_string);
         return print_dry_run(
             plan.command(),
             dry_run_signed_details(
@@ -2655,18 +2689,30 @@ async fn create_tpsl(
     let coin_query = qualify_dex_asset(args.dex.as_deref(), &args.coin);
     let (resolver, resolved_tpsl_perp) =
         resolver_with_loaded_hip3_perp(&client, resolver, &coin_query).await?;
+    let vault_address = resolve_optional_acting_account_target(args.on_behalf_of.as_deref())?;
+    let vault_address_string = vault_address.map(|address| address.to_string());
     if dry_run {
         let plan = hyperliquid_cli::commands::orders::tpsl_dry_run_plan(&resolver, args)?;
+        let (signer, acting_as, vault_address_string) =
+            dry_run_vault_signing_addresses(context, vault_address_string);
         return print_dry_run(
             plan.command(),
-            dry_run_details(plan.would_execute(), plan.into_args(), payload),
+            dry_run_signed_details(
+                plan.would_execute(),
+                plan.into_args(),
+                payload,
+                signer,
+                acting_as,
+                vault_address_string,
+            ),
             format,
         );
     }
     let resolved_signer = context.resolve_signer()?;
+    let margin_mode_user = vault_address.unwrap_or_else(|| resolved_signer.query_address());
     validate_order_margin_mode(
         &client,
-        resolved_signer.query_address(),
+        margin_mode_user,
         resolved_tpsl_perp.0.as_str(),
         resolved_tpsl_perp.1.as_deref(),
         args.margin_mode,
@@ -2677,6 +2723,7 @@ async fn create_tpsl(
     hyperliquid_cli::commands::orders::tpsl(
         order_execution_context(context, &api_base_url, &client, &resolver, &signer),
         args,
+        vault_address,
         format,
     )
     .await
@@ -2689,23 +2736,36 @@ async fn cancel_order(
     dry_run: bool,
     payload: Option<&serde_json::Value>,
 ) -> Result<(), anyhow::Error> {
+    let vault_address = resolve_optional_acting_account_target(args.on_behalf_of.as_deref())?;
+    let vault_address_string = vault_address.map(|address| address.to_string());
     if dry_run {
         let plan = hyperliquid_cli::commands::orders::cancel_dry_run_plan(args)?;
+        let (signer, acting_as, vault_address_string) =
+            dry_run_vault_signing_addresses(context, vault_address_string);
         return print_dry_run(
             plan.command(),
-            dry_run_details(plan.would_execute(), plan.into_args(), payload),
+            dry_run_signed_details(
+                plan.would_execute(),
+                plan.into_args(),
+                payload,
+                signer,
+                acting_as,
+                vault_address_string,
+            ),
             format,
         );
     }
     let client = context.http_client();
     let resolver = load_trading_resolver(context).await?;
     let resolved = context.resolve_signer()?;
+    let user = vault_address.unwrap_or_else(|| resolved.query_address());
     let signer = resolved.selected_signer();
     let api_base_url = context.api_base_url();
     hyperliquid_cli::commands::orders::cancel(
         order_execution_context(context, &api_base_url, &client, &resolver, &signer),
-        resolved.query_address(),
+        user,
         args,
+        vault_address,
         format,
     )
     .await
@@ -2718,24 +2778,37 @@ async fn cancel_all_orders(
     dry_run: bool,
     payload: Option<&serde_json::Value>,
 ) -> Result<(), anyhow::Error> {
+    let vault_address = resolve_optional_acting_account_target(args.on_behalf_of.as_deref())?;
+    let vault_address_string = vault_address.map(|address| address.to_string());
     if dry_run {
         let resolver = load_trading_resolver(context).await?;
         let plan = hyperliquid_cli::commands::orders::cancel_all_dry_run_plan(&resolver, args)?;
+        let (signer, acting_as, vault_address_string) =
+            dry_run_vault_signing_addresses(context, vault_address_string);
         return print_dry_run(
             plan.command(),
-            dry_run_details(plan.would_execute(), plan.into_args(), payload),
+            dry_run_signed_details(
+                plan.would_execute(),
+                plan.into_args(),
+                payload,
+                signer,
+                acting_as,
+                vault_address_string,
+            ),
             format,
         );
     }
     let client = context.http_client();
     let resolver = load_trading_resolver(context).await?;
     let resolved = context.resolve_signer()?;
+    let user = vault_address.unwrap_or_else(|| resolved.query_address());
     let signer = resolved.selected_signer();
     let api_base_url = context.api_base_url();
     hyperliquid_cli::commands::orders::cancel_all(
         order_execution_context(context, &api_base_url, &client, &resolver, &signer),
-        resolved.query_address(),
+        user,
         args,
+        vault_address,
         format,
     )
     .await
@@ -2749,23 +2822,36 @@ async fn modify_order(
     payload: Option<&serde_json::Value>,
 ) -> Result<(), anyhow::Error> {
     hyperliquid_cli::commands::orders::validate_modify_args(args)?;
+    let vault_address = resolve_optional_acting_account_target(args.on_behalf_of.as_deref())?;
+    let vault_address_string = vault_address.map(|address| address.to_string());
     if dry_run {
         let plan = hyperliquid_cli::commands::orders::modify_dry_run_plan(args)?;
+        let (signer, acting_as, vault_address_string) =
+            dry_run_vault_signing_addresses(context, vault_address_string);
         return print_dry_run(
             plan.command(),
-            dry_run_details(plan.would_execute(), plan.into_args(), payload),
+            dry_run_signed_details(
+                plan.would_execute(),
+                plan.into_args(),
+                payload,
+                signer,
+                acting_as,
+                vault_address_string,
+            ),
             format,
         );
     }
     let client = context.http_client();
     let resolver = load_trading_resolver(context).await?;
     let resolved = context.resolve_signer()?;
+    let user = vault_address.unwrap_or_else(|| resolved.query_address());
     let signer = resolved.selected_signer();
     let api_base_url = context.api_base_url();
     hyperliquid_cli::commands::orders::modify(
         order_execution_context(context, &api_base_url, &client, &resolver, &signer),
-        resolved.query_address(),
+        user,
         args,
+        vault_address,
         format,
     )
     .await
@@ -2814,21 +2900,29 @@ async fn create_twap(
         resolver_with_loaded_hip3_perp(&client, resolver, &coin_query).await?;
     let dry_run_plan =
         hyperliquid_cli::commands::orders::twap_create_dry_run_plan(&resolver, args)?;
+    let vault_address = resolve_optional_acting_account_target(args.on_behalf_of.as_deref())?;
+    let vault_address_string = vault_address.map(|address| address.to_string());
     if dry_run {
+        let (signer, acting_as, vault_address_string) =
+            dry_run_vault_signing_addresses(context, vault_address_string);
         return print_dry_run(
             dry_run_plan.command(),
-            dry_run_details(
+            dry_run_signed_details(
                 dry_run_plan.would_execute(),
                 dry_run_plan.into_args(),
                 payload,
+                signer,
+                acting_as,
+                vault_address_string,
             ),
             format,
         );
     }
     let resolved = context.resolve_signer()?;
+    let margin_mode_user = vault_address.unwrap_or_else(|| resolved.query_address());
     validate_order_margin_mode(
         &client,
-        resolved.query_address(),
+        margin_mode_user,
         resolved_twap_perp.0.as_str(),
         resolved_twap_perp.1.as_deref(),
         args.margin_mode,
@@ -2840,6 +2934,7 @@ async fn create_twap(
         order_submission_context(context, &api_base_url, &signer),
         &resolver,
         args,
+        vault_address,
         format,
     )
     .await
@@ -2858,13 +2953,20 @@ async fn cancel_twap(
     let (resolver, _) = resolver_with_loaded_hip3_perp(&client, resolver, &coin_query).await?;
     let dry_run_plan =
         hyperliquid_cli::commands::orders::twap_cancel_dry_run_plan(&resolver, args)?;
+    let vault_address = resolve_optional_acting_account_target(args.on_behalf_of.as_deref())?;
+    let vault_address_string = vault_address.map(|address| address.to_string());
     if dry_run {
+        let (signer, acting_as, vault_address_string) =
+            dry_run_vault_signing_addresses(context, vault_address_string);
         return print_dry_run(
             dry_run_plan.command(),
-            dry_run_details(
+            dry_run_signed_details(
                 dry_run_plan.would_execute(),
                 dry_run_plan.into_args(),
                 payload,
+                signer,
+                acting_as,
+                vault_address_string,
             ),
             format,
         );
@@ -2876,6 +2978,7 @@ async fn cancel_twap(
         order_submission_context(context, &api_base_url, &signer),
         &resolver,
         args,
+        vault_address,
         format,
     )
     .await
@@ -2954,11 +3057,22 @@ async fn schedule_cancel(
     dry_run: bool,
     payload: Option<&serde_json::Value>,
 ) -> Result<(), anyhow::Error> {
+    let vault_address = resolve_optional_acting_account_target(args.on_behalf_of.as_deref())?;
+    let vault_address_string = vault_address.map(|address| address.to_string());
     if dry_run {
         let plan = hyperliquid_cli::commands::orders::schedule_cancel_dry_run_plan(args)?;
+        let (signer, acting_as, vault_address_string) =
+            dry_run_vault_signing_addresses(context, vault_address_string);
         return print_dry_run(
             plan.command(),
-            dry_run_details(plan.would_execute(), plan.into_args(), payload),
+            dry_run_signed_details(
+                plan.would_execute(),
+                plan.into_args(),
+                payload,
+                signer,
+                acting_as,
+                vault_address_string,
+            ),
             format,
         );
     }
@@ -2968,6 +3082,7 @@ async fn schedule_cancel(
     hyperliquid_cli::commands::orders::schedule_cancel(
         order_submission_context(context, &api_base_url, &signer),
         args,
+        vault_address,
         format,
     )
     .await
