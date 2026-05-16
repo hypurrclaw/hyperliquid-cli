@@ -208,7 +208,7 @@
           "description": "Acting-account selector for vaultAddress: subaccount/vault address, wallet name, or wallet id.",
           "enum_values": [],
           "id": "on_behalf_of",
-          "input_kind": "signer_selector",
+          "input_kind": "acting_account_selector",
           "long": "on-behalf-of",
           "multiple": false,
           "positional_index": null,
@@ -353,7 +353,7 @@
           },
           "on_behalf_of": {
             "description": "Acting-account selector for vaultAddress: subaccount/vault address, wallet name, or wallet id.",
-            "input_kind": "signer_selector",
+            "input_kind": "acting_account_selector",
             "type": "string"
           },
           "order_type": {
@@ -533,7 +533,7 @@
           "description": "Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id.",
           "enum_values": [],
           "id": "on_behalf_of",
-          "input_kind": "signer_selector",
+          "input_kind": "acting_account_selector",
           "long": "on-behalf-of",
           "multiple": false,
           "positional_index": null,
@@ -578,7 +578,7 @@
           },
           "on_behalf_of": {
             "description": "Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id.",
-            "input_kind": "signer_selector",
+            "input_kind": "acting_account_selector",
             "type": "string"
           },
           "order_id": {

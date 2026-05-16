@@ -1,6 +1,6 @@
 # Hyperliquid CLI
 
-[![Crates.io](https://img.shields.io/badge/crates.io-v0.1.0-orange.svg)](https://crates.io/crates/hyperliquid-cli)
+[![Crates.io](https://img.shields.io/badge/crates.io-v0.11.0-orange.svg)](https://crates.io/crates/hyperliquid-cli)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.93%2B-blue.svg)](https://www.rust-lang.org)
 [![Built on hypersdk](https://img.shields.io/badge/built%20on-hypersdk-blueviolet.svg)](https://github.com/infinitefield/hypersdk)
@@ -30,7 +30,7 @@ sh install.sh
 hyperliquid --version
 ```
 
-安装器会在把二进制文件复制到 `~/.local/bin` 之前验证 SHA-256 校验和。默认安装最新 release；可使用 `HYPERLIQUID_CLI_REPO=OWNER/REPO`、`HYPERLIQUID_CLI_VERSION=v0.1.0` 和 `BIN_DIR=/path/to/bin` 覆盖仓库、固定版本或安装目录。
+安装器会在把二进制文件复制到 `~/.local/bin` 之前验证 SHA-256 校验和。默认安装最新 release；可使用 `HYPERLIQUID_CLI_REPO=OWNER/REPO`、`HYPERLIQUID_CLI_VERSION=v0.11.0` 和 `BIN_DIR=/path/to/bin` 覆盖仓库、固定版本或安装目录。
 
 从源码安装：
 
@@ -343,7 +343,7 @@ Outcome market 表示法（`#N` spot coin 和 `+N` token name）可通过 `outco
 | `feedback (--scenario-json <JSON>\|--scenario-file <PATH\|->) [--contact <CONTACT>] [--tags <TAG>] [--url <URL>]` | 将结构化 CLI feedback 作为 scenario JSON object 发送到已配置的 feedback endpoint；在 scenario 中包含 `agent_address`、`signer_address` 或 `wallet_address` 以用于 rate-limit attribution，并使用 `--url` 覆盖默认值。 |
 | `schema [COMMAND...]` | 显示供代理使用的机器可读 command schemas。 |
 | `subscribe trades --asset <ASSET>` / `subscribe orderbook --asset <ASSET>` / `subscribe candles --asset <ASSET> [--interval <INTERVAL>]` / `subscribe all-mids` / `subscribe order-updates` / `subscribe fills` `[--max-events <N>] [--idle-timeout-ms <MS>]` | 流式传输 WebSocket events。 |
-| `update` | 从最新 GitHub release 更新此二进制文件。使用全局 `--dry-run` 可先预览。 |
+| `update` | 在 Linux/macOS 上从最新 GitHub release 更新此二进制文件。Windows 用户应重新运行 `install.sh` 安装最新 `.zip` release。使用全局 `--dry-run` 可先预览。 |
 
 `vaults` 可作为 `vault` 的别名。
 

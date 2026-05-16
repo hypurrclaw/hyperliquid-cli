@@ -828,6 +828,80 @@ async fn orders_schedule_cancel_mainnet_prompts_and_aborts_without_submission() 
 }
 
 #[tokio::test]
+async fn orders_schedule_cancel_clear_mainnet_prompts_and_aborts_without_submission() {
+    let env = IsolatedHome::new();
+    let server = mock_twap_server_without_exchange().await;
+
+    env.command()
+        .env(API_OVERRIDE_ENV, server.uri())
+        .env(PRIVATE_KEY_ENV, VALID_PRIVATE_KEY)
+        .write_stdin("n\n")
+        .args(["orders", "schedule-cancel", "--clear"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains(
+            "Mainnet schedule-cancel confirmation required",
+        ))
+        .stderr(predicate::str::contains("action cancelled"));
+}
+
+#[test]
+fn orders_schedule_cancel_requires_yes_in_json_machine_context() {
+    let env = IsolatedHome::new();
+
+    let output = env
+        .command()
+        .env(PRIVATE_KEY_ENV, VALID_PRIVATE_KEY)
+        .args([
+            "--format",
+            "json",
+            "orders",
+            "schedule-cancel",
+            "--in",
+            "5m",
+        ])
+        .assert()
+        .code(13)
+        .get_output()
+        .stdout
+        .clone();
+    let json: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(json["category"], "unsupported");
+    assert_eq!(json["exit_code"], 13);
+    assert!(
+        json["error"]
+            .as_str()
+            .unwrap()
+            .contains("requires confirmation")
+    );
+}
+
+#[test]
+fn orders_schedule_cancel_clear_requires_yes_in_agent_context() {
+    let env = IsolatedHome::new();
+
+    let output = env
+        .command()
+        .env(PRIVATE_KEY_ENV, VALID_PRIVATE_KEY)
+        .env("HYPERLIQUID_AGENT", "1")
+        .args(["--format", "json", "orders", "schedule-cancel", "--clear"])
+        .assert()
+        .code(13)
+        .get_output()
+        .stdout
+        .clone();
+    let json: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(json["category"], "unsupported");
+    assert_eq!(json["exit_code"], 13);
+    assert!(
+        json["error"]
+            .as_str()
+            .unwrap()
+            .contains("requires confirmation")
+    );
+}
+
+#[tokio::test]
 async fn orders_schedule_cancel_mainnet_yes_bypasses_confirmation_prompt() {
     let env = IsolatedHome::new();
     let server = mock_trading_server(serde_json::json!({

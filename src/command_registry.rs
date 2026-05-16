@@ -281,6 +281,7 @@ pub enum OutputContract {
 #[serde(rename_all = "snake_case")]
 pub enum InputKind {
     SignerSelector,
+    ActingAccountSelector,
     PublicUserSelector,
     RawDestinationAddress,
     ProtocolObjectAddress,
@@ -300,6 +301,7 @@ impl InputKind {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::SignerSelector => "signer_selector",
+            Self::ActingAccountSelector => "acting_account_selector",
             Self::PublicUserSelector => "public_user_selector",
             Self::RawDestinationAddress => "raw_destination_address",
             Self::ProtocolObjectAddress => "protocol_object_address",
@@ -399,6 +401,7 @@ impl From<&str> for InputKind {
     fn from(value: &str) -> Self {
         match value {
             "signer_selector" => Self::SignerSelector,
+            "acting_account_selector" => Self::ActingAccountSelector,
             "public_user_selector" => Self::PublicUserSelector,
             "raw_destination_address" => Self::RawDestinationAddress,
             "protocol_object_address" => Self::ProtocolObjectAddress,

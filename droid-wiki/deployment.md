@@ -25,7 +25,7 @@ Triggered by version tags (`v*`) or manual dispatch. Builds for 5 targets:
 |--------|--------|
 | `x86_64-unknown-linux-gnu` | ubuntu-latest |
 | `aarch64-unknown-linux-gnu` | ubuntu-24.04-arm |
-| `x86_64-apple-darwin` | macos-13 |
+| `x86_64-apple-darwin` | macos-15-intel |
 | `aarch64-apple-darwin` | macos-14 |
 | `x86_64-pc-windows-msvc` | windows-latest |
 
@@ -42,7 +42,6 @@ Each build:
 Runs on PRs, pushes to main, and weekly on Mondays:
 
 - **cargo-audit**: checks dependencies for known vulnerabilities
-- **Gitleaks**: scans the full git history for secrets
 
 ## Pre-release check
 
@@ -63,7 +62,7 @@ Runs on PRs, pushes to main, and weekly on Mondays:
 Override defaults with environment variables:
 
 ```bash
-HYPERLIQUID_CLI_REPO=OWNER/REPO HYPERLIQUID_CLI_VERSION=v0.1.0 BIN_DIR=/usr/local/bin sh install.sh
+HYPERLIQUID_CLI_REPO=OWNER/REPO HYPERLIQUID_CLI_VERSION=v0.11.0 BIN_DIR=/usr/local/bin sh install.sh
 ```
 
 ## Environments

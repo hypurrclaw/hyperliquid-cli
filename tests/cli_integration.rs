@@ -158,7 +158,7 @@ fn schema_single_command_outputs_schema_object() {
     );
     assert_eq!(
         json["json_schema"]["properties"]["on_behalf_of"]["input_kind"],
-        "signer_selector"
+        "acting_account_selector"
     );
     assert_eq!(
         json["json_schema"]["properties"]["price"]["input_kind"],

@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag to package without publishing a release"
+        description: "Optional label for a manual packaging run; tag pushes publish releases"
         required: false
 
 permissions:
@@ -50,6 +50,10 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           key: release-${{ matrix.target }}
+
+      - name: Pre-release repository health check
+        shell: bash
+        run: bash scripts/pre-release-check.sh
 
       - name: Build release binary
         env:
