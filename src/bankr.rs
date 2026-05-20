@@ -5,6 +5,8 @@
 //! and verifies the recovered signer address before accepting the signature.
 
 use std::env;
+use std::future::Future;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use alloy::dyn_abi::TypedData;
@@ -179,25 +181,81 @@ fn wallet_address(api_base_url: &str, api_key: &str) -> Result<Address, CliError
     Ok(address)
 }
 
-fn get_json<T: for<'de> Deserialize<'de>>(
+fn bankr_http_client() -> Result<&'static reqwest::Client, CliError> {
+    static CLIENT: OnceLock<Result<reqwest::Client, String>> = OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .timeout(DEFAULT_TIMEOUT)
+                .build()
+                .map_err(|err| err.to_string())
+        })
+        .as_ref()
+        .map_err(|err| CliError::Internal(anyhow::anyhow!("failed to build Bankr HTTP client: {err}")))
+}
+
+/// Run async Bankr HTTP from sync call sites (CLI signer resolution, examples, tests).
+fn run_bankr_async<F, Fut, T>(f: F) -> Result<T, CliError>
+where
+    F: FnOnce() -> Fut,
+    Fut: Future<Output = Result<T, CliError>>,
+    T: Send,
+{
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) => tokio::task::block_in_place(|| handle.block_on(f())),
+        Err(_) => tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?
+            .block_on(f()),
+    }
+}
+
+fn get_json<T: for<'de> Deserialize<'de> + Send>(
+    api_base_url: &str,
+    path: &str,
+    api_key: &str,
+    context: &'static str,
+) -> Result<T, CliError> {
+    let api_base_url = api_base_url.to_string();
+    let api_key = api_key.to_string();
+    run_bankr_async(move || async move {
+        get_json_async(&api_base_url, path, &api_key, context).await
+    })
+}
+
+async fn get_json_async<T: for<'de> Deserialize<'de> + Send>(
     api_base_url: &str,
     path: &str,
     api_key: &str,
     context: &'static str,
 ) -> Result<T, CliError> {
     let url = bankr_url(api_base_url, path)?;
-    let response = reqwest::blocking::Client::builder()
-        .timeout(DEFAULT_TIMEOUT)
-        .build()
-        .map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?
+    let response = bankr_http_client()?
         .get(url)
         .header("X-API-Key", api_key)
         .send()
+        .await
         .map_err(|err| CliError::Unavailable(format!("Check your network connection. {err}")))?;
-    decode_response(response, context)
+    decode_response(response, context).await
 }
 
-fn post_json<T: for<'de> Deserialize<'de>>(
+fn post_json<T: for<'de> Deserialize<'de> + Send>(
+    api_base_url: &str,
+    path: &str,
+    api_key: &str,
+    payload: &Value,
+    context: &'static str,
+) -> Result<T, CliError> {
+    let api_base_url = api_base_url.to_string();
+    let api_key = api_key.to_string();
+    let payload = payload.clone();
+    run_bankr_async(move || async move {
+        post_json_async(&api_base_url, path, &api_key, &payload, context).await
+    })
+}
+
+async fn post_json_async<T: for<'de> Deserialize<'de> + Send>(
     api_base_url: &str,
     path: &str,
     api_key: &str,
@@ -205,25 +263,24 @@ fn post_json<T: for<'de> Deserialize<'de>>(
     context: &'static str,
 ) -> Result<T, CliError> {
     let url = bankr_url(api_base_url, path)?;
-    let response = reqwest::blocking::Client::builder()
-        .timeout(DEFAULT_TIMEOUT)
-        .build()
-        .map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?
+    let response = bankr_http_client()?
         .post(url)
         .header("X-API-Key", api_key)
         .json(payload)
         .send()
+        .await
         .map_err(|err| CliError::Unavailable(format!("Check your network connection. {err}")))?;
-    decode_response(response, context)
+    decode_response(response, context).await
 }
 
-fn decode_response<T: for<'de> Deserialize<'de>>(
-    response: reqwest::blocking::Response,
+async fn decode_response<T: for<'de> Deserialize<'de> + Send>(
+    response: reqwest::Response,
     context: &'static str,
 ) -> Result<T, CliError> {
     let status = response.status();
     let body = response
         .text()
+        .await
         .map_err(|err| CliError::Unavailable(format!("Failed to read Bankr response. {err}")))?;
     ensure_bankr_success(status, &body)?;
     serde_json::from_str::<T>(&body).map_err(|err| {
@@ -250,9 +307,24 @@ fn ensure_bankr_success(status: StatusCode, body: &str) -> Result<(), CliError> 
             body,
         )));
     }
+    if status == StatusCode::BAD_REQUEST {
+        return Err(CliError::InvalidAuth(bankr_error_message(
+            "bankr_bad_request",
+            body,
+        )));
+    }
     if !status.is_success() {
-        return Err(CliError::Unavailable(format!(
-            "Bankr API returned HTTP {status}. Check your network connection."
+        return Err(CliError::Unavailable(bankr_error_message(
+            "bankr_unavailable",
+            body,
+        )));
+    }
+    if let Ok(value) = serde_json::from_str::<Value>(body)
+        && value.get("success") == Some(&Value::Bool(false))
+    {
+        return Err(CliError::InvalidAuth(bankr_error_message(
+            "bankr_sign_failed",
+            body,
         )));
     }
     Ok(())
@@ -295,6 +367,7 @@ fn bankr_typed_data_value(typed_data: &TypedData) -> Result<Value, CliError> {
     })?;
     ensure_eip712_domain_type(&mut value);
     pad_odd_hex_typed_values(&mut value);
+    normalize_bankr_numeric_fields(&mut value);
     Ok(value)
 }
 
@@ -402,6 +475,102 @@ fn is_hex_encoded_eip712_scalar(field_type: &str) -> bool {
         || field_type.starts_with("bytes")
         || field_type.starts_with("uint")
         || field_type.starts_with("int")
+}
+
+fn normalize_bankr_numeric_fields(value: &mut Value) {
+    let Some(types) = value.get("types").and_then(Value::as_object).cloned() else {
+        return;
+    };
+    if let Some(domain) = value.get_mut("domain") {
+        normalize_struct_bankr_numeric_fields("EIP712Domain", domain, &types);
+    }
+    let Some(primary_type) = value
+        .get("primaryType")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+    else {
+        return;
+    };
+    if let Some(message) = value.get_mut("message") {
+        normalize_struct_bankr_numeric_fields(&primary_type, message, &types);
+    }
+}
+
+fn normalize_struct_bankr_numeric_fields(
+    type_name: &str,
+    value: &mut Value,
+    types: &serde_json::Map<String, Value>,
+) {
+    let Some(fields) = types.get(type_name).and_then(Value::as_array).cloned() else {
+        return;
+    };
+    let Some(object) = value.as_object_mut() else {
+        return;
+    };
+
+    for field in fields {
+        let Some(name) = field.get("name").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(field_type) = field.get("type").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(field_value) = object.get_mut(name) else {
+            continue;
+        };
+        normalize_field_bankr_numeric_values(field_type, field_value, types);
+    }
+}
+
+fn normalize_field_bankr_numeric_values(
+    field_type: &str,
+    value: &mut Value,
+    types: &serde_json::Map<String, Value>,
+) {
+    if let Some(element_type) = field_type.strip_suffix("[]") {
+        if let Some(values) = value.as_array_mut() {
+            for value in values {
+                normalize_field_bankr_numeric_values(element_type, value, types);
+            }
+        }
+        return;
+    }
+
+    if types.contains_key(field_type) {
+        normalize_struct_bankr_numeric_fields(field_type, value, types);
+        return;
+    }
+
+    if is_eip712_integer_scalar(field_type) {
+        normalize_bankr_integer_scalar(value);
+    }
+}
+
+fn is_eip712_integer_scalar(field_type: &str) -> bool {
+    field_type.starts_with("uint") || field_type.starts_with("int")
+}
+
+fn normalize_bankr_integer_scalar(value: &mut Value) {
+    let Some(text) = value.as_str() else {
+        return;
+    };
+    if let Some(number) = parse_bankr_integer_scalar(text) {
+        *value = serde_json::Number::from(number).into();
+    }
+}
+
+fn parse_bankr_integer_scalar(text: &str) -> Option<u64> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if let Some(hex) = trimmed
+        .strip_prefix("0x")
+        .or_else(|| trimmed.strip_prefix("0X"))
+    {
+        return u64::from_str_radix(hex, 16).ok();
+    }
+    trimmed.parse::<u64>().ok()
 }
 
 fn hyperliquid_signature_from_bankr(
@@ -539,7 +708,15 @@ mod tests {
         )
     }
 
-    async fn run_blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
+    #[test]
+    fn bankr_typed_data_value_normalizes_integer_fields_for_bankr_api() {
+        let typed_data = test_typed_data();
+        let value = bankr_typed_data_value(&typed_data).unwrap();
+
+        assert_eq!(value["domain"]["chainId"], 999);
+    }
+
+    async fn run_bankr<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
         tokio::task::spawn_blocking(f).await.unwrap()
     }
 
@@ -561,7 +738,7 @@ mod tests {
             .await;
 
         let server_uri = server.uri();
-        let address = run_blocking(move || wallet_address(&server_uri, API_KEY).unwrap()).await;
+        let address = run_bankr(move || wallet_address(&server_uri, API_KEY).unwrap()).await;
 
         assert_eq!(address, signer.address());
     }
@@ -586,7 +763,7 @@ mod tests {
 
         let server_uri = server.uri();
         let typed_data_for_signing = typed_data.clone();
-        let signature = run_blocking(move || {
+        let signature = run_bankr(move || {
             sign_typed_data(&config(server_uri), &typed_data_for_signing).unwrap()
         })
         .await;
@@ -623,7 +800,7 @@ mod tests {
 
         let server_uri = server.uri();
         let typed_data_for_signing = typed_data.clone();
-        let err = run_blocking(move || {
+        let err = run_bankr(move || {
             sign_typed_data(&config(server_uri), &typed_data_for_signing).unwrap_err()
         })
         .await;
@@ -652,7 +829,7 @@ mod tests {
 
         let server_uri = server.uri();
         let signature =
-            run_blocking(move || sign_message(&config(server_uri), b"hello bankr").unwrap()).await;
+            run_bankr(move || sign_message(&config(server_uri), b"hello bankr").unwrap()).await;
         let recovered = signature.recover_address_from_msg(b"hello bankr").unwrap();
 
         assert_eq!(recovered, signer.address());
@@ -685,7 +862,7 @@ mod tests {
             .await;
 
         let server_uri = server.uri();
-        let err = run_blocking(move || wallet_address(&server_uri, API_KEY).unwrap_err()).await;
+        let err = run_bankr(move || wallet_address(&server_uri, API_KEY).unwrap_err()).await;
 
         assert_eq!(err.exit_code(), 10);
         assert!(err.to_string().contains("bankr_access_denied"));
