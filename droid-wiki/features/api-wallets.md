@@ -58,6 +58,6 @@ Revoke works by approving a short-lived throwaway agent address with the same na
 ## Entry points for modification
 
 - To extend `api-wallet revoke` to also remove the agent from the local OWS vault, add a vault-side delete step that runs after the `approveAgent` swap succeeds.
-- To add an `expires_at` field surfaced in `api-wallet list`, plumb the metadata through `src/db.rs::AgentAccountMetadata`.
+- To add an `expires_at` field surfaced in `api-wallet list`, plumb the metadata through the API-wallet command output and the corresponding Hyperliquid info response parsing.
 
 See also: [signing-and-wallets](../systems/signing-and-wallets.md), [security](../security.md).

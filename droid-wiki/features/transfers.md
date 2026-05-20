@@ -21,7 +21,7 @@
 
 ## Selector rules
 
-- `--to` is a **protocol address** (`*_ADDRESS`). Local account aliases are not resolved here. See [overview/glossary](../overview/glossary.md).
+- `--to` is a **protocol address** (`*_ADDRESS`). Wallet names and aliases are not resolved here. See [overview/glossary](../overview/glossary.md).
 - Self-transfer is rejected for `transfer send` and `transfer spot-send` to avoid no-op calls.
 - `transfer send-asset --to USER_ADDRESS` allows the user's own address; that flow is for moving funds between contexts the user controls.
 

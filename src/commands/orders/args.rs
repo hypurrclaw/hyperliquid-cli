@@ -67,7 +67,7 @@ pub struct CreateArgs {
     #[arg(long, value_enum)]
     pub grouping: Option<CreateTpslGroupingArg>,
 
-    /// Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id
+    /// Acting-account selector for vaultAddress: subaccount/vault address, OWS wallet name, or OWS wallet id
     #[arg(long)]
     pub on_behalf_of: Option<String>,
 
@@ -131,7 +131,7 @@ pub struct ScaleArgs {
     #[arg(long)]
     pub reduce_only: bool,
 
-    /// Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id
+    /// Acting-account selector for vaultAddress: subaccount/vault address, OWS wallet name, or OWS wallet id
     #[arg(long)]
     pub on_behalf_of: Option<String>,
 
@@ -151,7 +151,7 @@ pub struct BatchCreateArgs {
     #[arg(long)]
     pub orders_file: PathBuf,
 
-    /// Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id
+    /// Acting-account selector for vaultAddress: subaccount/vault address, OWS wallet name, or OWS wallet id
     #[arg(long)]
     pub on_behalf_of: Option<String>,
 
@@ -191,7 +191,7 @@ pub struct TpslArgs {
     #[arg(long, allow_hyphen_values = true)]
     pub size: Option<Decimal>,
 
-    /// Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id
+    /// Acting-account selector for vaultAddress: subaccount/vault address, OWS wallet name, or OWS wallet id
     #[arg(long)]
     pub on_behalf_of: Option<String>,
 
@@ -223,7 +223,7 @@ pub struct CancelArgs {
     #[arg(long, conflicts_with = "order_id")]
     pub cloid: Option<String>,
 
-    /// Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id
+    /// Acting-account selector for vaultAddress: subaccount/vault address, OWS wallet name, or OWS wallet id
     #[arg(long)]
     pub on_behalf_of: Option<String>,
 }
@@ -239,7 +239,7 @@ pub struct CancelAllArgs {
     #[arg(long, requires = "coin")]
     pub dex: Option<String>,
 
-    /// Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id
+    /// Acting-account selector for vaultAddress: subaccount/vault address, OWS wallet name, or OWS wallet id
     #[arg(long)]
     pub on_behalf_of: Option<String>,
 
@@ -275,7 +275,7 @@ pub struct ModifyArgs {
     #[arg(long, allow_hyphen_values = true)]
     pub size: Option<Decimal>,
 
-    /// Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id
+    /// Acting-account selector for vaultAddress: subaccount/vault address, OWS wallet name, or OWS wallet id
     #[arg(long)]
     pub on_behalf_of: Option<String>,
 }
@@ -307,7 +307,7 @@ pub struct TwapCreateArgs {
     #[arg(long, value_enum)]
     pub margin_mode: Option<MarginModeArg>,
 
-    /// Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id
+    /// Acting-account selector for vaultAddress: subaccount/vault address, OWS wallet name, or OWS wallet id
     #[arg(long)]
     pub on_behalf_of: Option<String>,
 
@@ -330,7 +330,7 @@ pub struct TwapCancelArgs {
     #[arg(long)]
     pub dex: Option<String>,
 
-    /// Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id
+    /// Acting-account selector for vaultAddress: subaccount/vault address, OWS wallet name, or OWS wallet id
     #[arg(long)]
     pub on_behalf_of: Option<String>,
 }
@@ -346,7 +346,7 @@ pub struct ScheduleCancelArgs {
     #[arg(long, conflicts_with = "in_duration")]
     pub clear: bool,
 
-    /// Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id
+    /// Acting-account selector for vaultAddress: subaccount/vault address, OWS wallet name, or OWS wallet id
     #[arg(long)]
     pub on_behalf_of: Option<String>,
 
@@ -358,7 +358,7 @@ pub struct ScheduleCancelArgs {
 /// Arguments for `orders status`.
 #[derive(Args, Debug, Clone)]
 pub struct StatusArgs {
-    /// User address, stored account alias, or stored account id
+    /// User address, OWS wallet name, or OWS wallet id
     #[arg(long)]
     pub user: String,
 

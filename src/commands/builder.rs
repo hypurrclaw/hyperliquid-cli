@@ -53,7 +53,7 @@ sol! {
 
 #[derive(Args, Debug, Clone)]
 pub struct MaxFeeArgs {
-    /// User address, stored account alias, or stored account id
+    /// User address, OWS wallet name, or OWS wallet id
     #[arg(long)]
     pub user: String,
 
@@ -64,7 +64,7 @@ pub struct MaxFeeArgs {
 
 #[derive(Args, Debug, Clone)]
 pub struct ApprovedArgs {
-    /// User address, stored account alias, or stored account id
+    /// User address, OWS wallet name, or OWS wallet id
     #[arg(long)]
     pub user: String,
 }

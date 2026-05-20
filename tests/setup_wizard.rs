@@ -181,8 +181,10 @@ async fn setup_import_wallet_uses_hidden_prompt_path_and_stores_key_encrypted() 
     assert_directory_does_not_contain(&vault_path, IMPORT_KEY);
     assert_directory_does_not_contain(&vault_path, IMPORT_KEY.trim_start_matches("0x"));
     assert!(
-        !env.legacy_accounts_key_path().exists(),
-        "raw encryption key must not be stored next to accounts.db"
+        env.accounts_db_candidates()
+            .iter()
+            .all(|path| !path.exists()),
+        "setup must not create legacy accounts.db"
     );
 
     env.account_command_with_server(TEST_ACCOUNT_PASSPHRASE, &server)

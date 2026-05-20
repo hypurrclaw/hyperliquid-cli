@@ -13,7 +13,7 @@ graph TD
     Runtime --> Output[src/output/mod.rs<br/>pretty / table / json]
     Runtime --> Update[src/update_check.rs<br/>passive release notice]
 
-    Auth --> Db[(SQLite<br/>db.rs<br/>AES-GCM encrypted)]
+    Auth --> Local[Explicit local signer<br/>private key / keystore]
     Auth --> Ows[OWS vault<br/>ows.rs / ows-lib]
 
     Cmd -->|read| Info[Hyperliquid /info]
@@ -36,9 +36,8 @@ graph TD
 | Command handlers | `src/commands/` | 23 domain modules + the `orders/` planning/rendering/validation sub-tree |
 | Output system | `src/output/mod.rs` (1,379 lines) | `OutputFormat` enum, JSON projection, ANSI colors, error routing |
 | Error system | `src/errors.rs` (738 lines) | `CliError` variants with structured exit codes |
-| Auth / signing | `src/auth.rs`, `src/signing.rs`, `src/resolvers.rs` | Resolves a `SelectedSigner` from private key, keystore, stored account, or OWS selector |
+| Auth / signing | `src/auth.rs`, `src/signing.rs`, `src/resolvers.rs` | Resolves a `SelectedSigner` from private key, keystore, or OWS selector |
 | OWS wallet backend | `src/ows.rs` (963 lines) | Vault path discovery, wallet selection, EIP-712 signing through `ows-lib` |
-| Account storage | `src/db.rs` (1,159 lines) | SQLite with AES-256-GCM encryption; OS-keychain-backed key material |
 | Config | `src/config.rs` (874 lines) | Config file, env vars, network selection, packaged defaults |
 | Dry-run envelope | `src/dry_run.rs` | `ActionPlan`, `DryRunEnvelope`, signing context capture |
 | Watch / streaming | `src/watch.rs` (897 lines) | Alternate-screen snapshot watch mode and bounded WebSocket subscriptions |
@@ -56,7 +55,8 @@ sequenceDiagram
     participant Clap as clap (main.rs)
     participant Runtime as cli_runtime
     participant Auth as auth/signing
-    participant Db as db.rs / ows.rs
+    participant Ows as ows.rs / ows-lib
+    participant Local as private key / keystore
     participant Plan as orders/planning.rs
     participant Sign as SelectedSigner
     participant API as /exchange
@@ -64,10 +64,13 @@ sequenceDiagram
     User->>Clap: orders create --coin BTC --side buy --price 50000 --size 0.001
     Clap->>Runtime: Cli + global flags + Commands::Orders(...)
     Runtime->>Auth: resolve --private-key / --keystore / --account / --ows-signer
-    Auth->>Db: load encrypted private key
-    Db-->>Auth: PrivateKeySigner (decrypted)
+    alt Explicit local signer
+        Auth->>Local: parse private key or decrypt keystore
+        Local-->>Auth: PrivateKeySigner
+    end
     alt OWS selector
-        Auth->>Db: ows.rs reads OWS vault
+        Auth->>Ows: resolve wallet and signing config
+        Ows-->>Auth: OWS signing config
     end
     Auth-->>Runtime: ResolvedSigner
     Runtime->>Plan: prepare_create_order_plan(args, metadata, signer)
@@ -126,7 +129,6 @@ The watch helpers enforce upper bounds with `HYPERLIQUID_WATCH_MAX_TICKS`, `--ma
 - **`tokio` 1** — async runtime with multi-thread, process, time, and io-util features.
 - **`alloy` 2.0.4** (+ `alloy-v1` 1.8 alias) — Ethereum signing and EIP-712 typed data. Both versions coexist because hypersdk pins Alloy 1's `PrivateKeySigner`; see [signer compatibility](../background/design-decisions.md).
 - **`rust_decimal` 1** — `Decimal` for every price, size, and amount.
-- **`rusqlite` 0.38** (bundled) + **`aes-gcm` 0.10** — encrypted account database.
 - **`ows-lib` 1.3.2** — Open Wallet Standard vault, EIP-712 signing through the OWS protocol.
 - **`reqwest` 0.13**, **`tabled` 0.20**, **`tabwriter` 1**, **`crossterm` 0.29**.
 

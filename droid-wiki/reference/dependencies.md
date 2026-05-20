@@ -28,13 +28,10 @@ From `Cargo.toml`, grouped by purpose. Versions reflect v0.11.0.
 | `alloy-v1` (package = `alloy`) | 1.8 (`signers`) | v1 signer trait (`SignerSync`) for hypersdk compatibility |
 | `alloy-signer-local-v1` (package = `alloy-signer-local`) | 1.8 (`keystore`) | v1 keystore feature anchor |
 | `alloy-primitives` | 1 | Primitives shared by both Alloy versions |
-| `aes-gcm` | 0.10 | AES-256-GCM encryption for the account DB |
-| `sha2` | 0.11 | SHA-256 for KDF and checksum |
+| `sha2` | 0.11 | SHA-256 checksum verification |
 | `hex` | 0.4 | Hex encoding |
-| `base64` | 0.22 | Base64 for storage blobs |
 | `rand` | 0.10 | RNG |
 | `ows-lib` | 1.3.2 | Open Wallet Standard vault and signing |
-| `keyring` | 3 (`apple-native`, `linux-native`, `windows-native`) | OS keychain for account-DB key material |
 | `rpassword` | 7 | Hidden prompts for secrets |
 | `rmp-serde` | 1 | MessagePack for some hypersdk payloads |
 
@@ -46,7 +43,6 @@ From `Cargo.toml`, grouped by purpose. Versions reflect v0.11.0.
 
 | Crate | Version | Role |
 |-------|---------|------|
-| `rusqlite` | 0.38 (`bundled`) | Account DB (SQLite, statically linked) |
 | `dirs` | 6 | Config and vault directory resolution |
 
 ## Output

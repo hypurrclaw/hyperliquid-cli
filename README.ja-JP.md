@@ -183,8 +183,8 @@ export OWS_PASSPHRASE=...               # unlock encrypted OWS wallet
 
 | Class | Accepted values | Used for |
 | --- | --- | --- |
-| `ACCOUNT_SELECTOR` | 保存済み account alias、保存済み account id、または `0x` address | `--account` で signer を選択する、または OWS wallet レコードを管理するため。 |
-| `USER` | `0x` user address、または文書化された安全な stored-account selector | `account portfolio`、`orders status --user`、fee クエリなどの公開 lookup。 |
+| `ACCOUNT_SELECTOR` | OWS wallet name、OWS wallet id、または `0x` address | `--account` で signer を選択する、または OWS wallet レコードを管理するため。 |
+| `USER` | `0x` user address、または文書化された安全な OWS wallet selector | `account portfolio`、`orders status --user`、fee クエリなどの公開 lookup。 |
 | `*_ADDRESS` | 明示的な `0x` protocol address のみ | 送金 recipient、vault、validator、builder、その他のプロトコルオブジェクト。ローカル alias がこれらのフィールドに代入されることはありません。 |
 
 エージェントにとって、`hyperliquid --format json schema ...` のツールスキーマは、例や説明文と矛盾する場合の入力セマンティクスの信頼できる情報源です。

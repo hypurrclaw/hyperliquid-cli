@@ -419,8 +419,8 @@ pub fn show(
             match crate::ows::get_ows_wallet(selector, vault_path.as_deref()) {
                 Ok(w) => w,
                 Err(CliError::InvalidAuth(_) | CliError::OwsWalletNotFound { .. }) => {
-                    // Not a known OWS wallet — fall through to traditional resolver
-                    // for 0x addresses, stored accounts, etc.
+                    // Not a known OWS wallet — fall through to the resolver for
+                    // raw address previews or explicit local signer inputs.
                     let resolved = auth::resolve_signer_with_account_and_ows(
                         resolved_private_key,
                         keystore_path,
@@ -507,9 +507,6 @@ fn signer_display(source: &SignerSource) -> (Option<String>, String) {
     match source {
         SignerSource::PrivateKey => (None, "private key/config/env".to_string()),
         SignerSource::Keystore => (None, "keystore".to_string()),
-        SignerSource::StoredAccount { alias } => {
-            (Some(alias.clone()), "stored signing account".to_string())
-        }
         SignerSource::Ows { selector } => (None, format!("OWS signer ({selector})")),
     }
 }
@@ -533,8 +530,8 @@ pub fn address(
                 addr
             }
             Err(CliError::InvalidAuth(_) | CliError::OwsWalletNotFound { .. }) => {
-                // Not a known OWS wallet — fall back to traditional resolver
-                // for 0x addresses, stored accounts, etc.
+                // Not a known OWS wallet — fall back to the resolver for raw
+                // address previews or explicit local signer inputs.
                 resolve_fallback_address(
                     resolved_private_key,
                     keystore_path,
@@ -928,7 +925,7 @@ fn print_ows_wallet_change(
 
 fn account_type_display_label(account_type: &str) -> &str {
     match account_type {
-        "api-wallet" => "local signing account",
+        "api-wallet" => "explicit local signer",
         "agent-wallet" => "API/agent wallet",
         "ows-wallet" => "OWS wallet",
         other => other,

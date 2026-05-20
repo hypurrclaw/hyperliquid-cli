@@ -11,11 +11,9 @@ pub const FORMAT_ENV: &str = "HYPERLIQUID_FORMAT";
 pub const PRIVATE_KEY_ENV: &str = "HYPERLIQUID_PRIVATE_KEY";
 pub const NETWORK_ENV: &str = "HYPERLIQUID_NETWORK";
 pub const WATCH_MAX_TICKS_ENV: &str = "HYPERLIQUID_WATCH_MAX_TICKS";
-pub const ACCOUNT_KEY_PASSPHRASE_ENV: &str = "HYPERLIQUID_ACCOUNT_KEY_PASSPHRASE";
-pub const ACCOUNT_KEYCHAIN_DISABLED_ENV: &str = "HYPERLIQUID_ACCOUNT_KEYCHAIN_DISABLED";
-pub const ACCOUNT_KEY_STORE_DIR_ENV: &str = "HYPERLIQUID_ACCOUNT_KEY_STORE_DIR";
+pub const OWS_PASSPHRASE_ENV: &str = "OWS_PASSPHRASE";
 #[allow(dead_code)]
-pub const TEST_ACCOUNT_PASSPHRASE: &str = "deterministic integration account encryption passphrase";
+pub const TEST_ACCOUNT_PASSPHRASE: &str = "deterministic integration OWS vault passphrase";
 #[allow(dead_code)]
 pub const VALID_PRIVATE_KEY: &str =
     "0x0000000000000000000000000000000000000000000000000000000000000009";
@@ -67,9 +65,7 @@ impl IsolatedHome {
             .env_remove(MAINNET_API_OVERRIDE_ENV)
             .env_remove(TESTNET_API_OVERRIDE_ENV)
             .env_remove(WATCH_MAX_TICKS_ENV)
-            .env_remove(ACCOUNT_KEY_PASSPHRASE_ENV)
-            .env_remove(ACCOUNT_KEYCHAIN_DISABLED_ENV)
-            .env_remove(ACCOUNT_KEY_STORE_DIR_ENV);
+            .env_remove(OWS_PASSPHRASE_ENV);
     }
 
     #[allow(dead_code)]
@@ -98,9 +94,7 @@ impl IsolatedHome {
             .env("XDG_CONFIG_HOME", &self.config)
             .env("XDG_DATA_HOME", data)
             .env(FORMAT_ENV, "pretty")
-            .env(ACCOUNT_KEYCHAIN_DISABLED_ENV, "1")
-            .env_remove(ACCOUNT_KEY_PASSPHRASE_ENV)
-            .env_remove(ACCOUNT_KEY_STORE_DIR_ENV)
+            .env_remove(OWS_PASSPHRASE_ENV)
             .env_remove(PRIVATE_KEY_ENV)
             .env_remove(NETWORK_ENV);
         command
@@ -108,15 +102,12 @@ impl IsolatedHome {
 
     #[allow(dead_code)]
     pub fn apply_account_env(&self, command: &mut Command, passphrase: Option<&str>) {
-        command
-            .env(ACCOUNT_KEYCHAIN_DISABLED_ENV, "1")
-            .env_remove(ACCOUNT_KEY_STORE_DIR_ENV);
         match passphrase {
             Some(passphrase) => {
-                command.env(ACCOUNT_KEY_PASSPHRASE_ENV, passphrase);
+                command.env(OWS_PASSPHRASE_ENV, passphrase);
             }
             None => {
-                command.env_remove(ACCOUNT_KEY_PASSPHRASE_ENV);
+                command.env_remove(OWS_PASSPHRASE_ENV);
             }
         }
     }
@@ -207,24 +198,11 @@ impl IsolatedHome {
     }
 
     #[allow(dead_code)]
-    pub fn accounts_db_path(&self) -> PathBuf {
-        self.accounts_db_candidates()
-            .into_iter()
-            .find(|path| path.exists())
-            .expect("accounts.db should exist")
-    }
-
-    #[allow(dead_code)]
     pub fn data_dir_path(&self) -> PathBuf {
         self.accounts_db_candidates()[0]
             .parent()
             .expect("accounts.db candidate should have a parent directory")
             .to_path_buf()
-    }
-
-    #[allow(dead_code)]
-    pub fn legacy_accounts_key_path(&self) -> PathBuf {
-        self.data_dir_path().join("accounts.key")
     }
 
     #[allow(dead_code)]
@@ -241,18 +219,6 @@ impl IsolatedHome {
             .into_iter()
             .find(|path| path.exists())
             .expect("OWS vault should exist")
-    }
-
-    #[allow(dead_code)]
-    pub fn deprecated_config_key_candidates(&self) -> Vec<PathBuf> {
-        vec![
-            self.config.join("hyperliquid").join("account-data.key"),
-            self.home
-                .join("Library")
-                .join("Application Support")
-                .join("hyperliquid")
-                .join("account-data.key"),
-        ]
     }
 }
 

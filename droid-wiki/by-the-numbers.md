@@ -31,7 +31,6 @@ Largest source files:
 | `src/commands/orders/planning.rs` | 1,539 |
 | `src/output/mod.rs` | 1,379 |
 | `src/commands/staking.rs` | 1,323 |
-| `src/db.rs` | 1,159 |
 | `src/commands/orderbook.rs` | 1,115 |
 | `src/commands/vaults.rs` | 1,102 |
 | `src/commands/wallet.rs` | 1,062 |

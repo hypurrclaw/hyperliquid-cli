@@ -23,7 +23,6 @@ use crate::errors::CliError;
 pub enum SignerSource {
     PrivateKey,
     Keystore,
-    StoredAccount { alias: String },
     Ows { selector: String },
 }
 

@@ -170,7 +170,7 @@ See [`SKILL.md`](SKILL.md) for the agent operating guide.
 
 | Domain | Examples |
 | --- | --- |
-| Local signing account / OWS wallet account record | An OWS wallet record managed by `account add`, `account ls`, `account set-default`, and related commands. |
+| OWS wallet account record | An OWS wallet record managed by `account add`, `account ls`, `account set-default`, and related commands. |
 | Selected signer | The key used to sign authenticated actions, chosen from flags, environment/config, global `--account`, or the OWS selector. |
 | Protocol user address | A public Hyperliquid user address used for info queries such as fills, portfolio, fees, or order status. |
 | Master account | The protocol owner account that can approve API wallets and own subaccounts. |
@@ -183,8 +183,8 @@ Address-like command inputs fall into three safety classes:
 
 | Class | Accepted values | Used for |
 | --- | --- | --- |
-| `ACCOUNT_SELECTOR` | Stored account alias, stored account id, or `0x` address | Selecting a signer with `--account` or managing OWS wallet records. |
-| `USER` | `0x` user address, or a documented safe stored-account selector | Public lookups such as `account portfolio`, `orders status --user`, or fee queries. |
+| `ACCOUNT_SELECTOR` | OWS wallet name, OWS wallet id, or `0x` address | Selecting a signer with `--account` or managing OWS wallet records. |
+| `USER` | `0x` user address, or a documented safe OWS wallet selector | Public lookups such as `account portfolio`, `orders status --user`, or fee queries. |
 | `*_ADDRESS` | Explicit `0x` protocol address only | Transfer recipients, vaults, validators, builders, and other protocol objects. Local aliases are not substituted for these fields. |
 
 For agents, `hyperliquid --format json schema ...` tool schemas are the authoritative source for input semantics when they conflict with examples or prose.
@@ -273,7 +273,7 @@ Canonical top-level aliases accepted by the CLI:
 
 API wallets can sign trading actions for the approving master account, but they cannot withdraw. Use the master or subaccount address for info queries. When `api-wallet create` generates a local agent keypair, it prints the private key once before submitting `approveAgent` for that address; store that key securely because the CLI does not automatically recover it later.
 
-Signer and acting-account flags intentionally share the same selector grammar where it is safe: raw `0x` address, stored wallet/account alias, or stored wallet/account id. Their roles differ. Global `--account` / `--wallet` selects the key that signs the action; per-command `--on-behalf-of` selects the protocol account, subaccount, or vault supplied as Hyperliquid `vaultAddress` for that action.
+Signer and acting-account flags intentionally share the same selector grammar where it is safe: raw `0x` address, OWS wallet name, or OWS wallet id. Their roles differ. Global `--account` / `--wallet` selects the key that signs the action; per-command `--on-behalf-of` selects the protocol account, subaccount, or vault supplied as Hyperliquid `vaultAddress` for that action.
 
 ### Trading and transfers
 

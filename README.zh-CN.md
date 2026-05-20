@@ -183,8 +183,8 @@ export OWS_PASSPHRASE=...               # unlock encrypted OWS wallet
 
 | 类别 | 接受的值 | 用于 |
 | --- | --- | --- |
-| `ACCOUNT_SELECTOR` | Stored account alias、stored account id 或 `0x` address | 使用 `--account` 选择签名者，或管理 OWS wallet records。 |
-| `USER` | `0x` user address，或有文档说明的安全 stored-account selector | 公共查询，例如 `account portfolio`、`orders status --user` 或 fee queries。 |
+| `ACCOUNT_SELECTOR` | OWS wallet name、OWS wallet id 或 `0x` address | 使用 `--account` 选择签名者，或管理 OWS wallet records。 |
+| `USER` | `0x` user address，或有文档说明的安全 OWS wallet selector | 公共查询，例如 `account portfolio`、`orders status --user` 或 fee queries。 |
 | `*_ADDRESS` | 仅显式 `0x` protocol address | Transfer recipients、vaults、validators、builders 和其他 protocol objects。Local aliases 不会替换到这些字段。 |
 
 对于代理，当 `hyperliquid --format json schema ...` 工具 schema 与示例或说明性文字冲突时，它们是输入语义的权威来源。

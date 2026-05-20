@@ -39,7 +39,7 @@ sol! {
 
 #[derive(Args, Debug, Clone)]
 pub struct FillsArgs {
-    /// Ethereum address, stored account alias, or stored account id.
+    /// Ethereum address, OWS wallet name, or OWS wallet id.
     /// Defaults to the selected/default signer when omitted.
     pub address: Option<String>,
     /// Start time as RFC3339 or epoch milliseconds. Uses userFillsByTime when present.
@@ -55,14 +55,14 @@ pub struct FillsArgs {
 
 #[derive(Args, Debug, Clone)]
 pub struct AddressArgs {
-    /// Ethereum address, stored account alias, or stored account id.
+    /// Ethereum address, OWS wallet name, or OWS wallet id.
     /// Defaults to the selected/default signer when omitted.
     pub address: Option<String>,
 }
 
 #[derive(Args, Debug, Clone)]
 pub struct TimeRangeArgs {
-    /// Ethereum address, stored account alias, or stored account id.
+    /// Ethereum address, OWS wallet name, or OWS wallet id.
     /// Defaults to the selected/default signer when omitted.
     pub address: Option<String>,
     /// Start time as RFC3339 or epoch milliseconds.
@@ -75,7 +75,7 @@ pub struct TimeRangeArgs {
 
 #[derive(Args, Debug, Clone)]
 pub struct TwapFillsArgs {
-    /// Ethereum address, stored account alias, or stored account id.
+    /// Ethereum address, OWS wallet name, or OWS wallet id.
     /// Defaults to the selected/default signer when omitted.
     pub address: Option<String>,
     /// Start time as RFC3339 or epoch milliseconds. Uses userTwapSliceFillsByTime when present.
@@ -91,7 +91,7 @@ pub struct TwapFillsArgs {
 
 #[derive(Args, Debug, Clone)]
 pub struct AbstractionArgs {
-    /// Address, stored account alias, or stored account id to read
+    /// Address, OWS wallet name, or OWS wallet id to read
     pub address: Option<String>,
 
     #[command(subcommand)]
