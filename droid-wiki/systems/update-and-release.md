@@ -18,7 +18,7 @@ The runtime spawns a best-effort background check on commands that opt in. The c
 
 - Reads `LATEST_RELEASE_URL` (`https://api.github.com/repos/hypurrclaw/hyperliquid-cli/releases/latest`).
 - Caches the latest tag for `UPDATE_CHECK_INTERVAL` (20 hours) in a `version.json` file under the config directory.
-- Skips entirely when `HYPERLIQUID_NO_UPDATE_CHECK=1` or `HYPERLIQUID_AGENT=1` is set, or when stdout is not a TTY.
+- Skips entirely when `HYPERLIQUID_NO_UPDATE_CHECK=1` or `HYPERLIQUID_AGENT=1` is set, or when stderr is not a TTY.
 - Surfaces a single line to stderr if a newer release is available.
 
 ```mermaid

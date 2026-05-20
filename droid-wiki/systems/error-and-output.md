@@ -74,7 +74,7 @@ JSON-mode errors print to **stdout** as a single JSON object so agents that capt
 | `Unavailable(String)`     | 12 | Network/API unreachable |
 | `Timeout(String)`         | 12 | Exceeded a bound |
 | `Unsupported(String)`     | 13 | Bad asset/DEX/parameter |
-| `AssetNotFound { suggestions }` | 13 | Unknown asset with close matches |
+| `AssetNotFound { asset, suggestions }` | 13 | Unknown asset with close matches |
 | `AssetNotFoundNoSuggestion`     | 13 | Unknown asset with no matches |
 | `StaleData(String)`       | 14 | Cached data expired |
 | `PartialResults(String)`  | 15 | Some items failed in a batch |

@@ -40,7 +40,7 @@ pub enum SignerSource {
 graph TD
     Flags[CLI flags] --> Resolve
     Env[Env vars<br/>HYPERLIQUID_PRIVATE_KEY, OWS_PASSPHRASE] --> Resolve
-    Config[Config file<br/>~/.config/hyperliquid/config.json] --> Resolve
+    Config[Config file<br/>platform config dir + hyperliquid/config.json] --> Resolve
     Resolve{resolvers::resolve_selected_signer} -->|--ows-signer| Ows[OWS vault<br/>~/.hyperliquid]
     Resolve -->|--private-key| Raw[PrivateKeySigner from hex]
     Resolve -->|--keystore + password| Keystore[alloy-signer-local keystore]

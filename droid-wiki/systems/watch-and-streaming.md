@@ -13,7 +13,7 @@ Snapshot commands such as `mids`, `book`, and `candles` accept `--watch` to re-r
 
 `SnapshotWatchArgs` is flattened into snapshot commands. When `--watch` is set:
 
-- Pretty/table output: alternate screen is entered; the snapshot is re-drawn every `WATCH_REFRESH_INTERVAL` (2 s) until the user presses `q` / `Ctrl-C` or the tick cap is reached.
+- Pretty/table output on a TTY (both stdin and stdout): alternate screen is entered; the snapshot is re-drawn every `WATCH_REFRESH_INTERVAL` (2 s) until the user presses `q` / `Ctrl-C` or the tick cap is reached. In non-TTY contexts, bounded watch (`--max-ticks` or `HYPERLIQUID_WATCH_MAX_TICKS`) falls back to NDJSON even when `--format pretty` or `--format table` is requested; unbounded non-TTY watch is rejected.
 - JSON output: NDJSON is emitted to stdout; one JSON object per refresh.
 
 Bounds:

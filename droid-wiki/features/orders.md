@@ -26,7 +26,7 @@ The order family is the largest and most safety-critical surface in the CLI. Eve
 | `orders modify` | Modify an existing order | supported | required unless `-y` |
 | `orders twap-create` | Time-weighted-average-price slice schedule | supported | required unless `-y` |
 | `orders twap-cancel` | Cancel an active TWAP | supported | required unless `-y` |
-| `orders schedule-cancel` | Server-side dead-man's switch (sets a ScheduleCancel action) | supported | prompt-gated on mainnet for `cancel-all` flavor, even with `-y`? See safety note below |
+| `orders schedule-cancel` | Server-side dead-man's switch (sets a ScheduleCancel action) | supported | prompt-gated on mainnet unless `-y`. See safety note below |
 | `orders open` | List open orders (read-only) | n/a | n/a |
 | `orders status` | Public OID/CLOID status (read-only) | n/a | n/a |
 | `orders history` | Order history (read-only) | n/a | n/a |

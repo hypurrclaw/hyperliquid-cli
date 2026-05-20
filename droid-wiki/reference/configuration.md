@@ -21,6 +21,7 @@ A missing config file is not an error for read-only commands. The file is only c
 | `HYPERLIQUID_AGENT` | `src/output/mod.rs`, `src/update_check.rs` | When `=1`, default to JSON and suppress prompts/update notices |
 | `HYPERLIQUID_NO_UPDATE_CHECK` | `src/update_check.rs` | Disable passive update notices |
 | `HYPERLIQUID_WATCH_MAX_TICKS` | `src/watch.rs` | Cap snapshot watch ticks |
+| `HYPERLIQUID_SUBSCRIBE_MAX_EVENTS` | `src/watch.rs`, `src/cli_runtime.rs` | Cap subscribe stream events (env-level bound for `--max-events`) |
 | `HYPERLIQUID_OWS_VAULT_PATH` | `src/ows.rs` | Override OWS vault path (default `~/.hyperliquid`) |
 | `OWS_PASSPHRASE` | `src/ows.rs` | Unattended unlock passphrase for the OWS vault |
 | `HYPERLIQUID_ACCOUNT_KEY_PASSPHRASE` | `src/db.rs` | Passphrase-derived key material for the encrypted SQLite account DB (tests/headless) |
