@@ -50,15 +50,15 @@ struct Cli {
     format: output::OutputFormat,
 
     /// Private key (overrides env var and config file)
-    #[arg(long, global = true)]
+    #[arg(long, global = true, conflicts_with_all = ["keystore", "keystore_password"])]
     private_key: Option<String>,
 
     /// Foundry-compatible keystore file to decrypt for signing
-    #[arg(long, global = true)]
+    #[arg(long, global = true, requires = "keystore_password")]
     keystore: Option<PathBuf>,
 
     /// Password for --keystore (prefer an interactive shell-safe source in production)
-    #[arg(long, global = true)]
+    #[arg(long, global = true, requires = "keystore")]
     keystore_password: Option<String>,
 
     /// Wallet name, id, or address to use as the signer

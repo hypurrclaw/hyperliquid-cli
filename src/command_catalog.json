@@ -2198,7 +2198,7 @@
         {
           "id": "on_behalf_of",
           "long": "on-behalf-of",
-          "description": "Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id.",
+          "description": "Acting-account selector for vaultAddress: subaccount/vault address, OWS wallet name, or OWS wallet id.",
           "input_kind": "acting_account_selector"
         },
         {
@@ -2284,7 +2284,7 @@
         {
           "id": "on_behalf_of",
           "long": "on-behalf-of",
-          "description": "Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id.",
+          "description": "Acting-account selector for vaultAddress: subaccount/vault address, OWS wallet name, or OWS wallet id.",
           "input_kind": "acting_account_selector"
         }
       ],
@@ -2317,7 +2317,7 @@
         {
           "id": "on_behalf_of",
           "long": "on-behalf-of",
-          "description": "Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id.",
+          "description": "Acting-account selector for vaultAddress: subaccount/vault address, OWS wallet name, or OWS wallet id.",
           "input_kind": "acting_account_selector"
         },
         {
@@ -2385,7 +2385,7 @@
         {
           "id": "on_behalf_of",
           "long": "on-behalf-of",
-          "description": "Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id.",
+          "description": "Acting-account selector for vaultAddress: subaccount/vault address, OWS wallet name, or OWS wallet id.",
           "input_kind": "acting_account_selector"
         }
       ],
@@ -2419,7 +2419,7 @@
         {
           "id": "on_behalf_of",
           "long": "on-behalf-of",
-          "description": "Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id.",
+          "description": "Acting-account selector for vaultAddress: subaccount/vault address, OWS wallet name, or OWS wallet id.",
           "input_kind": "acting_account_selector"
         },
         {
@@ -2503,7 +2503,7 @@
         {
           "id": "on_behalf_of",
           "long": "on-behalf-of",
-          "description": "Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id.",
+          "description": "Acting-account selector for vaultAddress: subaccount/vault address, OWS wallet name, or OWS wallet id.",
           "input_kind": "acting_account_selector"
         }
       ],
@@ -2603,7 +2603,7 @@
         {
           "id": "on_behalf_of",
           "long": "on-behalf-of",
-          "description": "Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id.",
+          "description": "Acting-account selector for vaultAddress: subaccount/vault address, OWS wallet name, or OWS wallet id.",
           "input_kind": "acting_account_selector"
         },
         {

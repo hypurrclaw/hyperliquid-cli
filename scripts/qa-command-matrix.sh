@@ -26,10 +26,6 @@ HL_QA_IDLE_TIMEOUT_MS="${HL_QA_IDLE_TIMEOUT_MS:-6000}"
 HL_QA_STRICT_SKIPS="${HL_QA_STRICT_SKIPS:-0}"
 HL_QA_CASE_TIMEOUT_SECONDS="${HL_QA_CASE_TIMEOUT_SECONDS:-30}"
 
-if [[ -n "${HL_QA_ACCOUNT_KEY_PASSPHRASE:-}" ]]; then
-  export HYPERLIQUID_ACCOUNT_KEY_PASSPHRASE="$HL_QA_ACCOUNT_KEY_PASSPHRASE"
-fi
-
 if [[ -z "${HL_QA_KEYSTORE:-}" && -f "$ROOT_DIR/.qa/hyperliquid-testnet-cast/wallet-meta.json" ]]; then
   HL_QA_KEYSTORE="$(python3 - "$ROOT_DIR/.qa/hyperliquid-testnet-cast/wallet-meta.json" <<'PY'
 import json, sys
@@ -476,11 +472,7 @@ run_case 0 "account funding" "${BASE[@]}" account funding "$HL_QA_ADDRESS" --sta
 run_case 0 "account twap history" "${BASE[@]}" account twap-history "$HL_QA_ADDRESS"
 run_case 0 "account twap fills" "${BASE[@]}" account twap-fills "$HL_QA_ADDRESS"
 run_case 0 "account abstraction" "${BASE[@]}" account abstraction "$HL_QA_ADDRESS"
-if [[ -n "${HYPERLIQUID_ACCOUNT_KEY_PASSPHRASE:-}" ]]; then
-  run_case 0 "account ls" "${BASE[@]}" account ls
-else
-  skip_case "account ls" "local account DB may prompt without HYPERLIQUID_ACCOUNT_KEY_PASSPHRASE; mutating account commands are still dry-run covered"
-fi
+run_case 0 "account ls" "${BASE[@]}" account ls
 
 run_case 0 "api wallet list" "${BASE[@]}" api-wallet list "$HL_QA_ADDRESS"
 run_case 0 "subaccount list" "${BASE[@]}" subaccount list "$HL_QA_ADDRESS"

@@ -7,7 +7,7 @@
 | Threat | Defense |
 |--------|---------|
 | Plaintext private key leaks via stdout/stderr/logs | Hidden prompts (`rpassword`), no echo, never logged. Exceptions are explicit: `wallet export` and `api-wallet create` print exactly once on a deliberate path. |
-| Plaintext key stored on disk | Encrypted SQLite (`src/db.rs`) with AES-256-GCM, key material in the OS keychain |
+| Plaintext key stored on disk | OWS vault storage for managed wallets; explicit local signer flags are not stored by the CLI |
 | Untrusted remote text injected into terminal | `src/response_sanitization.rs` strips ANSI/control sequences, prefixes with `[untrusted remote data]` |
 | Hostile JSON payload exhausts memory | `src/input_hardening.rs` clamps file size (1 MiB), depth (64), key count (4096), string length (64 KiB) |
 | Path-traversal via `--payload-file` | `FilePolicy` validates path components, rejects `..` and unrelated absolute paths |
@@ -21,13 +21,9 @@
 ## Wallet secrets
 
 - Secrets enter the CLI through hidden prompts (`rpassword`) or env vars. They are never echoed.
-- The SQLite account DB is encrypted with AES-256-GCM. Encryption keys live in the OS keychain (`keyring` crate) by default. Tests and headless systems can supply a passphrase-derived key via `HYPERLIQUID_ACCOUNT_KEY_PASSPHRASE`.
 - The OWS vault path is `~/.hyperliquid` (or `HYPERLIQUID_OWS_VAULT_PATH`). Unlock uses `OWS_PASSPHRASE` for unattended use.
+- Raw private-key and keystore signer inputs are explicit per-command sources and are not written into CLI-managed storage.
 - Generated API/agent wallet keys are printed exactly once at create time, in JSON or pretty form. Treat them like any hot trading key.
-
-## Encrypted on-disk format
-
-`ENCRYPTION_VERSION = "v1"`. Each record has a unique nonce. Keys are domain-separated with `b"hyperliquid-cli account encryption passphrase v1"` for the passphrase-derived KDF path.
 
 ## Sanitization boundary
 

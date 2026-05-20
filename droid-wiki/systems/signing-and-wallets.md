@@ -1,12 +1,12 @@
 # Signing and wallets
 
-Signer resolution converts the global flags (`--private-key`, `--keystore`, `--account`, `--ows-signer`) plus environment variables and stored config into a `SelectedSigner` that can produce EIP-712 signatures for Hyperliquid exchange actions. OWS (Open Wallet Standard) is the primary backend; explicit private key, Foundry keystore, and stored local-account paths remain available for power users and legacy automation.
+Signer resolution converts the global flags (`--private-key`, `--keystore`, `--account`, `--ows-signer`) plus environment variables and stored config into a `SelectedSigner` that can produce EIP-712 signatures for Hyperliquid exchange actions. OWS (Open Wallet Standard) is the only stored wallet backend; explicit private key and Foundry keystore paths remain available for power users and legacy automation.
 
 ## Purpose
 
 - One uniform `SelectedSigner` abstraction the command layer can sign with regardless of where the private key lives.
-- Encrypted at-rest storage for local accounts (`src/db.rs`).
 - An OWS-managed vault for human users who want lifecycle commands (create, import, list, default) without dealing with raw keys.
+- Explicit non-stored signer inputs for scripts and recovery flows.
 
 ## Key files
 
@@ -16,7 +16,6 @@ Signer resolution converts the global flags (`--private-key`, `--keystore`, `--a
 | `src/auth.rs` | `ResolvedSigner` wrapper, private-key parsing, signer resolution from any combination of flags/env/config. |
 | `src/resolvers.rs` | Typed resolver inputs (`SignerResolverInput`, `DefaultSignerFallback`) that make selector classes explicit. |
 | `src/ows.rs` | OWS vault path discovery, wallet selection, EIP-712 signing through `ows-lib`. |
-| `src/db.rs` | SQLite account store with AES-256-GCM-encrypted private keys; key material backed by the OS keychain. |
 | `src/commands/wallet.rs` | `wallet create / import / import-mnemonic / list / show / address / rename / export / delete` — all flow through OWS. |
 | `src/commands/api_wallet.rs` | API/agent wallet generation and `approveAgent` flow. |
 
@@ -27,7 +26,6 @@ Signer resolution converts the global flags (`--private-key`, `--keystore`, `--a
 pub enum SignerSource {
     PrivateKey,
     Keystore,
-    StoredAccount { alias: String },
     Ows { selector: String },
 }
 ```
@@ -42,14 +40,13 @@ graph TD
     Env[Env vars<br/>HYPERLIQUID_PRIVATE_KEY, OWS_PASSPHRASE] --> Resolve
     Config[Config file<br/>platform config dir + hyperliquid/config.json] --> Resolve
     Resolve{resolvers::resolve_selected_signer} -->|--ows-signer| Ows[OWS vault<br/>~/.hyperliquid]
+    Resolve -->|--account name/id| Ows
     Resolve -->|--private-key| Raw[PrivateKeySigner from hex]
     Resolve -->|--keystore + password| Keystore[alloy-signer-local keystore]
-    Resolve -->|--account ALIAS| Db[SQLite account store]
-    Resolve -->|none| Default[Default OWS wallet<br/>or stored default account]
+    Resolve -->|none| Default[Default OWS wallet]
     Ows --> Selected[SelectedSigner]
     Raw --> Selected
     Keystore --> Selected
-    Db --> Selected
     Default --> Selected
 ```
 
@@ -69,14 +66,9 @@ pub const OWS_VAULT_PATH_ENV: &str = "HYPERLIQUID_OWS_VAULT_PATH";
 
 `OwsSignerConfig` carries the selector, derived address, and an optional `OwsWalletSelection` (wallet id, name, chain). Signing converts an Alloy `TypedData` to a Hyperliquid `Signature` through the `ows-lib` typed-data flow.
 
-## Local account database
+## Explicit local signers
 
-`src/db.rs` implements the SQLite-backed account store used by `--account` and `--keystore` legacy paths. Highlights:
-
-- Encryption: AES-256-GCM, version tag `v1`, nonce per record.
-- Key material: stored in the OS keychain (`hyperliquid-cli` service, `accounts-data-encryption-key` user) by default. Tests and headless systems can supply a passphrase-derived key via `HYPERLIQUID_ACCOUNT_KEY_PASSPHRASE`.
-- `HYPERLIQUID_ACCOUNT_KEYCHAIN_DISABLED=1` disables the keychain path entirely.
-- The database never stores plaintext private keys. Encrypted blobs are decrypted only at signer-resolution time.
+`--private-key`, `HYPERLIQUID_PRIVATE_KEY`, config `private_key`, and `--keystore` are non-stored signer sources. They resolve to `LocalPrivateKey` inside `SelectedSigner`, then use the same command signing helpers as resolved OWS wallets. `--keystore-password` is required with `--keystore`.
 
 ## Dual Alloy 1 / Alloy 2 pinning
 
@@ -94,7 +86,6 @@ alloy = { version = "2.0.4", features = ["dyn-abi", "eip712", "sol-types", "sign
 ## Entry points for modification
 
 - To add a new signer backend (e.g., a hardware wallet), extend `SignerBackend` in `src/signing.rs` and add a `SignerSource` variant. Update `resolvers::resolve_selected_signer` to accept the new selector.
-- To change the account encryption scheme, bump `ENCRYPTION_VERSION` in `src/db.rs` and add a migration path that reads old records.
 - To change OWS vault behavior, update `src/ows.rs` and add tests under `tests/wallet_management.rs`.
 
 See also: [features/api-wallets](../features/api-wallets.md), [reference/configuration](../reference/configuration.md), [security](../security.md).

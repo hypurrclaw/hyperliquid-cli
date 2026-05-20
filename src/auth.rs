@@ -5,7 +5,6 @@ use std::path::Path;
 use hypersdk::Address;
 use hypersdk::hypercore::PrivateKeySigner;
 
-use crate::db::AccountStore;
 use crate::errors::CliError;
 use crate::signing::SelectedSigner;
 pub use crate::signing::SignerSource;
@@ -122,7 +121,6 @@ pub fn resolve_signer_with_account_and_ows(
 }
 
 pub fn resolve_stored_account_signer(selector: &str) -> Result<ResolvedSigner, anyhow::Error> {
-    // Try OWS first: selector may be an OWS wallet name or id.
     let vault_path = crate::ows::ows_vault_path();
     match crate::ows::resolve_ows_wallet_selector(selector, vault_path.as_deref()) {
         Ok(crate::ows::ResolvedOwsSelector::Wallet {
@@ -134,41 +132,22 @@ pub fn resolve_stored_account_signer(selector: &str) -> Result<ResolvedSigner, a
                 address,
                 vault_path.clone(),
             );
-            return Ok(ResolvedSigner::new(SelectedSigner::ows(signing_config)));
+            Ok(ResolvedSigner::new(SelectedSigner::ows(signing_config)))
         }
         Ok(crate::ows::ResolvedOwsSelector::RawAddress { .. }) => {
-            // Raw addresses can't sign — fall through to legacy store.
+            Err(account_selector_not_found(selector).into())
         }
-        Err(ref e) if matches!(e, CliError::OwsWalletNotFound { .. }) => {
-            // Wallet not found in OWS vault — fall through to legacy store.
+        Err(ref e)
+            if matches!(e, CliError::OwsWalletNotFound { .. })
+                || matches!(e, CliError::OwsNoChainAccount { .. }) =>
+        {
+            Err(account_selector_not_found(selector).into())
         }
-        Err(ref e) if matches!(e, CliError::OwsNoChainAccount { .. }) => {
-            // No Hyperliquid account — fall through to legacy store.
-        }
-        Err(e) => return Err(e.into()),
+        Err(e) => Err(e.into()),
     }
-
-    // Fallback: legacy SQLite account store.
-    let Some(store) = AccountStore::open_existing_default()? else {
-        return Err(account_selector_not_found(selector).into());
-    };
-    let account = store
-        .account_by_selector(selector)?
-        .ok_or_else(|| account_selector_not_found(selector))?;
-    let private_key = store.decrypt_account_private_key(&account)?;
-    let signer = parse_private_key(&private_key)?;
-    let query_address = account_query_address(&account)?;
-    Ok(ResolvedSigner::new(SelectedSigner::local_private_key(
-        signer,
-        SignerSource::StoredAccount {
-            alias: account.alias,
-        },
-        query_address,
-    )))
 }
 
 pub fn resolve_stored_default_signer() -> Result<ResolvedSigner, anyhow::Error> {
-    // Try OWS default wallet first.
     let vault_path = crate::ows::ows_vault_path();
     let config = crate::config::load_config().ok().flatten();
     let default_wallet_id = config.as_ref().and_then(|c| c.default_wallet_id.as_deref());
@@ -182,35 +161,17 @@ pub fn resolve_stored_default_signer() -> Result<ResolvedSigner, anyhow::Error> 
                 address,
                 vault_path.clone(),
             );
-            return Ok(ResolvedSigner::new(SelectedSigner::ows(signing_config)));
+            Ok(ResolvedSigner::new(SelectedSigner::ows(signing_config)))
         }
         Err(ref e)
             if matches!(e, CliError::OwsWalletNotFound { .. })
                 || matches!(e, CliError::OwsNoChainAccount { .. })
                 || matches!(e, CliError::AuthRequired) =>
         {
-            // No matching OWS wallet — fall through to legacy store.
+            Err(CliError::AuthRequired.into())
         }
-        Err(e) => return Err(e.into()),
+        Err(e) => Err(e.into()),
     }
-
-    // Fallback: legacy SQLite account store.
-    let Some(store) = AccountStore::open_existing_default()? else {
-        return Err(CliError::AuthRequired.into());
-    };
-    let account = store
-        .default_or_first_account()?
-        .ok_or(CliError::AuthRequired)?;
-    let private_key = store.decrypt_account_private_key(&account)?;
-    let signer = parse_private_key(&private_key)?;
-    let query_address = account_query_address(&account)?;
-    Ok(ResolvedSigner::new(SelectedSigner::local_private_key(
-        signer,
-        SignerSource::StoredAccount {
-            alias: account.alias,
-        },
-        query_address,
-    )))
 }
 
 pub fn account_selector_not_found(selector: &str) -> CliError {
@@ -233,25 +194,9 @@ pub fn resolve_keystore_signer(
     )))
 }
 
-fn account_query_address(account: &crate::db::Account) -> Result<Address, CliError> {
-    let raw = account
-        .master_address
-        .as_deref()
-        .unwrap_or(account.address.as_str());
-    raw.parse::<Address>().map_err(|_| {
-        CliError::Internal(anyhow::anyhow!(
-            "stored account '{}' has invalid query address {}",
-            account.alias,
-            raw
-        ))
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::AccountStore;
-    use tempfile::TempDir;
 
     const KEY: &str = "0x0000000000000000000000000000000000000000000000000000000000000009";
 
@@ -274,36 +219,12 @@ mod tests {
     }
 
     #[test]
-    fn stored_default_account_can_be_decrypted_and_parsed() {
-        let tmp = TempDir::new().unwrap();
-        let mut store =
-            AccountStore::open(tmp.path().join("accounts.db"), tmp.path().join("key")).unwrap();
-        let signer = parse_private_key(KEY).unwrap();
-        let account = store
-            .add_account(
-                "main",
-                &signer.address().to_string(),
-                KEY,
-                "api-wallet",
-                true,
-            )
-            .unwrap();
-        let decrypted = store.decrypt_account_private_key(&account).unwrap();
-        assert_eq!(
-            parse_private_key(&decrypted).unwrap().address(),
-            signer.address()
-        );
-    }
-
-    #[test]
     fn resolved_signer_converts_to_selected_signer_without_changing_identity() {
         let signer = parse_private_key(KEY).unwrap();
         let address = signer.address();
         let resolved = ResolvedSigner::new(SelectedSigner::local_private_key(
             signer,
-            SignerSource::StoredAccount {
-                alias: "main".to_string(),
-            },
+            SignerSource::PrivateKey,
             address,
         ));
 
@@ -311,12 +232,7 @@ mod tests {
 
         assert_eq!(selected.address(), address);
         assert_eq!(selected.query_address(), address);
-        assert_eq!(
-            selected.source(),
-            &crate::signing::SignerSource::StoredAccount {
-                alias: "main".to_string(),
-            }
-        );
+        assert_eq!(selected.source(), &crate::signing::SignerSource::PrivateKey);
     }
 
     #[test]

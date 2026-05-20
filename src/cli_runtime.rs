@@ -917,7 +917,7 @@ fn validate_cli_inputs(cli: &Cli) -> Result<(), errors::CliError> {
             }
             AccountCommands::Add { alias, .. } => {
                 if let Some(alias) = alias.as_deref() {
-                    validate_resource_id("account alias", alias)?;
+                    validate_resource_id("wallet alias", alias)?;
                 }
             }
             AccountCommands::SetDefault { selector } => {

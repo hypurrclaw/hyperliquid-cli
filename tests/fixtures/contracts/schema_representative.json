@@ -530,7 +530,7 @@
         {
           "arg_type": "string",
           "default": null,
-          "description": "Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id.",
+          "description": "Acting-account selector for vaultAddress: subaccount/vault address, OWS wallet name, or OWS wallet id.",
           "enum_values": [],
           "id": "on_behalf_of",
           "input_kind": "acting_account_selector",
@@ -577,7 +577,7 @@
             "type": "string"
           },
           "on_behalf_of": {
-            "description": "Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id.",
+            "description": "Acting-account selector for vaultAddress: subaccount/vault address, OWS wallet name, or OWS wallet id.",
             "input_kind": "acting_account_selector",
             "type": "string"
           },

@@ -20,7 +20,7 @@ Key types developers and reviewers encounter, grouped by topic. All file paths a
 |------|---------|
 | `ResolvedSigner` | Public wrapper around `SelectedSigner` |
 | `SelectedSigner` | Backend-neutral signer (`LocalPrivateKey` or `Ows`) |
-| `SignerSource` | `PrivateKey`, `Keystore`, `StoredAccount { alias }`, `Ows { selector }` |
+| `SignerSource` | `PrivateKey`, `Keystore`, `Ows { selector }` |
 | `SignerResolverInput` | Inputs to `resolvers::resolve_selected_signer` |
 | `DefaultSignerFallback` | `AllowStoredDefaultOrFirst`, `Disallow` |
 
@@ -32,15 +32,6 @@ Key types developers and reviewers encounter, grouped by topic. All file paths a
 | `OwsSigningConfig` | Backend signing config used by `SelectedSigner` |
 | `OwsWalletSelection` | Wallet id, name, chain id |
 | `HYPERLIQUID_CAIP2` const | `"eip155:999"` |
-
-## Account storage (`src/db.rs`)
-
-| Type | Purpose |
-|------|---------|
-| `Account` | Stored account row (alias, address, encrypted key blob) |
-| `AccountStore` | SQLite-backed store with AES-256-GCM |
-| `EncryptionKeyStore` (trait) | Key-material backend (OS keychain or passphrase) |
-| `AgentAccountMetadata` | Master address, agent name, expiry for API/agent wallets |
 
 ## Command registry (`src/command_registry.rs`)
 

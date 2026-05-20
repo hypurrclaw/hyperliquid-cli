@@ -28,7 +28,7 @@ graph TD
 | `--private-key <HEX>` | Signer private key (overrides env/config) |
 | `--keystore <PATH>` | Foundry-compatible keystore file |
 | `--keystore-password <PASSWORD>` | Password for `--keystore` (prefer an interactive source in production) |
-| `--account <SELECTOR>` | Wallet name/id/address from the stored account DB |
+| `--account <SELECTOR>` | OWS wallet name/id/address to use as the signer |
 | `--ows-signer <SELECTOR>` | OWS signer selector (`0x` address, wallet name, or id) |
 | `--testnet` | Use testnet instead of mainnet |
 | `--select <FIELDS>` | JSON field projection |

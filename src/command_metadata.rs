@@ -268,20 +268,21 @@ fn inferred_input_kind(arg: &impl CatalogArgMetadata) -> Option<String> {
     {
         return Some("raw_destination_address".to_string());
     }
-    if description.contains("stored account alias")
-        || description.contains("stored account id")
-        || description.contains("account selector")
-    {
-        return Some("signer_selector".to_string());
+    if description.contains("acting-account selector") {
+        return Some("acting_account_selector".to_string());
     }
-    if description.contains("user address, account alias, or account id")
-        || description.contains("ethereum address, account alias, or account id")
-        || description.contains("master address, account alias, or account id")
+    if description.contains("user address, ows wallet name, or ows wallet id")
+        || description.contains("ethereum address, ows wallet name, or ows wallet id")
+        || description.contains("master address, ows wallet name, or ows wallet id")
+        || description.contains("address, ows wallet name, or ows wallet id")
     {
         return Some("public_user_selector".to_string());
     }
-    if description.contains("acting-account selector") {
-        return Some("acting_account_selector".to_string());
+    if description.contains("ows wallet name")
+        || description.contains("ows wallet id")
+        || description.contains("account selector")
+    {
+        return Some("signer_selector".to_string());
     }
     if description.contains("validator address")
         || description.contains("vault address")

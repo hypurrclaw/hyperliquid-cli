@@ -18,9 +18,9 @@ This page is a working summary of the conventions in `AGENTS.md` and `CONTRIBUTI
 
 | Class | Where used | Resolves aliases? |
 |-------|------------|-------------------|
-| Local signing account | `--account`, `account add/ls/set-default/remove` | yes |
+| OWS wallet account | `--account`, `account add/ls/set-default/remove` | yes |
 | Selected signer | `--ows-signer`, `--private-key`, `--keystore`, `--account` | yes |
-| API/agent wallet | `api-wallet *`, signing as the agent | yes (the agent is a stored account) |
+| API/agent wallet | `api-wallet *`, signing as the agent | yes |
 | OWS wallet | `--ows-signer`, `wallet *` | yes |
 | Protocol user (`USER`) | `account *` reads | yes (for ergonomics) |
 | `*_ADDRESS` | Transfer recipient, vault, validator, builder | **no** — explicit address only |

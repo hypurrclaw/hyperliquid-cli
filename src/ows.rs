@@ -151,7 +151,7 @@ pub fn select_hyperliquid_account(
 /// without a resolved wallet — live signing is not possible without a wallet.
 pub fn unsupported_live_signing(selector: &str) -> CliError {
     CliError::Unsupported(format!(
-        "OWS signer '{selector}' does not have a resolved wallet for live signing; use a stored wallet name/id, or select a local signing account, keystore, or private key for live submission"
+        "OWS signer '{selector}' does not have a resolved wallet for live signing; use an OWS wallet name/id, or select an explicit private key or keystore for live submission"
     ))
 }
 

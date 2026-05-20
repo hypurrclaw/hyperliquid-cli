@@ -8,13 +8,13 @@ The CLI distinguishes several classes of "who/what is this" inputs. Mixing them 
 
 | Term | Meaning | Examples |
 |------|---------|----------|
-| **Local signing account** | Encrypted local private-key record stored in the SQLite account store (`src/db.rs`) | A record with an `alias`, encrypted key, and address |
+| **Explicit local signer** | Non-stored signer passed for a command through `--private-key`, `HYPERLIQUID_PRIVATE_KEY`, config `private_key`, or `--keystore` | Scripted signing without using OWS storage |
 | **Selected signer** | The key used to sign an authenticated action for the current command | Resolved through `SelectedSigner` in `src/signing.rs` |
 | **API wallet / agent wallet** | Delegated Hyperliquid trading key approved by a master account via `approveAgent`. Can trade, cannot withdraw | Created with `api-wallet create` |
 | **OWS wallet** | Wallet managed by the Open Wallet Standard backend at `~/.hyperliquid` (or `HYPERLIQUID_OWS_VAULT_PATH`) | The default backend; selected with `--ows-signer` |
 | **Protocol user address** / `USER` | Public account-data lookup target. Anything readable on-chain | The argument to `account portfolio USER` |
-| **`ACCOUNT_SELECTOR`** | Input that may accept a stored account alias, stored account id, or a `0x` address | `--account alice`, `--account 0xabc...` |
-| **`*_ADDRESS`** | Explicit protocol object address. Local account aliases are **not** resolved for these | Transfer recipient (`--to`), vault, validator, builder |
+| **`ACCOUNT_SELECTOR`** | Input that may accept an OWS wallet name, OWS wallet id, or a `0x` address | `--account alice`, `--account 0xabc...` |
+| **`*_ADDRESS`** | Explicit protocol object address. Wallet names and aliases are **not** resolved for these | Transfer recipient (`--to`), vault, validator, builder |
 | **Acting-account selector** | Signer is one address; the action is taken on behalf of another (subaccount or vault). Documented separately in command schemas | `orders --on-behalf-of`, `subaccount transfer --subaccount` |
 
 When schema metadata disagrees with README prose, treat schema `input_kind`, `risk`, `dry_run`, and `confirmation` metadata as authoritative.
@@ -73,6 +73,5 @@ These come from `src/command_registry.rs` and the embedded `command_catalog.json
 | **OWS** | Open Wallet Standard. The primary wallet vault backend (`ows-lib` crate). |
 | **CAIP-2** | Chain Agnostic namespace. Hyperliquid uses `eip155:999`. |
 | **EIP-712** | Typed structured data signing standard used for Hyperliquid actions. |
-| **AES-256-GCM** | Authenticated symmetric encryption used for the SQLite account store. |
 | **BIP-39** | Mnemonic seed standard supported by `wallet import-mnemonic`. |
 | **Foundry keystore** | JSON-encrypted Ethereum keystore (`--keystore`, `--keystore-password`). |

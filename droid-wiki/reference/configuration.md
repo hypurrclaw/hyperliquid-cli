@@ -24,9 +24,6 @@ A missing config file is not an error for read-only commands. The file is only c
 | `HYPERLIQUID_SUBSCRIBE_MAX_EVENTS` | `src/watch.rs`, `src/cli_runtime.rs` | Cap subscribe stream events (env-level bound for `--max-events`) |
 | `HYPERLIQUID_OWS_VAULT_PATH` | `src/ows.rs` | Override OWS vault path (default `~/.hyperliquid`) |
 | `OWS_PASSPHRASE` | `src/ows.rs` | Unattended unlock passphrase for the OWS vault |
-| `HYPERLIQUID_ACCOUNT_KEY_PASSPHRASE` | `src/db.rs` | Passphrase-derived key material for the encrypted SQLite account DB (tests/headless) |
-| `HYPERLIQUID_ACCOUNT_KEYCHAIN_DISABLED` | `src/db.rs` | Disable OS keychain backend for account-DB key material |
-| `HYPERLIQUID_ACCOUNT_KEY_STORE_DIR` | `src/db.rs` | Legacy test directory for key material |
 | `HYPERLIQUID_DEFAULT_BUILDER_ADDRESS` | `build.rs`, `src/commands/setup.rs` | Runtime override of packaged default builder address |
 | `HYPERLIQUID_DEFAULT_BUILDER_FEE_RATE` | `build.rs`, `src/commands/setup.rs` | Runtime override of packaged default builder fee rate |
 | `HYPERLIQUID_DEFAULT_REFERRAL_CODE` | `build.rs`, `src/commands/setup.rs` | Runtime override of packaged default referral code |
@@ -60,8 +57,6 @@ The exact schema is defined in `src/config.rs::Config`. Fields are filled from e
 | `~/.hyperliquid` (or `HYPERLIQUID_OWS_VAULT_PATH`) | OWS vault directory |
 | `~/.config/hyperliquid/config.json` | CLI config |
 | `~/.config/hyperliquid/version.json` | Update-check cache |
-| Account DB (SQLite) | Created on demand; encrypted via AES-256-GCM |
-| OS keychain `hyperliquid-cli` / `accounts-data-encryption-key` | Stores account DB key material by default |
 
 ## Format precedence
 

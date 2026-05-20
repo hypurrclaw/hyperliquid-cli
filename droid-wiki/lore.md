@@ -8,7 +8,7 @@ A short history of how the codebase reached its current shape. Dates come from g
 
 ### Pre-public development (before May 15, 2026)
 
-The codebase developed on `develop`, with an initial empty `main` commit (`c075119`, 2026-05-15) and a corresponding `Initial develop import` (`594c522`). The full command surface, OWS vault, encrypted account DB, agent-first JSON contract, and registry/catalog were already in place when the repo was made public.
+The codebase developed on `develop`, with an initial empty `main` commit (`c075119`, 2026-05-15) and a corresponding `Initial develop import` (`594c522`). The full command surface, OWS vault, agent-first JSON contract, and registry/catalog were already in place when the repo was made public.
 
 ### Initial public release — v0.1.0 (May 15, 2026)
 

@@ -155,7 +155,7 @@ fn docs_define_agent_safe_terminology() {
     let agents = repo_file("AGENTS.md");
 
     for required in [
-        "Local signing account",
+        "OWS wallet account record",
         "Selected signer",
         "Protocol user address",
         "API wallet / agent wallet",
@@ -176,7 +176,7 @@ fn docs_define_agent_safe_terminology() {
 
     if let Some(skills) = skills {
         for required in [
-            "Local signing account",
+            "OWS wallet account record",
             "Selected signer",
             "API wallet / agent wallet",
             "api-wallets` -> `api-wallet`",
@@ -195,7 +195,7 @@ fn docs_define_agent_safe_terminology() {
     }
 
     for required in [
-        "local signing account",
+        "OWS wallet",
         "selected signer",
         "API wallet",
         "ACCOUNT_SELECTOR",

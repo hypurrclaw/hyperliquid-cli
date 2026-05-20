@@ -28,7 +28,7 @@ pub struct CreateArgs {
 /// Arguments for `subaccount transfer`.
 #[derive(Args, Debug, Clone)]
 pub struct TransferArgs {
-    /// Subaccount acting-account selector: subaccount address, stored account alias, or stored account id
+    /// Subaccount acting-account selector: subaccount address, OWS wallet name, or OWS wallet id
     #[arg(long)]
     pub subaccount: String,
 
@@ -48,7 +48,7 @@ pub struct TransferArgs {
 /// Arguments for `subaccount spot-transfer`.
 #[derive(Args, Debug, Clone)]
 pub struct SpotTransferArgs {
-    /// Subaccount acting-account selector: subaccount address, stored account alias, or stored account id
+    /// Subaccount acting-account selector: subaccount address, OWS wallet name, or OWS wallet id
     #[arg(long)]
     pub subaccount: String,
 

@@ -42,7 +42,7 @@ The script scans the working tree for accidental local-only artifacts (QA wallet
 
 ## Cross-compilation
 
-The release workflow uses GitHub-hosted runners (Linux, macOS Intel, macOS Apple Silicon, Windows). Locally, `cargo build --release --target <triple>` works for cross-compilation as long as the target toolchain is installed. The `rusqlite/bundled` and `aes-gcm` deps build cleanly without extra system libraries.
+The release workflow uses GitHub-hosted runners (Linux, macOS Intel, macOS Apple Silicon, Windows). Locally, `cargo build --release --target <triple>` works for cross-compilation as long as the target toolchain is installed.
 
 ## Reproducibility
 
