@@ -1,0 +1,21 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.2",
+  "base_commit_sha": "3d5c1ebd8de94b5f7196f09be1bbc67b179409ae",
+  "prompts": {
+    "3361e319d64465b4": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "383c460f-5c67-41ef-a9a5-3ebec2db992f",
+        "model": "composer-2.5"
+      },
+      "human_author": "Sayo",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 2,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    }
+  }
+}
