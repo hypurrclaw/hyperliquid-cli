@@ -3,6 +3,7 @@
   "commands": [
     {
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid builder approve",
       "confirmation": "prompt",
       "dangerous": true,
@@ -10,11 +11,11 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement",
-      "bankr_signer": "not_required"
+      "risk": "funds_movement"
     },
     {
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid account abstraction set",
       "confirmation": "prompt",
       "dangerous": true,
@@ -22,11 +23,11 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "account_state",
-      "bankr_signer": "not_required"
+      "risk": "account_state"
     },
     {
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid subaccount create",
       "confirmation": "none",
       "dangerous": true,
@@ -34,11 +35,11 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement",
-      "bankr_signer": "not_required"
+      "risk": "funds_movement"
     },
     {
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid subaccount transfer",
       "confirmation": "prompt",
       "dangerous": true,
@@ -46,11 +47,11 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement",
-      "bankr_signer": "not_required"
+      "risk": "funds_movement"
     },
     {
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid subaccount spot-transfer",
       "confirmation": "prompt",
       "dangerous": true,
@@ -58,11 +59,11 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement",
-      "bankr_signer": "not_required"
+      "risk": "funds_movement"
     },
     {
       "auth_required": false,
+      "bankr_signer": "not_applicable",
       "command": "hyperliquid account ls",
       "confirmation": "none",
       "dangerous": false,
@@ -70,11 +71,11 @@
       "lifecycle": "read_only",
       "ows_signer": "not_applicable",
       "raw_payload": "unsupported",
-      "risk": "local_state",
-      "bankr_signer": "not_required"
+      "risk": "local_state"
     },
     {
       "auth_required": false,
+      "bankr_signer": "not_applicable",
       "command": "hyperliquid account add <PRIVATE_KEY>",
       "confirmation": "prompt",
       "dangerous": true,
@@ -82,11 +83,11 @@
       "lifecycle": "interactive_local",
       "ows_signer": "not_applicable",
       "raw_payload": "unsupported",
-      "risk": "local_secret",
-      "bankr_signer": "not_required"
+      "risk": "local_secret"
     },
     {
       "auth_required": false,
+      "bankr_signer": "not_applicable",
       "command": "hyperliquid account set-default <SELECTOR>",
       "confirmation": "prompt",
       "dangerous": true,
@@ -94,11 +95,11 @@
       "lifecycle": "interactive_local",
       "ows_signer": "not_applicable",
       "raw_payload": "unsupported",
-      "risk": "local_state",
-      "bankr_signer": "not_required"
+      "risk": "local_state"
     },
     {
       "auth_required": false,
+      "bankr_signer": "not_applicable",
       "command": "hyperliquid account remove <SELECTOR>",
       "confirmation": "prompt",
       "dangerous": true,
@@ -106,11 +107,11 @@
       "lifecycle": "interactive_local",
       "ows_signer": "not_applicable",
       "raw_payload": "unsupported",
-      "risk": "local_state",
-      "bankr_signer": "not_required"
+      "risk": "local_state"
     },
     {
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid api-wallet create",
       "confirmation": "none",
       "dangerous": true,
@@ -118,11 +119,11 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement",
-      "bankr_signer": "not_required"
+      "risk": "funds_movement"
     },
     {
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid api-wallet approve",
       "confirmation": "none",
       "dangerous": true,
@@ -130,11 +131,11 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement",
-      "bankr_signer": "not_required"
+      "risk": "funds_movement"
     },
     {
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid api-wallet revoke",
       "confirmation": "none",
       "dangerous": true,
@@ -142,11 +143,11 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement",
-      "bankr_signer": "not_required"
+      "risk": "funds_movement"
     },
     {
       "auth_required": false,
+      "bankr_signer": "not_applicable",
       "command": "hyperliquid wallet create",
       "confirmation": "none",
       "dangerous": true,
@@ -154,11 +155,11 @@
       "lifecycle": "interactive_local",
       "ows_signer": "not_applicable",
       "raw_payload": "unsupported",
-      "risk": "local_secret",
-      "bankr_signer": "not_required"
+      "risk": "local_secret"
     },
     {
       "auth_required": false,
+      "bankr_signer": "not_applicable",
       "command": "hyperliquid wallet import <PRIVATE_KEY>",
       "confirmation": "prompt",
       "dangerous": true,
@@ -166,11 +167,11 @@
       "lifecycle": "interactive_local",
       "ows_signer": "not_applicable",
       "raw_payload": "unsupported",
-      "risk": "local_secret",
-      "bankr_signer": "not_required"
+      "risk": "local_secret"
     },
     {
       "auth_required": true,
+      "bankr_signer": "address_selector_supported",
       "command": "hyperliquid wallet show",
       "confirmation": "none",
       "dangerous": false,
@@ -178,11 +179,11 @@
       "lifecycle": "read_only",
       "ows_signer": "address_selector_supported",
       "raw_payload": "unsupported",
-      "risk": "local_secret",
-      "bankr_signer": "not_required"
+      "risk": "local_secret"
     },
     {
       "auth_required": true,
+      "bankr_signer": "address_selector_supported",
       "command": "hyperliquid wallet address",
       "confirmation": "none",
       "dangerous": false,
@@ -190,11 +191,11 @@
       "lifecycle": "read_only",
       "ows_signer": "address_selector_supported",
       "raw_payload": "unsupported",
-      "risk": "local_secret",
-      "bankr_signer": "not_required"
+      "risk": "local_secret"
     },
     {
       "auth_required": false,
+      "bankr_signer": "not_applicable",
       "command": "hyperliquid wallet reset",
       "confirmation": "prompt",
       "dangerous": true,
@@ -202,11 +203,11 @@
       "lifecycle": "interactive_local",
       "ows_signer": "not_applicable",
       "raw_payload": "unsupported",
-      "risk": "local_state",
-      "bankr_signer": "not_required"
+      "risk": "local_state"
     },
     {
       "auth_required": false,
+      "bankr_signer": "not_applicable",
       "command": "hyperliquid wallet import-mnemonic <MNEMONIC>",
       "confirmation": "prompt",
       "dangerous": true,
@@ -214,11 +215,11 @@
       "lifecycle": "interactive_local",
       "ows_signer": "not_applicable",
       "raw_payload": "unsupported",
-      "risk": "local_secret",
-      "bankr_signer": "not_required"
+      "risk": "local_secret"
     },
     {
       "auth_required": false,
+      "bankr_signer": "not_applicable",
       "command": "hyperliquid wallet list",
       "confirmation": "none",
       "dangerous": false,
@@ -226,11 +227,11 @@
       "lifecycle": "read_only",
       "ows_signer": "not_applicable",
       "raw_payload": "unsupported",
-      "risk": "local_state",
-      "bankr_signer": "not_required"
+      "risk": "local_state"
     },
     {
       "auth_required": false,
+      "bankr_signer": "not_applicable",
       "command": "hyperliquid wallet rename <SELECTOR> <NEW_NAME>",
       "confirmation": "none",
       "dangerous": true,
@@ -238,11 +239,11 @@
       "lifecycle": "interactive_local",
       "ows_signer": "not_applicable",
       "raw_payload": "unsupported",
-      "risk": "local_state",
-      "bankr_signer": "not_required"
+      "risk": "local_state"
     },
     {
       "auth_required": false,
+      "bankr_signer": "not_applicable",
       "command": "hyperliquid wallet delete <SELECTOR>",
       "confirmation": "prompt",
       "dangerous": true,
@@ -250,11 +251,11 @@
       "lifecycle": "interactive_local",
       "ows_signer": "not_applicable",
       "raw_payload": "unsupported",
-      "risk": "local_state",
-      "bankr_signer": "not_required"
+      "risk": "local_state"
     },
     {
       "auth_required": false,
+      "bankr_signer": "not_applicable",
       "command": "hyperliquid wallet export <SELECTOR>",
       "confirmation": "prompt",
       "dangerous": true,
@@ -262,11 +263,11 @@
       "lifecycle": "interactive_local",
       "ows_signer": "not_applicable",
       "raw_payload": "unsupported",
-      "risk": "local_secret",
-      "bankr_signer": "not_required"
+      "risk": "local_secret"
     },
     {
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid borrowlend supply <TOKEN> --amount <AMOUNT>",
       "confirmation": "none",
       "dangerous": true,
@@ -274,11 +275,11 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement",
-      "bankr_signer": "not_required"
+      "risk": "funds_movement"
     },
     {
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid borrowlend withdraw <TOKEN> --amount <AMOUNT>",
       "confirmation": "none",
       "dangerous": true,
@@ -286,11 +287,11 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement",
-      "bankr_signer": "not_required"
+      "risk": "funds_movement"
     },
     {
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid orders create",
       "confirmation": "prompt",
       "dangerous": true,
@@ -298,11 +299,11 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement",
-      "bankr_signer": "not_required"
+      "risk": "funds_movement"
     },
     {
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid orders scale",
       "confirmation": "prompt",
       "dangerous": true,
@@ -310,11 +311,11 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement",
-      "bankr_signer": "not_required"
+      "risk": "funds_movement"
     },
     {
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid orders batch-create",
       "confirmation": "prompt",
       "dangerous": true,
@@ -322,11 +323,11 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement",
-      "bankr_signer": "not_required"
+      "risk": "funds_movement"
     },
     {
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid orders tpsl",
       "confirmation": "prompt",
       "dangerous": true,
@@ -334,11 +335,11 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement",
-      "bankr_signer": "not_required"
+      "risk": "funds_movement"
     },
     {
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid orders cancel <ORDER_ID>",
       "confirmation": "none",
       "dangerous": true,
@@ -346,11 +347,11 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement",
-      "bankr_signer": "not_required"
+      "risk": "funds_movement"
     },
     {
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid orders cancel-all",
       "confirmation": "prompt",
       "dangerous": true,
@@ -358,11 +359,11 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement",
-      "bankr_signer": "not_required"
+      "risk": "funds_movement"
     },
     {
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid orders modify <ORDER_ID>",
       "confirmation": "none",
       "dangerous": true,
@@ -370,11 +371,11 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement",
-      "bankr_signer": "not_required"
+      "risk": "funds_movement"
     },
     {
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid orders twap-create",
       "confirmation": "prompt",
       "dangerous": true,
@@ -382,11 +383,11 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement",
-      "bankr_signer": "not_required"
+      "risk": "funds_movement"
     },
     {
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid orders twap-cancel <TWAP_ID>",
       "confirmation": "none",
       "dangerous": true,
@@ -394,11 +395,11 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement",
-      "bankr_signer": "not_required"
+      "risk": "funds_movement"
     },
     {
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid positions update-leverage",
       "confirmation": "none",
       "dangerous": true,
@@ -406,11 +407,11 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement",
-      "bankr_signer": "not_required"
+      "risk": "funds_movement"
     },
     {
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid positions update-margin",
       "confirmation": "none",
       "dangerous": true,
@@ -418,11 +419,11 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement",
-      "bankr_signer": "not_required"
+      "risk": "funds_movement"
     },
     {
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid orders schedule-cancel",
       "confirmation": "prompt",
       "dangerous": true,
@@ -430,11 +431,11 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement",
-      "bankr_signer": "not_required"
+      "risk": "funds_movement"
     },
     {
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid transfer spot-to-perp",
       "confirmation": "prompt",
       "dangerous": true,
@@ -442,11 +443,11 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement",
-      "bankr_signer": "not_required"
+      "risk": "funds_movement"
     },
     {
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid transfer perp-to-spot",
       "confirmation": "prompt",
       "dangerous": true,
@@ -454,11 +455,11 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement",
-      "bankr_signer": "not_required"
+      "risk": "funds_movement"
     },
     {
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid transfer send",
       "confirmation": "prompt",
       "dangerous": true,
@@ -466,11 +467,11 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement",
-      "bankr_signer": "not_required"
+      "risk": "funds_movement"
     },
     {
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid transfer spot-send",
       "confirmation": "prompt",
       "dangerous": true,
@@ -478,11 +479,11 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement",
-      "bankr_signer": "not_required"
+      "risk": "funds_movement"
     },
     {
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid transfer send-asset",
       "confirmation": "prompt",
       "dangerous": true,
@@ -490,11 +491,11 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement",
-      "bankr_signer": "not_required"
+      "risk": "funds_movement"
     },
     {
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid transfer withdraw",
       "confirmation": "prompt",
       "dangerous": true,
@@ -502,11 +503,11 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement",
-      "bankr_signer": "not_required"
+      "risk": "funds_movement"
     },
     {
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid staking delegate",
       "confirmation": "none",
       "dangerous": true,
@@ -514,11 +515,11 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement",
-      "bankr_signer": "not_required"
+      "risk": "funds_movement"
     },
     {
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid staking undelegate",
       "confirmation": "none",
       "dangerous": true,
@@ -526,11 +527,11 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement",
-      "bankr_signer": "not_required"
+      "risk": "funds_movement"
     },
     {
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid staking deposit",
       "confirmation": "none",
       "dangerous": true,
@@ -538,11 +539,11 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement",
-      "bankr_signer": "not_required"
+      "risk": "funds_movement"
     },
     {
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid staking withdraw",
       "confirmation": "none",
       "dangerous": true,
@@ -550,11 +551,11 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement",
-      "bankr_signer": "not_required"
+      "risk": "funds_movement"
     },
     {
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid staking claim-rewards",
       "confirmation": "none",
       "dangerous": true,
@@ -562,11 +563,11 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement",
-      "bankr_signer": "not_required"
+      "risk": "funds_movement"
     },
     {
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid staking link initiate",
       "confirmation": "prompt",
       "dangerous": true,
@@ -574,11 +575,11 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement",
-      "bankr_signer": "not_required"
+      "risk": "funds_movement"
     },
     {
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid staking link finalize",
       "confirmation": "prompt",
       "dangerous": true,
@@ -586,11 +587,11 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement",
-      "bankr_signer": "not_required"
+      "risk": "funds_movement"
     },
     {
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid vault deposit",
       "confirmation": "none",
       "dangerous": true,
@@ -598,11 +599,11 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement",
-      "bankr_signer": "not_required"
+      "risk": "funds_movement"
     },
     {
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid vault withdraw",
       "confirmation": "none",
       "dangerous": true,
@@ -610,11 +611,11 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement",
-      "bankr_signer": "not_required"
+      "risk": "funds_movement"
     },
     {
       "auth_required": true,
+      "bankr_signer": "local_only",
       "command": "hyperliquid prio bid",
       "confirmation": "none",
       "dangerous": true,
@@ -622,11 +623,11 @@
       "lifecycle": "live_mutating",
       "ows_signer": "local_only",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement",
-      "bankr_signer": "not_required"
+      "risk": "funds_movement"
     },
     {
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid referral set <CODE>",
       "confirmation": "none",
       "dangerous": true,
@@ -634,11 +635,11 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement",
-      "bankr_signer": "not_required"
+      "risk": "funds_movement"
     },
     {
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid referral register <CODE>",
       "confirmation": "none",
       "dangerous": true,
@@ -646,11 +647,11 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement",
-      "bankr_signer": "not_required"
+      "risk": "funds_movement"
     },
     {
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid update",
       "confirmation": "none",
       "dangerous": true,
@@ -658,11 +659,11 @@
       "lifecycle": "interactive_local",
       "ows_signer": "not_required",
       "raw_payload": "unsupported",
-      "risk": "local_state",
-      "bankr_signer": "not_required"
+      "risk": "local_state"
     },
     {
       "auth_required": false,
+      "bankr_signer": "not_applicable",
       "command": "hyperliquid setup",
       "confirmation": "prompt",
       "dangerous": true,
@@ -670,8 +671,7 @@
       "lifecycle": "interactive_local",
       "ows_signer": "not_applicable",
       "raw_payload": "unsupported",
-      "risk": "local_secret",
-      "bankr_signer": "not_required"
+      "risk": "local_secret"
     }
   ],
   "review_required_to_update": true

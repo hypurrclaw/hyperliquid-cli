@@ -285,6 +285,7 @@
         }
       ],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid orders create",
       "command_path": [
         "orders",
@@ -430,6 +431,7 @@
         "type": "object",
         "x-hyperliquid": {
           "aliases": [],
+          "bankr_signer": "unsupported_raw_l1_signing",
           "confirmation": "prompt",
           "confirmation_bypass": {
             "arg": "yes",
@@ -445,8 +447,7 @@
           "stream_bounds": null,
           "transport": [
             "cli_process"
-          ],
-          "bankr_signer": "not_required"
+          ]
         }
       },
       "lifecycle": "live_mutating",
@@ -458,8 +459,7 @@
       "stream_bounds": null,
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": "not_required"
+      ]
     },
     {
       "aliases": [],
@@ -544,6 +544,7 @@
         }
       ],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid orders modify <ORDER_ID>",
       "command_path": [
         "orders",
@@ -607,6 +608,7 @@
         "type": "object",
         "x-hyperliquid": {
           "aliases": [],
+          "bankr_signer": "unsupported_raw_l1_signing",
           "confirmation": "none",
           "confirmation_bypass": {
             "arg": null,
@@ -622,8 +624,7 @@
           "stream_bounds": null,
           "transport": [
             "cli_process"
-          ],
-          "bankr_signer": "not_required"
+          ]
         }
       },
       "lifecycle": "live_mutating",
@@ -635,8 +636,7 @@
       "stream_bounds": null,
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": "not_required"
+      ]
     },
     {
       "aliases": [
@@ -684,6 +684,7 @@
         }
       ],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid transfer send",
       "command_path": [
         "transfer",
@@ -726,6 +727,7 @@
           "aliases": [
             "transfers"
           ],
+          "bankr_signer": "unsupported_raw_l1_signing",
           "confirmation": "prompt",
           "confirmation_bypass": {
             "arg": "yes",
@@ -741,8 +743,7 @@
           "stream_bounds": null,
           "transport": [
             "cli_process"
-          ],
-          "bankr_signer": "not_required"
+          ]
         }
       },
       "lifecycle": "live_mutating",
@@ -754,13 +755,13 @@
       "stream_bounds": null,
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": "not_required"
+      ]
     },
     {
       "aliases": [],
       "args": [],
       "auth_required": true,
+      "bankr_signer": "address_selector_supported",
       "command": "hyperliquid wallet address",
       "command_path": [
         "wallet",
@@ -781,6 +782,7 @@
         "type": "object",
         "x-hyperliquid": {
           "aliases": [],
+          "bankr_signer": "address_selector_supported",
           "confirmation": "none",
           "confirmation_bypass": {
             "arg": null,
@@ -796,8 +798,7 @@
           "stream_bounds": null,
           "transport": [
             "cli_process"
-          ],
-          "bankr_signer": "not_required"
+          ]
         }
       },
       "lifecycle": "read_only",
@@ -809,8 +810,7 @@
       "stream_bounds": null,
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": "not_required"
+      ]
     },
     {
       "aliases": [],
@@ -843,6 +843,7 @@
         }
       ],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid borrowlend supply <TOKEN> --amount <AMOUNT>",
       "command_path": [
         "borrowlend",
@@ -878,6 +879,7 @@
         "type": "object",
         "x-hyperliquid": {
           "aliases": [],
+          "bankr_signer": "unsupported_raw_l1_signing",
           "confirmation": "none",
           "confirmation_bypass": {
             "arg": null,
@@ -893,8 +895,7 @@
           "stream_bounds": null,
           "transport": [
             "cli_process"
-          ],
-          "bankr_signer": "not_required"
+          ]
         }
       },
       "lifecycle": "live_mutating",
@@ -906,8 +907,7 @@
       "stream_bounds": null,
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": "not_required"
+      ]
     },
     {
       "aliases": [],
@@ -940,6 +940,7 @@
         }
       ],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid subscribe all-mids",
       "command_path": [
         "subscribe",
@@ -969,6 +970,7 @@
         "type": "object",
         "x-hyperliquid": {
           "aliases": [],
+          "bankr_signer": "not_required",
           "confirmation": "none",
           "confirmation_bypass": {
             "arg": null,
@@ -994,8 +996,7 @@
           },
           "transport": [
             "cli_process"
-          ],
-          "bankr_signer": "not_required"
+          ]
         }
       },
       "lifecycle": "streaming",
@@ -1017,8 +1018,7 @@
       },
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": "not_required"
+      ]
     }
   ],
   "review_required_to_update": true

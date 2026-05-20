@@ -191,7 +191,9 @@ fn bankr_http_client() -> Result<&'static reqwest::Client, CliError> {
                 .map_err(|err| err.to_string())
         })
         .as_ref()
-        .map_err(|err| CliError::Internal(anyhow::anyhow!("failed to build Bankr HTTP client: {err}")))
+        .map_err(|err| {
+            CliError::Internal(anyhow::anyhow!("failed to build Bankr HTTP client: {err}"))
+        })
 }
 
 /// Run async Bankr HTTP from sync call sites (CLI signer resolution, examples, tests).
@@ -219,9 +221,9 @@ fn get_json<T: for<'de> Deserialize<'de> + Send>(
 ) -> Result<T, CliError> {
     let api_base_url = api_base_url.to_string();
     let api_key = api_key.to_string();
-    run_bankr_async(move || async move {
-        get_json_async(&api_base_url, path, &api_key, context).await
-    })
+    run_bankr_async(
+        move || async move { get_json_async(&api_base_url, path, &api_key, context).await },
+    )
 }
 
 async fn get_json_async<T: for<'de> Deserialize<'de> + Send>(
@@ -471,8 +473,7 @@ fn pad_field_odd_hex_values(
 }
 
 fn is_hex_encoded_eip712_scalar(field_type: &str) -> bool {
-    field_type == "bytes"
-        || field_type.starts_with("bytes")
+    field_type.starts_with("bytes")
         || field_type.starts_with("uint")
         || field_type.starts_with("int")
 }

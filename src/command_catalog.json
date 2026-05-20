@@ -469,7 +469,7 @@
       "raw_payload": "dry_run_only",
       "confirmation": "prompt",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid account fills <ADDRESS>",
@@ -836,7 +836,7 @@
       "raw_payload": "dry_run_only",
       "confirmation": "prompt",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid subaccount list <ADDRESS>",
@@ -884,7 +884,7 @@
       "raw_payload": "dry_run_only",
       "confirmation": "none",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid subaccount transfer",
@@ -932,7 +932,7 @@
       "raw_payload": "dry_run_only",
       "confirmation": "prompt",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid subaccount spot-transfer",
@@ -987,7 +987,7 @@
       "raw_payload": "dry_run_only",
       "confirmation": "prompt",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid account ls",
@@ -1002,7 +1002,7 @@
       "raw_payload": "unsupported",
       "confirmation": "none",
       "ows_signer": "not_applicable",
-      "bankr_signer": "not_required"
+      "bankr_signer": "not_applicable"
     },
     {
       "command": "hyperliquid account add <PRIVATE_KEY>",
@@ -1040,7 +1040,7 @@
       "raw_payload": "unsupported",
       "confirmation": "prompt",
       "ows_signer": "not_applicable",
-      "bankr_signer": "not_required"
+      "bankr_signer": "not_applicable"
     },
     {
       "command": "hyperliquid account set-default <SELECTOR>",
@@ -1062,7 +1062,7 @@
       "raw_payload": "unsupported",
       "confirmation": "prompt",
       "ows_signer": "not_applicable",
-      "bankr_signer": "not_required"
+      "bankr_signer": "not_applicable"
     },
     {
       "command": "hyperliquid account remove <SELECTOR>",
@@ -1092,7 +1092,7 @@
       "raw_payload": "unsupported",
       "confirmation": "prompt",
       "ows_signer": "not_applicable",
-      "bankr_signer": "not_required"
+      "bankr_signer": "not_applicable"
     },
     {
       "command": "hyperliquid api-wallet create",
@@ -1131,7 +1131,7 @@
       "raw_payload": "dry_run_only",
       "confirmation": "none",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid api-wallet approve",
@@ -1170,7 +1170,7 @@
       "raw_payload": "dry_run_only",
       "confirmation": "none",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid api-wallet list",
@@ -1195,7 +1195,7 @@
       "raw_payload": "unsupported",
       "confirmation": "none",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid api-wallet revoke",
@@ -1217,7 +1217,7 @@
       "raw_payload": "dry_run_only",
       "confirmation": "none",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid wallet create",
@@ -1232,7 +1232,7 @@
       "raw_payload": "unsupported",
       "confirmation": "none",
       "ows_signer": "not_applicable",
-      "bankr_signer": "not_required"
+      "bankr_signer": "not_applicable"
     },
     {
       "command": "hyperliquid wallet import <PRIVATE_KEY>",
@@ -1253,7 +1253,7 @@
       "raw_payload": "unsupported",
       "confirmation": "prompt",
       "ows_signer": "not_applicable",
-      "bankr_signer": "not_required"
+      "bankr_signer": "not_applicable"
     },
     {
       "command": "hyperliquid wallet show",
@@ -1268,7 +1268,7 @@
       "raw_payload": "unsupported",
       "confirmation": "none",
       "ows_signer": "address_selector_supported",
-      "bankr_signer": "not_required"
+      "bankr_signer": "address_selector_supported"
     },
     {
       "command": "hyperliquid wallet address",
@@ -1283,7 +1283,7 @@
       "raw_payload": "unsupported",
       "confirmation": "none",
       "ows_signer": "address_selector_supported",
-      "bankr_signer": "not_required"
+      "bankr_signer": "address_selector_supported"
     },
     {
       "command": "hyperliquid wallet reset",
@@ -1307,7 +1307,7 @@
       "raw_payload": "unsupported",
       "confirmation": "prompt",
       "ows_signer": "not_applicable",
-      "bankr_signer": "not_required"
+      "bankr_signer": "not_applicable"
     },
     {
       "command": "hyperliquid wallet import-mnemonic <MNEMONIC>",
@@ -1333,7 +1333,7 @@
       "raw_payload": "unsupported",
       "confirmation": "prompt",
       "ows_signer": "not_applicable",
-      "bankr_signer": "not_required"
+      "bankr_signer": "not_applicable"
     },
     {
       "command": "hyperliquid wallet list",
@@ -1348,7 +1348,7 @@
       "raw_payload": "unsupported",
       "confirmation": "none",
       "ows_signer": "not_applicable",
-      "bankr_signer": "not_required"
+      "bankr_signer": "not_applicable"
     },
     {
       "command": "hyperliquid wallet rename <SELECTOR> <NEW_NAME>",
@@ -1376,7 +1376,7 @@
       "raw_payload": "unsupported",
       "confirmation": "none",
       "ows_signer": "not_applicable",
-      "bankr_signer": "not_required"
+      "bankr_signer": "not_applicable"
     },
     {
       "command": "hyperliquid wallet delete <SELECTOR>",
@@ -1406,7 +1406,7 @@
       "raw_payload": "unsupported",
       "confirmation": "prompt",
       "ows_signer": "not_applicable",
-      "bankr_signer": "not_required"
+      "bankr_signer": "not_applicable"
     },
     {
       "command": "hyperliquid wallet export <SELECTOR>",
@@ -1436,7 +1436,7 @@
       "raw_payload": "unsupported",
       "confirmation": "prompt",
       "ows_signer": "not_applicable",
-      "bankr_signer": "not_required"
+      "bankr_signer": "not_applicable"
     },
     {
       "command": "hyperliquid orders open",
@@ -1465,7 +1465,7 @@
       "raw_payload": "unsupported",
       "confirmation": "none",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid orders history",
@@ -1480,7 +1480,7 @@
       "raw_payload": "unsupported",
       "confirmation": "none",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid orders status",
@@ -1553,7 +1553,7 @@
       "raw_payload": "unsupported",
       "confirmation": "none",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid staking validators",
@@ -1879,7 +1879,7 @@
       "raw_payload": "dry_run_only",
       "confirmation": "none",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid borrowlend withdraw <TOKEN> --amount <AMOUNT>",
@@ -1913,7 +1913,7 @@
       "raw_payload": "dry_run_only",
       "confirmation": "none",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid prio status",
@@ -1943,7 +1943,7 @@
       "raw_payload": "unsupported",
       "confirmation": "none",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid orders create",
@@ -2105,7 +2105,7 @@
       "raw_payload": "dry_run_only",
       "confirmation": "prompt",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid orders scale",
@@ -2211,7 +2211,7 @@
       "raw_payload": "dry_run_only",
       "confirmation": "prompt",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid orders batch-create",
@@ -2248,7 +2248,7 @@
       "raw_payload": "dry_run_only",
       "confirmation": "prompt",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid orders tpsl",
@@ -2336,7 +2336,7 @@
       "raw_payload": "dry_run_only",
       "confirmation": "prompt",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid orders cancel <ORDER_ID>",
@@ -2370,7 +2370,7 @@
       "raw_payload": "dry_run_only",
       "confirmation": "none",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid orders cancel-all",
@@ -2412,7 +2412,7 @@
       "raw_payload": "dry_run_only",
       "confirmation": "prompt",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid orders modify <ORDER_ID>",
@@ -2473,7 +2473,7 @@
       "raw_payload": "dry_run_only",
       "confirmation": "none",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid orders twap-create",
@@ -2550,7 +2550,7 @@
       "raw_payload": "dry_run_only",
       "confirmation": "prompt",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid orders twap-cancel <TWAP_ID>",
@@ -2593,7 +2593,7 @@
       "raw_payload": "dry_run_only",
       "confirmation": "none",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid positions update-leverage",
@@ -2630,7 +2630,7 @@
       "raw_payload": "dry_run_only",
       "confirmation": "none",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid positions update-margin",
@@ -2660,7 +2660,7 @@
       "raw_payload": "dry_run_only",
       "confirmation": "none",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid orders schedule-cancel",
@@ -2704,7 +2704,7 @@
       "raw_payload": "dry_run_only",
       "confirmation": "prompt",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid transfer spot-to-perp",
@@ -2735,7 +2735,7 @@
       "raw_payload": "dry_run_only",
       "confirmation": "prompt",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid transfer perp-to-spot",
@@ -2766,7 +2766,7 @@
       "raw_payload": "dry_run_only",
       "confirmation": "prompt",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid transfer send",
@@ -2807,7 +2807,7 @@
       "raw_payload": "dry_run_only",
       "confirmation": "prompt",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid transfer spot-send",
@@ -2852,7 +2852,7 @@
       "raw_payload": "dry_run_only",
       "confirmation": "prompt",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid transfer send-asset",
@@ -2916,7 +2916,7 @@
       "raw_payload": "dry_run_only",
       "confirmation": "prompt",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid transfer withdraw",
@@ -2954,7 +2954,7 @@
       "raw_payload": "dry_run_only",
       "confirmation": "prompt",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid staking delegate",
@@ -2984,7 +2984,7 @@
       "raw_payload": "dry_run_only",
       "confirmation": "none",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid staking undelegate",
@@ -3014,7 +3014,7 @@
       "raw_payload": "dry_run_only",
       "confirmation": "none",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid staking deposit",
@@ -3037,7 +3037,7 @@
       "raw_payload": "dry_run_only",
       "confirmation": "none",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid staking withdraw",
@@ -3060,7 +3060,7 @@
       "raw_payload": "dry_run_only",
       "confirmation": "none",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid staking claim-rewards",
@@ -3075,7 +3075,7 @@
       "raw_payload": "dry_run_only",
       "confirmation": "none",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid staking link initiate",
@@ -3106,7 +3106,7 @@
       "raw_payload": "dry_run_only",
       "confirmation": "prompt",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid staking link finalize",
@@ -3137,7 +3137,7 @@
       "raw_payload": "dry_run_only",
       "confirmation": "prompt",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid vault deposit",
@@ -3167,7 +3167,7 @@
       "raw_payload": "dry_run_only",
       "confirmation": "none",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid vault withdraw",
@@ -3197,7 +3197,7 @@
       "raw_payload": "dry_run_only",
       "confirmation": "none",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid prio bid",
@@ -3232,7 +3232,7 @@
       "raw_payload": "dry_run_only",
       "confirmation": "none",
       "ows_signer": "local_only",
-      "bankr_signer": "not_required"
+      "bankr_signer": "local_only"
     },
     {
       "command": "hyperliquid referral set <CODE>",
@@ -3253,7 +3253,7 @@
       "raw_payload": "dry_run_only",
       "confirmation": "none",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid referral register <CODE>",
@@ -3275,7 +3275,7 @@
       "raw_payload": "dry_run_only",
       "confirmation": "none",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid subscribe trades",
@@ -3439,7 +3439,7 @@
       "raw_payload": "unsupported",
       "confirmation": "none",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid subscribe fills",
@@ -3467,7 +3467,7 @@
       "raw_payload": "unsupported",
       "confirmation": "none",
       "ows_signer": "experimental_feature_gated",
-      "bankr_signer": "not_required"
+      "bankr_signer": "unsupported_raw_l1_signing"
     },
     {
       "command": "hyperliquid feedback",
@@ -3597,7 +3597,7 @@
       "raw_payload": "unsupported",
       "confirmation": "prompt",
       "ows_signer": "not_applicable",
-      "bankr_signer": "not_required"
+      "bankr_signer": "not_applicable"
     }
   ]
 }

@@ -4,6 +4,7 @@
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid status",
       "command_path": [
         "status"
@@ -38,12 +39,12 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid meta",
       "command_path": [
         "meta"
@@ -78,12 +79,12 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid perps list",
       "command_path": [
         "perps",
@@ -133,12 +134,12 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid perps get <COIN>",
       "command_path": [
         "perps",
@@ -201,12 +202,12 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid spot list",
       "command_path": [
         "spot",
@@ -242,12 +243,12 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid spot get <PAIR>",
       "command_path": [
         "spot",
@@ -297,12 +298,12 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid book <COIN>",
       "command_path": [
         "book"
@@ -377,12 +378,12 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid mids",
       "command_path": [
         "mids"
@@ -444,12 +445,12 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid candles <COIN>",
       "command_path": [
         "candles"
@@ -550,12 +551,12 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid spread <COIN>",
       "command_path": [
         "spread"
@@ -604,12 +605,12 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid funding <COIN>",
       "command_path": [
         "funding"
@@ -658,12 +659,12 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid asset decode <ASSET_ID>",
       "command_path": [
         "asset",
@@ -713,12 +714,12 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid asset search <QUERY>",
       "command_path": [
         "asset",
@@ -781,12 +782,12 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid outcomes list",
       "command_path": [
         "outcomes",
@@ -836,12 +837,12 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid outcomes get <NOTATION>",
       "command_path": [
         "outcomes",
@@ -891,12 +892,12 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid builder max-fee",
       "command_path": [
         "builder",
@@ -959,12 +960,12 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid builder approved",
       "command_path": [
         "builder",
@@ -1014,12 +1015,12 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid builder approve",
       "command_path": [
         "builder",
@@ -1095,12 +1096,12 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid account fills <ADDRESS>",
       "command_path": [
         "account",
@@ -1189,12 +1190,12 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid account fees <ADDRESS>",
       "command_path": [
         "account",
@@ -1244,12 +1245,12 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid account rate-limit <ADDRESS>",
       "command_path": [
         "account",
@@ -1299,12 +1300,12 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid account orders <ADDRESS>",
       "command_path": [
         "account",
@@ -1354,12 +1355,12 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid account portfolio <ADDRESS>",
       "command_path": [
         "account",
@@ -1409,12 +1410,12 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid account subaccounts <ADDRESS>",
       "command_path": [
         "account",
@@ -1464,12 +1465,12 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid account portfolio-history <ADDRESS>",
       "command_path": [
         "account",
@@ -1519,12 +1520,12 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid account ledger <ADDRESS>",
       "command_path": [
         "account",
@@ -1600,12 +1601,12 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid account funding <ADDRESS>",
       "command_path": [
         "account",
@@ -1681,12 +1682,12 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid account twap-history <ADDRESS>",
       "command_path": [
         "account",
@@ -1736,12 +1737,12 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid account twap-fills <ADDRESS>",
       "command_path": [
         "account",
@@ -1830,12 +1831,12 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid account abstraction <ADDRESS>",
       "command_path": [
         "account",
@@ -1885,12 +1886,12 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid account abstraction set",
       "command_path": [
         "account",
@@ -1958,14 +1959,14 @@
       "risk": "account_state",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [
         "subaccounts"
       ],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid subaccount list <ADDRESS>",
       "command_path": [
         "subaccount",
@@ -2015,14 +2016,14 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [
         "subaccounts"
       ],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid subaccount create",
       "command_path": [
         "subaccount",
@@ -2072,14 +2073,14 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [
         "subaccounts"
       ],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid subaccount transfer",
       "command_path": [
         "subaccount",
@@ -2171,14 +2172,14 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [
         "subaccounts"
       ],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid subaccount spot-transfer",
       "command_path": [
         "subaccount",
@@ -2283,12 +2284,12 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_applicable",
       "command": "hyperliquid account ls",
       "command_path": [
         "account",
@@ -2324,12 +2325,12 @@
       "risk": "local_state",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_applicable",
       "command": "hyperliquid account add <PRIVATE_KEY>",
       "command_path": [
         "account",
@@ -2418,12 +2419,12 @@
       "risk": "local_secret",
       "transport": [
         "cli_interactive"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_applicable",
       "command": "hyperliquid account set-default <SELECTOR>",
       "command_path": [
         "account",
@@ -2473,12 +2474,12 @@
       "risk": "local_state",
       "transport": [
         "cli_interactive"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_applicable",
       "command": "hyperliquid account remove <SELECTOR>",
       "command_path": [
         "account",
@@ -2541,14 +2542,14 @@
       "risk": "local_state",
       "transport": [
         "cli_interactive"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [
         "api-wallets"
       ],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid api-wallet create",
       "command_path": [
         "api-wallet",
@@ -2637,14 +2638,14 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [
         "api-wallets"
       ],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid api-wallet approve",
       "command_path": [
         "api-wallet",
@@ -2733,14 +2734,14 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [
         "api-wallets"
       ],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid api-wallet list",
       "command_path": [
         "api-wallet",
@@ -2790,14 +2791,14 @@
       "risk": "account_state",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [
         "api-wallets"
       ],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid api-wallet revoke",
       "command_path": [
         "api-wallet",
@@ -2847,12 +2848,12 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_applicable",
       "command": "hyperliquid wallet create",
       "command_path": [
         "wallet",
@@ -2888,12 +2889,12 @@
       "risk": "local_secret",
       "transport": [
         "cli_interactive"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_applicable",
       "command": "hyperliquid wallet import <PRIVATE_KEY>",
       "command_path": [
         "wallet",
@@ -2943,12 +2944,12 @@
       "risk": "local_secret",
       "transport": [
         "cli_interactive"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": true,
+      "bankr_signer": "address_selector_supported",
       "command": "hyperliquid wallet show",
       "command_path": [
         "wallet",
@@ -2984,12 +2985,12 @@
       "risk": "local_secret",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": true,
+      "bankr_signer": "address_selector_supported",
       "command": "hyperliquid wallet address",
       "command_path": [
         "wallet",
@@ -3025,12 +3026,12 @@
       "risk": "local_secret",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_applicable",
       "command": "hyperliquid wallet reset",
       "command_path": [
         "wallet",
@@ -3080,12 +3081,12 @@
       "risk": "local_state",
       "transport": [
         "cli_interactive"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_applicable",
       "command": "hyperliquid wallet import-mnemonic <MNEMONIC>",
       "command_path": [
         "wallet",
@@ -3148,12 +3149,12 @@
       "risk": "local_secret",
       "transport": [
         "cli_interactive"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_applicable",
       "command": "hyperliquid wallet list",
       "command_path": [
         "wallet",
@@ -3189,12 +3190,12 @@
       "risk": "local_state",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_applicable",
       "command": "hyperliquid wallet rename <SELECTOR> <NEW_NAME>",
       "command_path": [
         "wallet",
@@ -3257,12 +3258,12 @@
       "risk": "local_state",
       "transport": [
         "cli_interactive"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_applicable",
       "command": "hyperliquid wallet delete <SELECTOR>",
       "command_path": [
         "wallet",
@@ -3325,12 +3326,12 @@
       "risk": "local_state",
       "transport": [
         "cli_interactive"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_applicable",
       "command": "hyperliquid wallet export <SELECTOR>",
       "command_path": [
         "wallet",
@@ -3393,12 +3394,12 @@
       "risk": "local_secret",
       "transport": [
         "cli_interactive"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid orders open",
       "command_path": [
         "orders",
@@ -3461,12 +3462,12 @@
       "risk": "account_state",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid orders history",
       "command_path": [
         "orders",
@@ -3502,12 +3503,12 @@
       "risk": "account_state",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid orders status",
       "command_path": [
         "orders",
@@ -3590,12 +3591,12 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid positions list",
       "command_path": [
         "positions",
@@ -3658,12 +3659,12 @@
       "risk": "account_state",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid staking validators",
       "command_path": [
         "staking",
@@ -3699,12 +3700,12 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid staking summary <ADDRESS>",
       "command_path": [
         "staking",
@@ -3754,12 +3755,12 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid staking rewards <ADDRESS>",
       "command_path": [
         "staking",
@@ -3809,12 +3810,12 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid staking history <ADDRESS>",
       "command_path": [
         "staking",
@@ -3864,14 +3865,14 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [
         "vaults"
       ],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid vault list",
       "command_path": [
         "vault",
@@ -3972,14 +3973,14 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [
         "vaults"
       ],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid vault search <QUERY>",
       "command_path": [
         "vault",
@@ -4073,14 +4074,14 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [
         "vaults"
       ],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid vault get <ADDRESS>",
       "command_path": [
         "vault",
@@ -4130,14 +4131,14 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [
         "vaults"
       ],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid vault positions <ADDRESS>",
       "command_path": [
         "vault",
@@ -4187,12 +4188,12 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid borrowlend rates",
       "command_path": [
         "borrowlend",
@@ -4228,12 +4229,12 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid borrowlend get <TOKEN>",
       "command_path": [
         "borrowlend",
@@ -4283,12 +4284,12 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid borrowlend user <ADDRESS>",
       "command_path": [
         "borrowlend",
@@ -4338,12 +4339,12 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid borrowlend supply <TOKEN> --amount <AMOUNT>",
       "command_path": [
         "borrowlend",
@@ -4406,12 +4407,12 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid borrowlend withdraw <TOKEN> --amount <AMOUNT>",
       "command_path": [
         "borrowlend",
@@ -4487,12 +4488,12 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid prio status",
       "command_path": [
         "prio",
@@ -4528,12 +4529,12 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid referral status",
       "command_path": [
         "referral",
@@ -4569,12 +4570,12 @@
       "risk": "account_state",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid orders create",
       "command_path": [
         "orders",
@@ -4890,12 +4891,12 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid orders scale",
       "command_path": [
         "orders",
@@ -5098,12 +5099,12 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid orders batch-create",
       "command_path": [
         "orders",
@@ -5179,12 +5180,12 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid orders tpsl",
       "command_path": [
         "orders",
@@ -5359,12 +5360,12 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid orders cancel <ORDER_ID>",
       "command_path": [
         "orders",
@@ -5440,12 +5441,12 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid orders cancel-all",
       "command_path": [
         "orders",
@@ -5534,12 +5535,12 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid orders modify <ORDER_ID>",
       "command_path": [
         "orders",
@@ -5661,12 +5662,12 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid orders twap-create",
       "command_path": [
         "orders",
@@ -5813,12 +5814,12 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid orders twap-cancel <TWAP_ID>",
       "command_path": [
         "orders",
@@ -5907,12 +5908,12 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid positions update-leverage",
       "command_path": [
         "positions",
@@ -5988,12 +5989,12 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid positions update-margin",
       "command_path": [
         "positions",
@@ -6056,12 +6057,12 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid orders schedule-cancel",
       "command_path": [
         "orders",
@@ -6150,14 +6151,14 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [
         "transfers"
       ],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid transfer spot-to-perp",
       "command_path": [
         "transfer",
@@ -6220,14 +6221,14 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [
         "transfers"
       ],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid transfer perp-to-spot",
       "command_path": [
         "transfer",
@@ -6290,14 +6291,14 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [
         "transfers"
       ],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid transfer send",
       "command_path": [
         "transfer",
@@ -6373,14 +6374,14 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [
         "transfers"
       ],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid transfer spot-send",
       "command_path": [
         "transfer",
@@ -6469,14 +6470,14 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [
         "transfers"
       ],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid transfer send-asset",
       "command_path": [
         "transfer",
@@ -6604,14 +6605,14 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [
         "transfers"
       ],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid transfer withdraw",
       "command_path": [
         "transfer",
@@ -6687,12 +6688,12 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid staking delegate",
       "command_path": [
         "staking",
@@ -6755,12 +6756,12 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid staking undelegate",
       "command_path": [
         "staking",
@@ -6823,12 +6824,12 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid staking deposit",
       "command_path": [
         "staking",
@@ -6878,12 +6879,12 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid staking withdraw",
       "command_path": [
         "staking",
@@ -6933,12 +6934,12 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid staking claim-rewards",
       "command_path": [
         "staking",
@@ -6974,12 +6975,12 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid staking link initiate",
       "command_path": [
         "staking",
@@ -7043,12 +7044,12 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid staking link finalize",
       "command_path": [
         "staking",
@@ -7112,14 +7113,14 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [
         "vaults"
       ],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid vault deposit",
       "command_path": [
         "vault",
@@ -7182,14 +7183,14 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [
         "vaults"
       ],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid vault withdraw",
       "command_path": [
         "vault",
@@ -7252,12 +7253,12 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": true,
+      "bankr_signer": "local_only",
       "command": "hyperliquid prio bid",
       "command_path": [
         "prio",
@@ -7333,12 +7334,12 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid referral set <CODE>",
       "command_path": [
         "referral",
@@ -7388,12 +7389,12 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid referral register <CODE>",
       "command_path": [
         "referral",
@@ -7443,12 +7444,12 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid subscribe trades",
       "command_path": [
         "subscribe",
@@ -7524,12 +7525,12 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid subscribe orderbook",
       "command_path": [
         "subscribe",
@@ -7605,12 +7606,12 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid subscribe candles",
       "command_path": [
         "subscribe",
@@ -7699,12 +7700,12 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid subscribe all-mids",
       "command_path": [
         "subscribe",
@@ -7767,12 +7768,12 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid subscribe order-updates",
       "command_path": [
         "subscribe",
@@ -7835,12 +7836,12 @@
       "risk": "account_state",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": true,
+      "bankr_signer": "unsupported_raw_l1_signing",
       "command": "hyperliquid subscribe fills",
       "command_path": [
         "subscribe",
@@ -7903,12 +7904,12 @@
       "risk": "account_state",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid feedback",
       "command_path": [
         "feedback"
@@ -8016,12 +8017,12 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid schema",
       "command_path": [
         "schema"
@@ -8070,12 +8071,12 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_required",
       "command": "hyperliquid update",
       "command_path": [
         "update"
@@ -8110,12 +8111,12 @@
       "risk": "local_state",
       "transport": [
         "cli_interactive"
-      ],
-      "bankr_signer": null
+      ]
     },
     {
       "aliases": [],
       "auth_required": false,
+      "bankr_signer": "not_applicable",
       "command": "hyperliquid setup",
       "command_path": [
         "setup"
@@ -8190,8 +8191,7 @@
       "risk": "local_secret",
       "transport": [
         "cli_interactive"
-      ],
-      "bankr_signer": null
+      ]
     }
   ],
   "review_required_to_update": true
