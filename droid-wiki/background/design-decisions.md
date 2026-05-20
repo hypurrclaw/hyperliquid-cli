@@ -14,7 +14,7 @@ Pretty, table, and JSON share a single `OutputFormat` enum (`src/output/mod.rs`)
 
 ## OWS-first wallet backend
 
-Open Wallet Standard (via `ows-lib`) is the only **managed lifecycle** backend. Creation, import, listing, and default selection flow through the OWS vault at `~/.hyperliquid`. Explicit private-key, Foundry keystore, and stored local-account paths exist outside OWS for power users and unattended automation, but the human-facing `wallet *` commands talk to OWS exclusively. This avoids two parallel notions of "default wallet" and consolidates lifecycle bugs in one place.
+Open Wallet Standard (via `ows-lib`) is the only **managed lifecycle** backend. Creation, import, listing, and default selection flow through the OWS vault at `~/.hyperliquid`. Explicit private-key flag/env/config and Foundry keystore signing paths exist outside OWS for power users and unattended automation, but the human-facing `wallet *` commands talk to OWS exclusively. This avoids two parallel notions of "default wallet" and consolidates lifecycle bugs in one place.
 
 ## Dual Alloy 1 / Alloy 2 pinning
 

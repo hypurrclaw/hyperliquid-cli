@@ -23,7 +23,7 @@ The CLI is designed for the agent loop: every data command speaks stable JSON wi
 - **Decimal-correct** — all prices, sizes, and amounts use `rust_decimal::Decimal`. No floats.
 - **Safe by default** — mutating commands surface `--dry-run`, prompt-gate live mainnet actions unless `-y` is passed, and treat all remote API/protocol strings as untrusted (sanitized with an `[untrusted remote data]` label).
 - **Agent-first output contract** — `--select`, `--results-only`, `--max-results`, bounded streams (`--max-events`, `--max-ticks`, `--idle-timeout-ms`), and `schema` are first-class.
-- **OWS-first wallets** — wallet lifecycle (create, import, list, default) flows through the encrypted OWS vault at `~/.hyperliquid`. Direct private-key, Foundry keystore, and stored local-account paths are still supported outside OWS.
+- **OWS-first wallets** — wallet lifecycle (create, import, list, default) flows through the encrypted OWS vault at `~/.hyperliquid`. Explicit private-key flag/env/config and Foundry keystore signing paths are still supported outside OWS.
 - **Catalog-driven schemas** — the embedded `src/command_catalog.json` is the editable source for command metadata; `src/command_registry.rs` loads it and emits schemas through `src/commands/schema.rs`.
 
 ## Quick links
