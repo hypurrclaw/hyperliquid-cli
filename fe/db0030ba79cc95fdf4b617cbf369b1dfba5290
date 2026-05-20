@@ -1,0 +1,25 @@
+src/bankr.rs
+  3361e319d64465b4 8-9,214,227,243,258,276,310-315,317-327,370,480-575,711-719,741,766,803,832,865
+Cargo.toml
+  3361e319d64465b4 22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.2",
+  "base_commit_sha": "fedb0030ba79cc95fdf4b617cbf369b1dfba5290",
+  "prompts": {
+    "3361e319d64465b4": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "383c460f-5c67-41ef-a9a5-3ebec2db992f",
+        "model": "composer-2.5"
+      },
+      "human_author": "Sayo",
+      "messages": [],
+      "total_additions": 143,
+      "total_deletions": 21,
+      "accepted_lines": 136,
+      "overriden_lines": 0
+    }
+  }
+}
