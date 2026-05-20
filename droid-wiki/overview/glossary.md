@@ -1,24 +1,78 @@
 # Glossary
 
-| Term | Definition |
-|------|-----------|
-| **Local signing account** | An encrypted private-key record stored in the local SQLite database (`accounts.db`). Managed by `account add`, `account ls`, `account set-default`, and `account remove`. |
-| **Selected signer** | The key used to sign authenticated actions. Chosen from CLI flags (`--private-key`, `--keystore`, `--account`, `--ows-signer`), environment variables, or stored defaults. |
-| **Protocol user address** | A public Hyperliquid user address used for info queries (fills, portfolio, order status). |
-| **Master account** | The protocol owner account that can approve API wallets and own subaccounts. |
-| **API wallet / Agent wallet** | A delegated Hyperliquid trading key approved by a master account. Can trade but cannot withdraw. |
-| **OWS wallet** | A wallet managed by the Open Wallet Standard backend. OWS is the only wallet lifecycle backend; wallet creation, import, and listing flow through the OWS vault at `~/.hyperliquid` (or `HYPERLIQUID_OWS_VAULT_PATH`). Signing can also use explicit private keys, Foundry keystores, or stored local signing accounts. |
-| **OWS signer** | A signer selected via `--ows-signer` by wallet name, id, or `0x` address. |
-| **Subaccount** | A protocol subaccount controlled by a master account. |
-| **Protocol address** | A literal on-chain address for a recipient, vault, validator, builder, or similar object. Never resolved from local aliases. |
-| **ACCOUNT_SELECTOR** | Input class accepting stored account alias, stored account id, or `0x` address. Used for selecting a local signer. |
-| **USER** | Input class accepting `0x` user address or stored account selector for public lookups. |
-| **`*_ADDRESS`** | Input class accepting only explicit `0x` protocol addresses. No alias resolution. |
-| **Hypersdk** | The Rust SDK crate (`hypersdk`) providing Hyperliquid API types, HTTP/WebSocket clients, signing, and chain primitives. |
-| **Tool catalog** | The JSON file at `src/command_catalog.json` that defines every command's contract: risk, lifecycle, auth requirements, dry-run policy, input schemas. |
-| **Command registry** | The in-memory typed representation of the tool catalog, loaded at startup via `CommandRegistry::load()`. |
-| **Dry run** | `--dry-run` mode that validates and previews supported mutating commands without submitting them to the exchange. |
-| **HIP-3** | Hyperliquid Improvement Proposal 3 — the DEX qualification format (`dex:TOKEN`) for perpetual market lookups. |
-| **Agent-first output contract** | JSON mode defaults when `HYPERLIQUID_AGENT=1` or stdout is not a TTY. Includes stable snake_case keys, `--select` field projection, and structured error envelopes. |
-| **EIP-712 signing** | Hyperliquid uses EIP-712 typed data signing for L1 exchange actions. The CLI constructs typed data payloads via alloy's `TypedData` resolver. |
-| **CoreWriter** | A Hyperliquid L1 action type (`action_id=15`) used for borrow/lend supply and withdraw operations that don't fit the standard exchange action path. |
+Project vocabulary, selector semantics, and acronyms used throughout the codebase and CLI surface.
+
+## Selector vocabulary
+
+The CLI distinguishes several classes of "who/what is this" inputs. Mixing them up is a common bug class, so the source code and schema metadata treat them as distinct types.
+
+| Term | Meaning | Examples |
+|------|---------|----------|
+| **Local signing account** | Encrypted local private-key record stored in the SQLite account store (`src/db.rs`) | A record with an `alias`, encrypted key, and address |
+| **Selected signer** | The key used to sign an authenticated action for the current command | Resolved through `SelectedSigner` in `src/signing.rs` |
+| **API wallet / agent wallet** | Delegated Hyperliquid trading key approved by a master account via `approveAgent`. Can trade, cannot withdraw | Created with `api-wallet create` |
+| **OWS wallet** | Wallet managed by the Open Wallet Standard backend at `~/.hyperliquid` (or `HYPERLIQUID_OWS_VAULT_PATH`) | The default backend; selected with `--ows-signer` |
+| **Protocol user address** / `USER` | Public account-data lookup target. Anything readable on-chain | The argument to `account portfolio USER` |
+| **`ACCOUNT_SELECTOR`** | Input that may accept a stored account alias, stored account id, or a `0x` address | `--account alice`, `--account 0xabc...` |
+| **`*_ADDRESS`** | Explicit protocol object address. Local account aliases are **not** resolved for these | Transfer recipient (`--to`), vault, validator, builder |
+| **Acting-account selector** | Signer is one address; the action is taken on behalf of another (subaccount or vault). Documented separately in command schemas | `orders --on-behalf-of`, `subaccount transfer --subaccount` |
+
+When schema metadata disagrees with README prose, treat schema `input_kind`, `risk`, `dry_run`, and `confirmation` metadata as authoritative.
+
+## Protocol terms
+
+| Term | Meaning |
+|------|---------|
+| **Hyperliquid** | The DEX this CLI targets. Mainnet uses the `eip155:999` chain id. |
+| **HIP-3** | Builder-deployed perpetual market on Hyperliquid. Symbols are DEX-qualified, e.g. `xyz:TSLA`. |
+| **TWAP** | Time-weighted average price order, sliced over the protocol's TWAP duration. |
+| **TP/SL** | Take-profit / stop-loss orders. Often attached to a position via `orders tpsl`. |
+| **Cloid** | Client-side order id supplied by the caller. Distinct from the protocol's `oid`. |
+| **OID** | Protocol-assigned order id. |
+| **Scheduled cancel** | A `ScheduleCancel` action that asks the exchange to cancel everything if the next heartbeat is missed (dead-man's switch). |
+| **Outcome market** | Hyperliquid prediction-market sides referenced as `#N` or `+N` notation. |
+| **Funding** | Periodic perp funding payment, separate from fills. |
+| **Builder fee** | A fee a Hyperliquid builder can charge through their UI. Requires user `approveBuilderFee`. |
+| **Referral code** | A code a referrer registers and a new account can `referrerCode` to. |
+| **Subaccount** | A separate Hyperliquid balance domain under a master account. |
+| **Vault** | A managed-deposit position address that can accept deposits and process withdrawals subject to a lockup. |
+| **Account abstraction** | Hyperliquid account-abstraction mode; toggled via `account abstraction set`. |
+
+## Output and agent terms
+
+| Term | Meaning |
+|------|---------|
+| **`--format pretty\|table\|json`** | Effective output format. Precedence: explicit flag, then `HYPERLIQUID_FORMAT`, then agent/non-TTY defaults. |
+| **`HYPERLIQUID_AGENT=1`** | Forces JSON defaults and non-TTY semantics for an agent caller. |
+| **`--select`** | Comma-separated field projection over JSON output. |
+| **`--results-only`** | Strip envelope/metadata from JSON output. |
+| **`--max-results N`** | Top-level result cap for agent context control. |
+| **`--max-events`, `--max-ticks`, `--idle-timeout-ms`** | Bounds for streaming and watch commands so they always return. |
+| **`schema`** | Subcommand that emits machine-readable command contracts. |
+| **`raw_payload`** | Schema field documenting whether a command accepts `--payload-json` / `--payload-file`. Treated as fail-closed until an action is explicitly allowlisted. |
+| **`[untrusted remote data]`** | Sanitization label applied to any string returned by the exchange or HTTP layer before display. |
+
+## Command lifecycle terms (`CommandContract`)
+
+These come from `src/command_registry.rs` and the embedded `command_catalog.json`.
+
+| Field | Meaning |
+|-------|---------|
+| **`Lifecycle`** | Whether the command is a read, signed action, or local mutation. |
+| **`Risk`** | `safe`, `funds_movement`, `irreversible`. Drives confirmation prompts. |
+| **`Mutability`** | Whether the command mutates remote state. |
+| **`DryRunPolicy`** | `not_applicable`, `supported`, `dry_run_only`. |
+| **`RawPayloadPolicy`** | Whether `--payload-json` / `--payload-file` are accepted. |
+| **`ConfirmationPolicy`** | `none`, `required`, `required_unless_yes`. |
+| **`ActionPlan` / `DryRunEnvelope`** | Stable JSON shape printed by `--dry-run`. See [features/dry-run](../features/dry-run.md). |
+
+## Wallet and signing acronyms
+
+| Acronym | Expansion |
+|---------|-----------|
+| **OWS** | Open Wallet Standard. The primary wallet vault backend (`ows-lib` crate). |
+| **CAIP-2** | Chain Agnostic namespace. Hyperliquid uses `eip155:999`. |
+| **EIP-712** | Typed structured data signing standard used for Hyperliquid actions. |
+| **AES-256-GCM** | Authenticated symmetric encryption used for the SQLite account store. |
+| **BIP-39** | Mnemonic seed standard supported by `wallet import-mnemonic`. |
+| **Foundry keystore** | JSON-encrypted Ethereum keystore (`--keystore`, `--keystore-password`). |

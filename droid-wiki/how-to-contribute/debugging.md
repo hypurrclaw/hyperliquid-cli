@@ -1,73 +1,72 @@
 # Debugging
 
-## Common errors
+## Read the exit code first
 
-### Authentication required (exit 10)
+Every non-zero exit maps to a structured cause:
 
-```
-Error: Authentication required. Run `hyperliquid setup` to configure your wallet.
-```
+| Code | Meaning |
+|------|---------|
+| 1 | Internal (anyhow) — unexpected; capture the message |
+| 2 | Configuration / clap usage |
+| 10 | Auth (missing key, OWS wallet not found, no chain account) |
+| 11 | Rate limited — back off |
+| 12 | API unavailable / timeout |
+| 13 | Unsupported asset, DEX, or parameter |
+| 14 | Stale cached data |
+| 15 | Partial results (batch with mixed success) |
 
-No signer is configured. Run `hyperliquid setup` to create or import a wallet, or pass `--private-key`, `--keystore`, `--account`, or `--ows-signer`.
+See [reference/exit-codes](../reference/exit-codes.md).
 
-### Rate limited (exit 11)
-
-```
-Error: Rate limited by Hyperliquid API. Please wait and retry.
-```
-
-The API returned a rate-limit response (HTTP 429 or structured error). Wait and retry.
-
-### API unreachable (exit 12)
-
-```
-Error: Unable to reach Hyperliquid API. Check your network connection.
-```
-
-The HTTP client could not connect. Check network connectivity and the API base URL. For testnet, ensure `--testnet` is passed.
-
-### Asset not found (exit 13)
-
-```
-"BT" not found. Did you mean: BTC, BLUR, BONK?
-```
-
-The asset name didn't match any known market. The CLI uses Levenshtein distance for fuzzy suggestions.
-
-## Logs and diagnostics
-
-The CLI does not have a debug log mode. For troubleshooting:
-
-- Use `--format json` to get structured error output including the full error message
-- Check `~/.config/hyperliquid/config.json` for saved configuration
-- Check `~/.hyperliquid/` for the OWS vault state
-- Add `-v` (verbose) is not yet implemented; use `--format json` for diagnostic output
-
-## Common pitfalls
-
-### Signer conflicts
-
-`--account`, `--private-key`, `--keystore`, and `--ows-signer` are mutually exclusive. Pick one signer source per command.
-
-### Dry-run restrictions
-
-`--dry-run` only works with mutating commands. Read-only commands reject it with exit 13 ("unsupported input").
-
-### Payload input requires dry-run
-
-`--payload-json` and `--payload-file` currently require `--dry-run` so raw payloads can be validated without side effects.
-
-### OWS wallet not found
-
-If `--ows-signer` references a wallet that doesn't exist in the vault, the CLI exits with code 10 and `OwsWalletNotFound`. Run `hyperliquid wallet list` to see available wallets.
-
-### OWS wallet has no Hyperliquid account
-
-Some OWS wallets may have other chain accounts but no Hyperliquid account. The CLI checks for both `eip155:999` (Hyperliquid chain) and `eip155:1` (Ethereum mainnet) as fallback.
-
-## Running individual test cases
+## Use JSON for parseable errors
 
 ```bash
-cargo test test_exit_code_auth_required          # specific test
-cargo test --test cli_integration -- --nocapture # integration test with output
+hyperliquid --format json orders create --coin XYZ --side buy --price 1 --size 1
+# → {"error": "[untrusted remote data] ..."}
+# exits 13 if asset is unknown
 ```
+
+JSON errors go to **stdout**; pretty/table errors go to stderr.
+
+## Dry-run anything mutating
+
+```bash
+hyperliquid --format json --dry-run orders create \
+  --coin BTC --side buy --price 50000 --size 0.001 --tif alo
+```
+
+The envelope shows `would_execute`, the resolved asset, the resolved signer, and `acting_as` / `vault_address` if any. Diffing the envelope against your intent catches most bugs before they hit the protocol. See [features/dry-run](../features/dry-run.md).
+
+## Inspect the schema
+
+```bash
+hyperliquid --format json schema orders create
+```
+
+Schema metadata is authoritative when README disagrees.
+
+## Common errors and what to do
+
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| Exit 10 `Authentication required` | No wallet configured | `hyperliquid setup` or `hyperliquid wallet create` |
+| Exit 10 `OWS wallet '...' was not found` | Wrong selector | `wallet list` to see names; check `HYPERLIQUID_OWS_VAULT_PATH` |
+| Exit 13 `"XYZ" not found. Did you mean: ...?` | Asset typo | Use a suggestion or run `asset search XYZ` |
+| Exit 13 on HIP-3 trade | Missing margin in `dex:<DEX>` | Transfer USDC via `transfer send-asset` first |
+| Exit 11 rate limited | Burst of `/info` calls | Add backoff between calls |
+| Exit 12 timeout | Network or API issue | Retry; check `hyperliquid status` |
+| "Self-transfer is not allowed" | `transfer send` with own address | Use `subaccount transfer` or a real recipient |
+| Mainnet `schedule cancel-all` prompts | Safety gate | Pass `-y` only if intentional |
+
+## Untrusted remote data
+
+Every API/protocol string surfaces with the prefix `[untrusted remote data]`. Do not strip the label in artifacts. If you see suspicious characters in pretty output, they've already been ANSI-stripped via `src/response_sanitization.rs`.
+
+## Tracing
+
+The CLI does not ship a verbose log mode. For ad-hoc diagnostics, instrument the path with `eprintln!` locally; production builds intentionally avoid logging signer state, balances, or order intents.
+
+## See also
+
+- [features/dry-run](../features/dry-run.md)
+- [features/agent-output-contract](../features/agent-output-contract.md)
+- [background/pitfalls](../background/pitfalls.md)

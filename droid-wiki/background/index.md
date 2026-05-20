@@ -1,8 +1,8 @@
 # Background
 
-Technical rationale and historical context for key design decisions.
+This section captures the "why" behind some of the codebase's load-bearing choices and the danger zones contributors should know about.
 
-| Page | Description |
-|------|-------------|
-| [Agent-first contracts](agent-first-contracts.md) | Why the CLI prioritizes JSON output, structured schemas, and agent consumption |
-| [OWS wallet backend](ows-migration.md) | How OWS wallet lifecycle and signer selection work |
+| Page | Content |
+|------|---------|
+| [design-decisions](design-decisions.md) | Notable architecture and policy choices |
+| [pitfalls](pitfalls.md) | Footguns, danger zones, and account-state edge cases |

@@ -1,64 +1,77 @@
 # Testing
 
+The test suite is layered. Unit tests live next to focused logic in `src/`. Integration tests in `tests/` drive the compiled `hyperliquid` binary via `assert_cmd` and mock the Hyperliquid HTTP API with `wiremock`. A separate QA matrix script sweeps the full command surface against a fixture wallet.
+
+## Run everything
+
+```bash
+cargo test
+task ci    # fmt + clippy + test + contracts + qa
+```
+
 ## Test layers
 
-| Layer | Location | Framework | Purpose |
-|-------|----------|-----------|---------|
-| Unit tests | `src/**/*.rs` (inline `#[cfg(test)]`) | Rust built-in | Pure logic, private helpers, error mapping |
-| Integration tests | `tests/*.rs` | `assert_cmd` | CLI process behavior, prompts, auth, stdout/stderr routing |
-| Contract tests | `tests/command_contracts.rs`, `tests/schema_contracts.rs`, `tests/registry_contracts.rs`, `tests/dry_run_contracts.rs`, `tests/output_contracts.rs` | `assert_cmd` | Command contract parity, schema stability, dry-run output, registry consistency |
-| QA matrix | `scripts/qa-command-matrix.sh` | Shell script | Broad installed-binary command surface sweep |
+| Layer | Owner | Files |
+|-------|-------|-------|
+| Unit tests | Pure helpers, private logic | Inline `#[cfg(test)] mod tests` in `src/` |
+| Integration | CLI process behavior, prompts, stdout/stderr routing, mocked API | `tests/*.rs` (39 files, ~19,541 LOC) |
+| Contract characterization | Schema, registry, dry-run, output | `tests/schema_contracts.rs`, `tests/registry_contracts.rs`, `tests/dry_run_contracts.rs`, `tests/output_contracts.rs` |
+| Security contracts | Sanitization, exit-code routing, untrusted text | `tests/security_contracts.rs`, `tests/error_exit_codes.rs` |
+| QA matrix | Broad installed-binary compatibility | `scripts/qa-command-matrix.sh` (`task qa:matrix`) |
 
-## Running tests
+## Shared helpers
 
-```bash
-# All tests
-cargo test
+`tests/support/mod.rs` exposes helpers for:
 
-# Contract characterization tests only
-cargo test --test command_contracts --test schema_contracts --test registry_contracts --test dry_run_contracts --test output_contracts
+- Isolated `HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME` directories per test.
+- `env_guard` for safely scoping environment-variable mutations.
+- Common WireMock fixtures for `/info` and `/exchange`.
+- Account and passphrase setup that opts in to the encrypted DB.
 
-# Specific test file
-cargo test --test cli_integration
+Use these helpers whenever a test touches user state; rolling your own ad-hoc env mutation is a common flake source.
 
-# With output
-cargo test -- --nocapture
+## Mocking the API
+
+```rust
+use wiremock::{MockServer, Mock, ResponseTemplate};
+
+let server = MockServer::start().await;
+Mock::given(...)
+    .respond_with(ResponseTemplate::new(200).set_body_json(...))
+    .mount(&server)
+    .await;
 ```
 
-## Mocking Hyperliquid HTTP
+Set `HYPERLIQUID_MAINNET_API_BASE_URL` (or `HYPERLIQUID_TESTNET_API_BASE_URL`) to `server.uri()` in the test environment so the binary hits the mock.
 
-Integration tests use `wiremock` to simulate API responses. Mock servers are set up per-test with expected request/response pairs. See `tests/cli_integration.rs` and `tests/orders_create.rs` for patterns.
+## Contract refresh
 
-## Isolated test state
-
-Tests that touch user state (config, accounts, wallets) use isolated `HOME`, `XDG_CONFIG_HOME`, and `XDG_DATA_HOME` via `tempfile`. See `tests/support/mod.rs` for shared helpers like `create_isolated_command_env()`.
-
-## QA matrix
-
-```bash
-task qa:matrix
-```
-
-This builds the release binary, binds it to `~/.local/bin/hyperliquid`, and runs `scripts/qa-command-matrix.sh` which sweeps the full command surface against the QA wallet. Mutating commands are dry-run only unless `HL_ENABLE_FUNDED_LIVE_QA=1` is explicitly set.
-
-## Updating contract tests
-
-When command behavior changes (new args, changed output schema, modified lifecycle/risk metadata):
+Some test files are characterization fixtures generated from the runtime. After changing command metadata or dry-run shapes:
 
 ```bash
 HYPERLIQUID_UPDATE_CONTRACTS=1 task contracts
 ```
 
-This regenerates the JSON contract fixtures under `tests/fixtures/contracts/`. Review the diff carefully — these fixtures are the ground truth for CI parity checks.
+Review the diff carefully — the fixtures are the agent contract.
 
-## Key test files
+## QA matrix
 
-| File | Description |
-|------|-------------|
-| `tests/cli_integration.rs` | Broad CLI behavior and output format tests |
-| `tests/wallet_management.rs` | Wallet create, import, list, show, delete tests |
-| `tests/orders_create.rs` | Order creation, validation, dry-run tests |
-| `tests/config_resolution.rs` | Config file, env var, CLI flag priority tests |
-| `tests/error_exit_codes.rs` | Structured exit code verification |
-| `tests/security_contracts.rs` | Security boundary tests (input hardening, response sanitization) |
-| `tests/support/mod.rs` | Shared test utilities |
+`scripts/qa-command-matrix.sh` runs a broad dry-run sweep of the command surface against a fixture wallet. Use it before cutting a release.
+
+```bash
+task bind
+task qa:matrix
+HL_QA_STRICT_SKIPS=1 task qa:matrix:strict   # fail on intentional skips
+```
+
+For funded testnet QA, the operator must explicitly set `HL_ENABLE_FUNDED_LIVE_QA=1` and supply credentials from outside the repo path (the script does not auto-discover repo-local keystores).
+
+## Where to add a test
+
+- New command argument logic → integration test in `tests/<domain>_*.rs`
+- New error path → `tests/error_exit_codes.rs`
+- New schema field → `tests/schema_contracts.rs` (regenerate fixtures)
+- New dry-run shape → `tests/dry_run_contracts.rs`
+- Pure helper logic → unit test next to the helper in `src/`
+
+See also: [debugging](debugging.md), [tooling](tooling.md).

@@ -1,92 +1,60 @@
 # Security
 
-## Trust boundaries
+`hyperliquid-cli` signs financial actions and stores private keys. This page is a working summary of the threat model and the code-level defenses. Read `SECURITY.md` at the repo root for the disclosure policy.
 
-```mermaid
-graph TD
-    subgraph "Local machine"
-        User[User input]
-        Config[Config file]
-        Db[(Encrypted accounts.db)]
-        OwsVault[OWS vault]
-    end
+## Threat model summary
 
-    subgraph "Untrusted network"
-        API[Hyperliquid API]
-        Ws[WebSocket]
-        GitHub[GitHub releases API]
-    end
+| Threat | Defense |
+|--------|---------|
+| Plaintext private key leaks via stdout/stderr/logs | Hidden prompts (`rpassword`), no echo, never logged. Exceptions are explicit: `wallet export` and `api-wallet create` print exactly once on a deliberate path. |
+| Plaintext key stored on disk | Encrypted SQLite (`src/db.rs`) with AES-256-GCM, key material in the OS keychain |
+| Untrusted remote text injected into terminal | `src/response_sanitization.rs` strips ANSI/control sequences, prefixes with `[untrusted remote data]` |
+| Hostile JSON payload exhausts memory | `src/input_hardening.rs` clamps file size (1 MiB), depth (64), key count (4096), string length (64 KiB) |
+| Path-traversal via `--payload-file` | `FilePolicy` validates path components, rejects `..` and unrelated absolute paths |
+| Accidental mainnet mutation | `--dry-run`, confirmation prompts, `-y` only for deliberate automation; mainnet `schedule cancel-all` prompts even with `-y` |
+| Malicious release binary | SHA-256 verification in `install.sh` and `hyperliquid update`; release assets carry their own checksum file |
+| Withdrawal abuse by automation | API/agent wallets cannot withdraw by protocol design (`approveAgent` scope) |
+| Secret in CI artifacts | `scripts/pre-release-check.sh` and `task release:check` scan for local-only artifacts (QA wallets, `.qa/` metadata, password files) |
+| Mixed signer / acting-account contexts | Order safety hardening plumbs `--on-behalf-of` through lookups + dry-run + live submission (v0.11.0) |
+| Raw payload silently bypassing validation | `RawPayloadPolicy` is fail-closed by default; live raw-payload requires explicit allowlist |
 
-    User -->|CLI args| CLI[hyperliquid binary]
-    Config --> CLI
-    Db -->|decrypt on demand| CLI
-    OwsVault --> CLI
+## Wallet secrets
 
-    CLI -->|HTTPS| API
-    CLI -->|WSS| Ws
-    CLI -->|HTTPS| GitHub
-```
+- Secrets enter the CLI through hidden prompts (`rpassword`) or env vars. They are never echoed.
+- The SQLite account DB is encrypted with AES-256-GCM. Encryption keys live in the OS keychain (`keyring` crate) by default. Tests and headless systems can supply a passphrase-derived key via `HYPERLIQUID_ACCOUNT_KEY_PASSPHRASE`.
+- The OWS vault path is `~/.hyperliquid` (or `HYPERLIQUID_OWS_VAULT_PATH`). Unlock uses `OWS_PASSPHRASE` for unattended use.
+- Generated API/agent wallet keys are printed exactly once at create time, in JSON or pretty form. Treat them like any hot trading key.
 
-## Key security properties
+## Encrypted on-disk format
 
-### Private key handling
+`ENCRYPTION_VERSION = "v1"`. Each record has a unique nonce. Keys are domain-separated with `b"hyperliquid-cli account encryption passphrase v1"` for the passphrase-derived KDF path.
 
-- Private keys are never logged, committed, or stored in plaintext; `api-wallet create` prints a newly generated API private key exactly once unless the command is only dry-run
-- `wallet import` and `account add` use hidden prompts when no argument is passed to avoid shell history exposure
-- Config file storage of private keys is supported for backward compatibility but stored accounts are preferred
+## Sanitization boundary
 
-### Encryption at rest
+`labelled_untrusted_text(s)` in `src/response_sanitization.rs` is the single helper that surfaces remote text safely. Every error mapper that propagates an exchange or HTTP-layer string routes through it. Tests in `tests/security_contracts.rs` enforce the label.
 
-- Account private keys in `accounts.db` are encrypted with AES-256-GCM before insertion
-- The data encryption key is stored in the OS keychain (macOS Keychain, Linux Secret Service, Windows Credential Manager)
-- In headless environments, `HYPERLIQUID_ACCOUNT_KEY_PASSPHRASE` provides deterministic key derivation via SHA-256
-- OWS wallets use the OWS vault's own encryption
+## Confirmation gating
 
-### Input hardening
+| Risk | Confirmation |
+|------|--------------|
+| Read-only | none |
+| Funds movement | required on live mainnet unless `-y` |
+| Irreversible | required regardless of `-y` for select actions |
+| Mainnet `schedule cancel-all` | required (even with `-y`) |
 
-`src/input_hardening.rs` validates all agent-supplied identifiers and file paths:
+The exact policy for each command is in `src/command_catalog.json` under `confirmation`.
 
-- Resource IDs cannot contain control characters, path traversal (`../`, `..\\`), or percent-encoded traversal (`%2e`, `%2f`, `%5c`)
-- JSON file inputs are limited to 1MB, max depth 64, max 4096 keys, max 64KB per string
-- File paths are validated against a `FilePolicy` (label, stdin allowance, max bytes)
+## CI security workflow
 
-### Response sanitization
+`.github/workflows/security.yml` runs on every PR. It is intentionally narrow — it does not replace a full audit. Use `task release:check` locally before tagging.
 
-`src/response_sanitization.rs` strips ANSI escape sequences and control characters from all untrusted remote text surfaced in errors. All such text is prefixed with `[untrusted remote data]`.
+## Reporting
 
-### Structured exit codes
+See `SECURITY.md` at the repo root for the responsible-disclosure process. Do not report security issues in public issues or PRs.
 
-The error system uses typed exit codes so scripts and agents can distinguish error categories:
+## See also
 
-| Code | Meaning |
-|------|---------|
-| 10 | Missing or invalid authentication |
-| 11 | Rate limited |
-| 12 | API or network unavailable |
-| 13 | Unsupported input, invalid asset |
-| 14 | Stale data |
-| 15 | Partial results |
-
-### Dry-run and confirmation
-
-- `--dry-run` previews mutating commands without side effects
-- Mainnet order creation prompts for confirmation unless `-y` is supplied
-- Testnet actions are scriptable without confirmation prompts
-- `--payload-json` / `--payload-file` require `--dry-run` to validate without side effects
-
-### CI security scanning
-
-- Gitleaks scans every PR and push to main for secrets in git history
-- `cargo audit` checks dependencies for known vulnerabilities weekly
-
-### Signer isolation
-
-- `--private-key`, `--keystore`, `--account`, and `--ows-signer` are mutually exclusive
-- API wallets can trade but cannot withdraw
-- `--ows-signer` with a raw `0x` address requires a resolved wallet for live signing; identity previews only are possible without one
-
-## Areas to watch
-
-- The config file `private_key` field is plaintext on disk — prefer stored accounts or OWS wallets
-- `wallet import <KEY>` on the command line exposes the key in process listings and shell history — use the hidden prompt instead
-- New protocol actions should enter `src/command_catalog.json` only after their wire shapes, dry-run behavior, and confirmation policy are verified against Hyperliquid's current APIs
+- [systems/signing-and-wallets](systems/signing-and-wallets.md)
+- [systems/input-hardening](systems/input-hardening.md)
+- [systems/update-and-release](systems/update-and-release.md)
+- [background/design-decisions](background/design-decisions.md)

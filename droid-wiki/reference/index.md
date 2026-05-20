@@ -1,9 +1,10 @@
 # Reference
 
-Technical reference material for configuration, data models, and dependencies.
+Quick lookup tables for configuration, types, dependencies, and exit codes.
 
-| Page | Description |
-|------|-------------|
-| [Configuration](configuration.md) | All config files, environment variables, and resolution order |
-| [Data models](data-models.md) | Key types and their JSON representations |
-| [Dependencies](dependencies.md) | External crate dependencies and their roles |
+| Page | Content |
+|------|---------|
+| [configuration](configuration.md) | Env vars, config file, vault paths, precedence chain |
+| [data-models](data-models.md) | Key types developers will encounter |
+| [dependencies](dependencies.md) | Crate-by-crate dependency map |
+| [exit-codes](exit-codes.md) | Full exit-code table with examples |

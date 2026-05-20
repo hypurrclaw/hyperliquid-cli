@@ -1,10 +1,12 @@
 # Systems
 
-Internal building blocks that underpin the CLI. These don't map to a single application or feature — they are shared infrastructure used by multiple command domains.
+The systems section covers the cross-cutting building blocks that domain commands ride on. Each subsystem has clear boundaries and shows up in nearly every command path.
 
-| System | Description |
-|--------|-------------|
-| [Command registry](command-registry.md) | Typed command contracts, tool catalog loading, handler binding metadata |
-| [Output rendering](output-rendering.md) | Pretty/table/JSON formatting, color theme, field projection |
-| [Configuration and storage](configuration-and-storage.md) | Config resolution, encrypted account database, OWS vault integration |
-| [Signing and auth](signing-and-auth.md) | Signer resolution chain, action signing via EIP-712, OWS integration |
+| System | Page | Files |
+|--------|------|-------|
+| Catalog-driven typed command contracts | [command-registry](command-registry.md) | `src/command_registry.rs`, `src/command_catalog.json`, `src/command_metadata.rs`, `src/commands/schema.rs` |
+| Signer and wallet resolution | [signing-and-wallets](signing-and-wallets.md) | `src/auth.rs`, `src/signing.rs`, `src/resolvers.rs`, `src/ows.rs`, `src/db.rs` |
+| Error and output pipeline | [error-and-output](error-and-output.md) | `src/errors.rs`, `src/output/mod.rs`, `src/response_sanitization.rs` |
+| Watch mode and WebSocket streaming | [watch-and-streaming](watch-and-streaming.md) | `src/watch.rs` |
+| Update check and self-update | [update-and-release](update-and-release.md) | `src/update_check.rs`, `install.sh`, `.github/workflows/release.yml` |
+| Input hardening and raw payload limits | [input-hardening](input-hardening.md) | `src/input_hardening.rs` |

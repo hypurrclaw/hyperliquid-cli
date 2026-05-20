@@ -1,35 +1,37 @@
 # Hyperliquid CLI
 
-Active contributors: Sayo, wtfsayo
+`hyperliquid-cli` is a single-binary Rust command-line tool that gives humans and AI agents a production-grade interface to the [Hyperliquid DEX](https://app.hyperliquid.xyz). Its binary name is `hyperliquid`, and it covers market data, perpetual and spot trading, transfers, staking, vaults, borrow/lend, builder fees, referrals, subaccounts, API/agent wallets, account abstraction, and WebSocket streaming.
 
-Hyperliquid CLI (`hyperliquid`) is a Rust command-line tool for interacting with the [Hyperliquid DEX](https://hyperliquid.xyz). It covers market data queries, account inspection, order management, fund transfers, staking, vault operations, borrow/lend reserve actions, builder fee approvals, referral workflows, WebSocket subscriptions, and JSON output for agent/script consumption.
-
-The binary is a single-purpose operational interface — not a trading bot, not an SDK replacement. It produces structured output (pretty, table, or JSON) for humans, scripts, and AI agents alike.
+The CLI is designed for the agent loop: every data command speaks stable JSON with field projection (`--select`), result caps (`--max-results`), and machine-readable schemas (`schema` subcommand). Mutating commands are gated by `--dry-run` previews, structured confirmation prompts, and a typed registry that records risk, reversibility, raw payload support, and live submission policy.
 
 ## What it does
 
-- **Market data**: perpetual and spot market listings, order books, candles, funding rates, spreads, mid prices, outcome markets
-- **Trading**: limit, market, stop-loss, take-profit, stop-limit, and take-limit orders; TWAP; order scaling and batch creation; cancel and modify
-- **Position management**: list positions, update leverage, adjust isolated margin
-- **Wallet management**: create/import/list/show wallets via OWS (Open Wallet Standard) vault, encrypted local account storage, API/agent wallet approval
-- **Funds movement**: spot↔perp transfers, USDC sends, withdrawals, subaccount transfers
-- **Staking and DeFi**: validator delegation, staking rewards, vault deposits/withdrawals, borrow/lend reserve rates, and CoreWriter supply/withdraw actions
-- **Real-time streaming**: WebSocket subscriptions for trades, order books, candles, fills, order updates, and all mid prices; terminal watch mode
-- **Operations tooling**: release update checks, install checksum verification, and repeatable QA sweeps
+- **Market data** — `mids`, `book`, `candles`, `funding`, `spread`, `status`, `meta`, perps and spot listings, HIP-3 DEX-qualified symbols, outcome markets, asset id decode and search
+- **Trading** — limit, market, stop-loss, take-profit, stop-limit, take-limit, IOC, ALO, FOK; TWAP creation and cancellation; scaled and batched orders; position-attached TP/SL; modify, cancel, cancel-all, scheduled cancel-all
+- **Position management** — list positions, update leverage, add/remove isolated margin
+- **Wallet management** — OWS (Open Wallet Standard) vault as the only wallet backend, encrypted local account storage, BIP-39 mnemonic import, Foundry keystore support, multi-account selection
+- **Funds movement** — spot↔perp transfer, USDC send, withdraw, send-asset (cross-context including HIP-3 DEXes), subaccount and spot subaccount transfers
+- **Staking, vaults, borrow/lend** — validator delegate/undelegate, deposit/withdraw staking, vault deposit/withdraw, borrow/lend reserve supply/withdraw
+- **Operational primitives** — builder fee approvals, referral set/register, API wallet (agent wallet) create/approve/list/revoke, account abstraction inspection/set
+- **Streaming** — bounded WebSocket subscriptions (`subscribe trades|orderbook|candles|all-mids|orders|fills`) and terminal watch mode for snapshot commands
+- **Tooling** — schema-driven self-description, dry-run previews, self-update from GitHub releases, install.sh checksum verification, structured feedback submission
 
 ## Key design principles
 
-- **Three output formats**: pretty (colored terminal), table (bordered), and JSON (stable snake_case keys for agents)
-- **Structured exit codes**: 0 success, 1 internal, 2 usage, 10 auth, 11 rate-limit, 12 unavailable, 13 unsupported, 14 stale, 15 partial
-- **Signed action safety**: testnet support, `--dry-run` for supported previews, confirmation prompts for prompt-gated mainnet actions, encrypted local key storage
-- **Agent-first output**: `--select` for field projection, `--results-only` to strip envelopes, `--max-results` for context control, `schema` command for machine-readable contract metadata
-- **Financial precision**: all prices and amounts use `rust_decimal::Decimal`, never floats
+- **Three output formats** — `pretty` (ANSI-colored, tabwriter), `table` (bordered), `json` (stable snake_case). Effective default: pretty on a TTY, JSON for non-TTY stdout or when `HYPERLIQUID_AGENT=1`. Explicit `--format` overrides everything.
+- **Structured exit codes** — 0 success, 1 internal, 2 usage/configuration, 10 auth, 11 rate-limit, 12 unavailable/timeout, 13 unsupported/asset-not-found, 14 stale, 15 partial. See [exit codes](../reference/exit-codes.md).
+- **Decimal-correct** — all prices, sizes, and amounts use `rust_decimal::Decimal`. No floats.
+- **Safe by default** — mutating commands surface `--dry-run`, prompt-gate live mainnet actions unless `-y` is passed, and treat all remote API/protocol strings as untrusted (sanitized with an `[untrusted remote data]` label).
+- **Agent-first output contract** — `--select`, `--results-only`, `--max-results`, bounded streams (`--max-events`, `--max-ticks`, `--idle-timeout-ms`), and `schema` are first-class.
+- **OWS-first wallets** — wallet lifecycle (create, import, list, default) flows through the encrypted OWS vault at `~/.hyperliquid`. Direct private-key, Foundry keystore, and stored local-account paths are still supported outside OWS.
+- **Catalog-driven schemas** — the embedded `src/command_catalog.json` is the editable source for command metadata; `src/command_registry.rs` loads it and emits schemas through `src/commands/schema.rs`.
 
 ## Quick links
 
-- [Architecture](architecture.md) — system components and data flow
+- [Architecture](architecture.md) — components, data flows, and Mermaid diagrams
 - [Getting started](getting-started.md) — install, build, test, run
-- [Glossary](glossary.md) — project terminology
+- [Glossary](glossary.md) — selector vocabulary and project terminology
 - [CLI application](../applications/cli.md) — binary structure and command dispatch
-- [Command registry](../systems/command-registry.md) — typed command contracts
-- [Configuration](../reference/configuration.md) — env vars, config files, account storage
+- [Agent output contract](../features/agent-output-contract.md) — `--format`, `--select`, `--results-only`, schema
+- [Orders subsystem](../features/orders.md) — order lifecycle and safety hardening
+- [Configuration reference](../reference/configuration.md) — env vars, config files, account storage

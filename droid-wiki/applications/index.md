@@ -1,9 +1,8 @@
 # Applications
 
-This repository ships a single binary:
+`hyperliquid-cli` ships as one Rust binary plus an installer script.
 
-| Binary | Crate | Entry point | Description |
-|--------|-------|-------------|-------------|
-| `hyperliquid` | `hyperliquid-cli` | `src/main.rs` | The main CLI for Hyperliquid DEX operations |
-
-The `hyperliquid` binary is the product surface.
+| Page | Description |
+|------|-------------|
+| [cli](cli.md) | The `hyperliquid` binary — global flags, command groups, dispatch |
+| [install-script](install-script.md) | `install.sh` — release lookup, SHA-256 verification, install location |

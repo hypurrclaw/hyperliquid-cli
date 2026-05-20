@@ -1,65 +1,61 @@
 # Market data
 
-Active contributors: Sayo
+Read-only commands for prices, books, candles, funding, metadata, and asset discovery. All accept `--format pretty|table|json` and the standard agent flags.
 
-Read-only commands for querying Hyperliquid market state. No authentication required.
+## Top-level commands
 
-## Commands
+| Command | Purpose |
+|---------|---------|
+| `status` | API health and rate-limit status |
+| `meta` | Raw exchange metadata |
+| `mids [--watch]` | All mid prices (HIP-3 keys are DEX-qualified, e.g. `xyz:TSLA`) |
+| `book <COIN> [--watch]` | L2 order book |
+| `candles <COIN> [--interval --limit --watch]` | Candle history |
+| `spread <COIN>` | Bid-ask spread |
+| `funding <COIN>` | Current funding rate |
+| `perps list [--dex]` | Perpetual markets, optionally scoped to a HIP-3 DEX |
+| `perps get <COIN> [--dex]` | Perp details |
+| `spot list` | Spot markets |
+| `spot get <PAIR>` | Spot pair details |
+| `outcomes list [--limit]` | Active outcome market sides |
+| `outcomes get <NOTATION>` | Outcome details (`#N` / `+N`) |
+| `asset decode <RAW_ID>` | Decode a raw protocol asset id |
+| `asset search <QUERY>` | Search assets by symbol/title/slug/notation/protocol-id |
 
-| Command | Description | Implementation |
-|---------|-------------|---------------|
-| `perps list [--dex <DEX>]` | List all perpetual markets | `src/commands/perps.rs` |
-| `perps get <COIN> [--dex <DEX>]` | Show one perpetual market | `src/commands/perps.rs` |
-| `spot list` | List all spot markets | `src/commands/spot.rs` |
-| `spot get <PAIR>` | Show one spot pair (e.g., `PURR/USDC`) | `src/commands/spot.rs` |
-| `book <COIN> [-w]` | L2 order book snapshot or watch updates | `src/commands/orderbook.rs` |
-| `mids [-w]` | All mid prices | `src/commands/orderbook.rs` |
-| `candles <COIN> [--interval] [--limit] [-w]` | Candle history | `src/commands/orderbook.rs` |
-| `spread <COIN>` | Bid, ask, and spread | `src/commands/orderbook.rs` |
-| `funding <COIN>` | Current and predicted funding rate | `src/commands/orderbook.rs` |
-| `meta` | Raw exchange metadata | `src/commands/meta.rs` |
-| `status` | API health and rate-limit context | `src/commands/status.rs` |
-| `outcomes list [--limit <N>]` | List active outcome market sides | `src/commands/outcomes.rs` |
-| `outcomes get <NOTATION>` | Show outcome side metadata (`#N` or `+N`) | `src/commands/outcomes.rs` |
+## Asset query parsing
 
-## Key abstractions
+`src/commands/mod.rs::parse_asset_query` accepts four formats:
 
-| Type | File | Description |
-|------|------|-------------|
-| `AssetQuery` | `src/commands/mod.rs` | Parsed asset input: `Perp`, `Spot`, `Hip3` (DEX-qualified), or `Outcome` |
-| `parse_asset_query` | `src/commands/mod.rs` | Parses `BTC`, `PURR/USDC`, `dex:TOKEN`, `#10`/`+10` notation |
-| `AssetResolver` | `src/commands/mod.rs` | Trait for resolving asset names to on-chain metadata |
-| `ResolvedAsset` | `src/commands/mod.rs` | `Perp(PerpAsset)` or `Spot(SpotAsset)` with index and decimals |
-| `MetadataCache` | `src/commands/mod.rs` | 60-second cache for exchange metadata to avoid repeated fetches |
+| Input | Variant |
+|-------|---------|
+| `BTC` | `AssetQuery::Perp("BTC")` (default perpetual) |
+| `PURR/USDC` | `AssetQuery::Spot("PURR/USDC")` |
+| `xyz:TSLA` | `AssetQuery::Hip3 { dex: "xyz", token: "TSLA" }` (HIP-3 DEX-qualified perp) |
+| `#10` or `+10` | `AssetQuery::Outcome("#10")` |
 
-## Asset resolution
+`AssetResolver` looks up the typed asset against a `MetadataCache` (60-second TTL via `METADATA_TTL`) and surfaces fuzzy-match suggestions on misses via `CliError::AssetNotFound { suggestions }`.
 
-The CLI supports four asset input formats:
+## HIP-3 specifics
 
-| Format | Example | Resolves to |
-|--------|---------|-------------|
-| Plain symbol | `BTC` | Default perpetual market |
-| Spot pair | `PURR/USDC` | Spot market pair |
-| HIP-3 DEX | `dex:TOKEN` | Perpetual market on a specific DEX |
-| Outcome notation | `#10`, `+10` | Outcome market side |
-
-Fuzzy matching via Levenshtein distance provides "did you mean?" suggestions when an asset is not found.
-
-## Output format support
-
-All market data commands support `--format pretty|table|json`, `--select` for field projection, and `--results-only` to strip envelopes. Example JSON output:
+HIP-3 DEXes are builder-specific; the symbol `xyz` is one example. Mids keys are DEX-qualified (`xyz:TSLA`), and orders on a HIP-3 market need margin in the `dex:<DEX>` context (see [transfers](transfers.md)).
 
 ```bash
-hyperliquid --format json --select name,max_leverage perps list
-hyperliquid --format json --select coin,price mids
+hyperliquid --format json perps list --dex xyz
+hyperliquid --format json perps get TSLA --dex xyz
+hyperliquid --format json book xyz:TSLA
 ```
+
+## Candle intervals
+
+`hypersdk::hypercore::CandleInterval` covers `1m`, `3m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `8h`, `12h`, `1d`, `3d`, `1w`, `1M`. `--limit` is capped to protect the agent's context (see `parse_candle_limit` in `src/commands/orderbook.rs`).
 
 ## Watch mode
 
-Several commands support `-w` / `--watch` for live-updating terminal display using crossterm's alternate screen. See [Watch and subscribe](watch-and-subscribe.md).
+`--watch` on snapshot commands re-renders the snapshot every two seconds in the terminal alternate screen, or emits NDJSON when `--format json` is set. See [systems/watch-and-streaming](../systems/watch-and-streaming.md). Agent callers must use `--max-ticks` or `HYPERLIQUID_WATCH_MAX_TICKS`.
 
 ## Entry points for modification
 
-- **Add a new market data command**: implement in `src/commands/orderbook.rs` or a new module, add clap variant in `src/main.rs`, dispatch in `src/cli_runtime.rs`
-- **Add a new asset format**: extend `parse_asset_query` in `src/commands/mod.rs`
-- **Change metadata caching**: modify `METADATA_TTL` constant in `src/commands/mod.rs`
+- To support a new asset notation, extend `parse_asset_query` and add the corresponding `AssetResolver` lookup branch.
+- To add a new market-data view, route the query through `http_api::post_info_json` and add a renderer in the relevant `src/commands/*.rs` module.
+
+See also: [agent-output-contract](agent-output-contract.md), [orders](orders.md).

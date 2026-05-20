@@ -1,78 +1,93 @@
 # Command registry
 
-Active contributors: Sayo
+`hyperliquid-cli` keeps a typed inventory of every command — what it does, what risk it carries, whether it supports dry-run, whether it accepts a raw payload, and what confirmation gating applies. That inventory drives the `hyperliquid schema` agent surface and is the parity layer for a gradual migration away from the legacy clap-only dispatch in `src/main.rs`.
 
-The command registry is a typed representation of every CLI command, compiled from the embedded `src/command_catalog.json`. It powers the `schema` command and gates migration to typed in-process handlers.
+## Purpose
 
-## Directory layout
+- Source of truth for command metadata that agents read (`schema`).
+- Parity check for the in-flight registry rollout: command behavior on the new path must match the legacy dispatch before any signed or fund-moving family is migrated.
+- Guard rails on raw payload submission, confirmation policy, and dry-run policy.
 
-```
-src/
-├── command_registry.rs     # CommandRegistry, CommandContract, InputContract types
-├── command_handlers.rs     # HandlerBinding metadata for typed dispatch migration
-├── command_metadata.rs     # Normalization helpers from tool-catalog entries
-└── command_context.rs      # Per-call execution context (clients, output, transport)
+## Key files
 
-src/
-├── command_catalog.json    # Source of truth: JSON catalog of all commands
+| File | Purpose |
+|------|---------|
+| `src/command_catalog.json` | Editable JSON catalog (~3,491 lines). The source of truth in Phase 1. |
+| `src/command_registry.rs` | `CommandRegistry::from_embedded_catalog()` parses the catalog into typed `CommandContract` records. |
+| `src/command_metadata.rs` | `CatalogCommandMetadata` and `CatalogArgMetadata` shape; argument normalization. |
+| `src/command_handlers.rs` | `HandlerBinding` enum that points each catalog entry at its runtime handler. |
+| `src/commands/schema.rs` | Renders `CommandContract` records for `hyperliquid schema`. |
+| `docs/registry-rollout-policy.md` | Stage gates for registry-routed live execution. |
 
-agents/
-└── error-catalog.json      # Error code reference
-```
+`CommandRegistry::load()` is the single entry point; it embeds the catalog with `include_str!` so the binary ships with the catalog baked in.
 
-## Key abstractions
+## CommandContract shape
 
-| Type | File | Description |
-|------|------|-------------|
-| `CommandRegistry` | `src/command_registry.rs` | In-memory registry loaded via `from_embedded_catalog()` |
-| `CommandContract` | `src/command_registry.rs` | Full contract: path, aliases, group, lifecycle, risk, dry-run policy, auth, inputs |
-| `Lifecycle` | `src/command_registry.rs` | `ReadOnly`, `Streaming`, `InteractiveLocal`, `LiveMutating`, `BlockedUnsupported` |
-| `Risk` | `src/command_registry.rs` | `None`, `LocalState`, `LocalSecret`, `AccountState`, `FundsMovement` |
-| `DryRunPolicy` | `src/command_registry.rs` | `NotSupported`, `Optional` |
-| `RawPayloadPolicy` | `src/command_registry.rs` | `Unsupported`, `DryRunOnly` |
-| `ConfirmationPolicy` | `src/command_registry.rs` | `None`, `Prompt` |
-| `HandlerBinding` | `src/command_handlers.rs` | Purity, dispatch mode, fallback for typed handler migration |
-| `InputContract` | `src/command_registry.rs` | Input argument metadata: kind, required, default, enum values |
-## How it works
-
-1. On startup, `main()` calls `CommandRegistry::load()` which reads `src/command_catalog.json` via `include_str!` (compile-time embedding)
-2. Each catalog entry is converted into a `CommandContract` with normalized metadata
-3. The `schema` command looks up contracts by path and renders JSON schemas for agents
-4. `cli_runtime.rs` uses contracts to gate `--dry-run` and validate transport policies
-
-```mermaid
-graph LR
-    Catalog[src/command_catalog.json] -->|include_str!| Registry[CommandRegistry]
-    Registry -->|find_path| Schema[schema command]
-    Registry -->|command_contract_for_path| Runtime[cli_runtime policy gates]
-    Registry -->|command_accepts_mutating_preview| DryRunGate[Dry-run gate]
-```
-
-## Catalog format
-
-Each command entry in `src/command_catalog.json` has:
-
-```json
-{
-  "command": "hyperliquid orders create",
-  "group": "trade",
-  "auth_required": true,
-  "dangerous": true,
-  "description": "Create a new order.",
-  "args": [...],
-  "lifecycle": "live_mutating",
-  "risk": "funds_movement",
-  "dry_run": "optional"
+```text
+CommandContract {
+    command:        String           // "orders create"
+    command_path:   Vec<String>      // ["orders", "create"]
+    aliases:        Vec<String>
+    group:          String           // "orders"
+    description:    String
+    auth_required:  bool
+    dangerous:      bool
+    lifecycle:      Lifecycle
+    risk:           Risk             // safe | funds_movement | irreversible
+    mutability:     Mutability
+    dry_run:        DryRunPolicy     // not_applicable | supported | dry_run_only
+    raw_payload:    RawPayloadPolicy
+    confirmation:   ConfirmationPolicy
+    transport:      Vec<Transport>
+    ows_signer:     OwsSupport
+    output_contract:OutputContract
+    handler:        HandlerBinding
+    one_of_required:Vec<Vec<String>>
+    inputs:         Vec<InputContract>
 }
 ```
 
-The `command_metadata.rs` module normalizes CLI conventions (lifecycle, risk, dry_run, confirmation) from catalog metadata into typed enums. This is the authoritative layer for input semantics when schema metadata disagrees with README prose.
+Agents that build live execution paths should consult schema metadata over README prose. Per `AGENTS.md`, "when schema metadata disagrees with README prose or examples, agents should treat schema `input_kind`, risk, dry-run, and confirmation metadata as authoritative."
 
-## Handler bindings
+## Phase 1 authority decision
 
-`HandlerBinding` in `src/command_handlers.rs` tracks handler dispatch metadata for command contracts. The registry rollout policy in `docs/registry-rollout-policy.md` defines the checks required before command-family routing changes.
+`src/command_registry.rs` exports a constant that documents the current rollout phase:
+
+```rust
+pub const PHASE1_AUTHORITY_DECISION: &str =
+    "Phase 1 keeps src/command_catalog.json as the editable catalog and emits CLI schemas from CommandRegistry until the registry becomes the source file.";
+```
+
+This is intentionally inert at runtime. It exists so that PR reviewers, schema characterization tests, and the registry rollout gates have a single string to assert on.
+
+## Rollout policy
+
+`docs/registry-rollout-policy.md` defines seven stages for migrating a command family from legacy dispatch to registry-routed execution:
+
+1. hidden/internal registry
+2. read-only default
+3. testnet mutating canary
+4. mainnet dry-run comparison
+5. mainnet opt-in
+6. mainnet default
+7. legacy removal
+
+Each migration must declare a rollback mode (`legacy-child`, `legacy-dispatch`, or `fail-closed`) and is rolled back when the registry and legacy paths disagree on signer, query address, network, asset, amount, destination, OIDs, or action type.
+
+`scripts/qa-registry-rollout-gates.sh` enforces the CI-side gate.
+
+## Schema discovery
+
+```bash
+hyperliquid --format json schema
+hyperliquid --format json schema orders create
+hyperliquid --format json --select command,description schema orders
+```
+
+Schema output is JSON with the snake_case fields above. Agents typically use the schema first, then plan a command, dry-run it, and only then execute live. See [features/schema-discovery](../features/schema-discovery.md).
 
 ## Entry points for modification
 
-- **Add a new command to the catalog**: edit `src/command_catalog.json`, then run `HYPERLIQUID_UPDATE_CONTRACTS=1 task contracts`
-- **Add new lifecycle or risk variants**: update the enums in `src/command_registry.rs`, the normalization in `src/command_metadata.rs`, and the catalog entries
+- To add a new command: add an entry to `src/command_catalog.json`, register a `HandlerBinding` in `src/command_handlers.rs`, and wire the clap subcommand in `src/main.rs`/`src/cli_runtime.rs`. Update characterization tests via `HYPERLIQUID_UPDATE_CONTRACTS=1 task contracts`.
+- To change a command's risk or dry-run policy: edit `command_catalog.json` and rerun `task contracts`.
+- To migrate a family to registry-routed execution: follow `docs/registry-rollout-policy.md` step-by-step and add the rollback declaration in the child issue.

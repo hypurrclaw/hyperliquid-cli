@@ -1,12 +1,27 @@
 # Features
 
-Cross-cutting capabilities grouped by what they do rather than where the code lives.
+Each feature page describes a user-facing capability — what commands exist, what data they accept, what dry-run shape they produce, and what safety gates apply.
 
-| Feature | Commands | Key files |
-|---------|----------|-----------|
-| [Market data](market-data.md) | `perps`, `spot`, `book`, `candles`, `spread`, `funding`, `mids`, `meta`, `status`, `outcomes` | `src/commands/orderbook.rs`, `src/commands/perps.rs`, `src/commands/spot.rs`, `src/commands/outcomes.rs` |
-| [Orders and trading](orders-and-trading.md) | `orders`, `positions` | `src/commands/orders.rs`, `src/commands/positions.rs` |
-| [Wallets and signing](wallets-and-signing.md) | `wallet`, `api-wallet`, `setup`, `account add/ls/set-default/remove`, `builder` | `src/commands/wallet.rs`, `src/commands/api_wallet.rs`, `src/commands/setup.rs`, `src/commands/builder.rs` |
-| [Accounts and transfers](accounts-and-transfers.md) | `account`, `transfer`, `subaccount` | `src/commands/account.rs`, `src/commands/transfers.rs`, `src/commands/subaccounts.rs` |
-| [Vaults, staking, and DeFi](vaults-staking-and-defi.md) | `staking`, `vault`, `borrowlend`, `builder`, `prio`, `referral` | `src/commands/staking.rs`, `src/commands/vaults.rs`, `src/commands/borrowlend.rs`, `src/commands/builder.rs` |
-| [Watch and subscribe](watch-and-subscribe.md) | `--watch` flag, `subscribe` | `src/watch.rs`, `src/commands/orderbook.rs` (watch variants) |
+## Trading and account
+
+| Feature | Page | Top-level commands |
+|---------|------|--------------------|
+| Orders | [orders](orders.md) | `orders create / scale / batch-create / tpsl / cancel / cancel-all / modify / twap-create / twap-cancel / schedule-cancel / open / status / history` |
+| Transfers | [transfers](transfers.md) | `transfer spot-to-perp / perp-to-spot / send / send-asset / withdraw / spot-send` |
+| Subaccounts | [subaccounts](subaccounts.md) | `subaccount list / create / transfer / spot-transfer` |
+| Staking, vaults, borrow/lend | [staking-vaults-borrowlend](staking-vaults-borrowlend.md) | `staking *`, `vault *`, `borrowlend *` |
+| Builder fees and referrals | [builder-and-referrals](builder-and-referrals.md) | `builder *`, `referral *` |
+| API / agent wallets | [api-wallets](api-wallets.md) | `api-wallet create / approve / list / revoke` |
+| Account and portfolio | [account-and-portfolio](account-and-portfolio.md) | `account *` |
+| Market data | [market-data](market-data.md) | `mids / book / candles / funding / spread / status / meta / perps / spot / asset / outcomes` |
+
+## Agent surface
+
+| Feature | Page |
+|---------|------|
+| JSON output contract | [agent-output-contract](agent-output-contract.md) |
+| Dry-run previews | [dry-run](dry-run.md) |
+| Schema discovery | [schema-discovery](schema-discovery.md) |
+| Raw payload submission | [raw-payload](raw-payload.md) |
+| Setup wizard | [setup-wizard](setup-wizard.md) |
+| Feedback submission | [feedback](feedback.md) |

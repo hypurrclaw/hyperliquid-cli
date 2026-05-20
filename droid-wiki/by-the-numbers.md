@@ -1,64 +1,81 @@
 # By the numbers
 
-Data collected on 2026-05-15 from tracked files.
+Data collected on 2026-05-20.
+
+A quantitative snapshot of the codebase as of commit `da17cb8` on the `develop` branch.
 
 ## Size
 
-Total Rust lines: **56,575** across **51 `src/` source files**, **38 Rust test files**, and `build.rs`. The tracked tree also has 4 shell scripts, 7 YAML workflow/task files, 46 Markdown files, and JSON command/contract fixtures.
-
-| Language | Lines of code |
-|----------|---------------|
-| Rust | 56,575 |
-| JSON | 15,509 |
-| Shell | 1,144 |
-| YAML | 416 |
-| Markdown | 5,295 |
+| Category | Files | Lines |
+|----------|-------|-------|
+| Rust source (`src/`) | 52 | 33,942 code + 1,250 comment + 3,529 blank |
+| JSON command catalog (`src/command_catalog.json`) | 1 | 3,491 |
+| Integration tests (`tests/`) | 39 | 19,541 |
+| **Total Rust** | 52 source + 39 test | **~53,483** |
 
 ```mermaid
-xychart-beta
-    title "Lines of code by language"
-    x-axis ["Rust", "JSON", "Markdown", "Shell", "YAML"]
-    y-axis "Lines" 0 --> 57000
-    bar [56575, 15509, 5295, 1144, 416]
+xychart-beta horizontal
+    title "Top-10 largest source files (lines of code)"
+    x-axis ["cli_runtime", "orders.rs", "account.rs", "orders/planning", "output/mod", "staking.rs", "db.rs", "orderbook.rs", "vaults.rs", "wallet.rs"]
+    y-axis "Lines"
+    bar [3400, 2524, 1904, 1539, 1379, 1323, 1159, 1115, 1102, 1062]
 ```
 
-## Largest source files
+Largest source files:
 
-| File | Lines | Purpose |
-|------|-------|---------|
-| `src/cli_runtime.rs` | 3,973 | Command dispatch and context resolution |
-| `src/commands/orders.rs` | 2,477 | Order creation, validation, planning, rendering |
-| `tests/orders_create.rs` | 2,188 | Order creation integration coverage |
-| `src/commands/account.rs` | 1,904 | Public account data queries |
-| `src/commands/orders/planning.rs` | 1,514 | Order action planning and dry-run previews |
-| `src/output/mod.rs` | 1,379 | Output formatting system |
-| `tests/wallet_management.rs` | 1,327 | Wallet management integration coverage |
-| `src/commands/staking.rs` | 1,323 | Staking queries and actions |
-| `src/db.rs` | 1,159 | Encrypted account storage |
-| `tests/vaults_borrowlend.rs` | 1,145 | Vault and borrow/lend integration coverage |
+| File | Lines |
+|------|------:|
+| `src/cli_runtime.rs` | ~3,400 |
+| `src/commands/orders.rs` | 2,524 |
+| `src/commands/account.rs` | 1,904 |
+| `src/commands/orders/planning.rs` | 1,539 |
+| `src/output/mod.rs` | 1,379 |
+| `src/commands/staking.rs` | 1,323 |
+| `src/db.rs` | 1,159 |
+| `src/commands/orderbook.rs` | 1,115 |
+| `src/commands/vaults.rs` | 1,102 |
+| `src/commands/wallet.rs` | 1,062 |
+| `src/main.rs` | 1,079 |
 
-## Activity (last 90 days)
+The embedded JSON catalog (`src/command_catalog.json`) is 3,491 lines — almost 10 % of the codebase is structured command metadata.
 
-Most actively changed files (Feb–May 2026):
+## Activity
 
-- `src/main.rs` (75 changes) — CLI definition and arg parsing
-- `src/commands/orders.rs` (43 changes) — order management
-- `src/commands/wallet.rs` (33 changes) — wallet management
-- `src/commands/mod.rs` (30 changes) — shared command helpers
-- `README.md` (28 changes) — command surface documentation
-- `src/cli_runtime.rs` (24 changes) — runtime routing and update-check integration
-- `tests/orders_create.rs` (23 changes) — order creation behavior
+| Metric | Value |
+|--------|------:|
+| Commits on `develop` | ~55 |
+| First public release (v0.1.0) | 2026-05-15 |
+| Most recent release (v0.11.0) | 2026-05-17 |
+| Days between v0.1.0 and v0.11.0 | 2 |
 
-Recent work concentrated on OWS-first wallet behavior, agent output contracts, live command follow-ups, isolated-margin validation, builder/referral defaults, and update/install behavior.
+Recent significant changes:
+
+- **v0.11.0** (2026-05-17): Order safety hardening for `--on-behalf-of` across cancel, cancel-all, modify, TP/SL, TWAP, and scheduled cancel flows. Prompt-gated mainnet `schedule cancel-all`. Self-contained release packaging.
+- **v0.1.0 → v0.11.0** dependency churn: hypersdk 0.2.10 → 0.2.11, alloy 1.8 → 2.0.4 (with v1 retained), rand 0.9.4 → 0.10.1, rpassword 7.5.1 → 7.5.2, sha2 0.10.9 → 0.11.0.
+- Asset id decode and search added (`feat: add asset id decode and search`, commit `626b6f8`).
 
 ## Bot-attributed commits
 
-Of the last 100 commits, ~44% have the co-author `capy-ai[bot]`. This is a lower bound on AI-assisted work; inline AI tools like Copilot leave no trace in git history.
+| Author | Commits |
+|--------|--------:|
+| `dependabot[bot]` | 5 / 55 (~9 %) |
+
+This is a lower bound on AI-assisted work — inline AI tooling leaves no trace in git history. The number reflects only dependency-bump merges that carry an explicit bot author or co-author.
 
 ## Complexity
 
-- **Average Rust file size**: ~629 lines across tracked Rust files
-- **Largest function area**: `src/cli_runtime.rs` dispatches the command tree and enforces dry-run/payload gates
-- **Deepest module**: `src/commands/orders/` splits into 5 sub-modules (`args`, `planning`, `queries`, `rendering`, `validation`)
-- **Exported symbols**: `src/lib.rs` exports 17 public modules for integration testing
-- **Test-to-code ratio**: 51 `src/` Rust source files vs 38 Rust test files (roughly 1 test file per 1.34 source files)
+| Metric | Value |
+|--------|------:|
+| Average source file size | ~653 LOC |
+| Largest single file | `src/cli_runtime.rs` (~3,400 LOC) |
+| Command domain modules | 23 (`src/commands/*.rs` + `src/commands/orders/` sub-tree) |
+| Top-level command groups | ~25 (`Commands` enum in `src/main.rs`) |
+| TODO / FIXME / HACK comments | 0 across all 52 Rust files |
+| Test-to-source ratio | ~0.58 (19,541 / 33,942) |
+| Direct dependencies (non-dev) | 28 |
+
+## See also
+
+- [overview/architecture](overview/architecture.md)
+- [lore](lore.md)
+- [fun-facts](fun-facts.md)
