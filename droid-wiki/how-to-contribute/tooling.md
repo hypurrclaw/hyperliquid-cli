@@ -1,61 +1,69 @@
 # Tooling
 
-## Build system
-
-Cargo is the build system. Key commands:
-
-```bash
-cargo build                 # debug build
-cargo build --release       # release build
-cargo test                  # all tests
-cargo clippy -- -D warnings # lint with warnings as errors
-cargo fmt --check           # check formatting
-```
-
 ## Taskfile
 
-An optional [Task](https://taskfile.dev) file at `Taskfile.yml` provides convenience commands:
+`Taskfile.yml` defines the canonical targets. Run with the `task` runner if available; fall back to the raw cargo commands otherwise.
 
-```bash
-task build                   # release build of hyperliquid binary
-task test                    # run test suite
-task clippy                  # lint
-task fmt                     # check formatting
-task bind                    # build + link ~/.local/bin/hyperliquid
-task qa:matrix               # build + run QA command matrix
-task contracts               # run contract characterization tests
-task ci                      # all quality gates (fmt, clippy, test, contracts, qa)
-task release:check           # pre-release repository check
-```
-
-## Linting and formatting
-
-- **rustfmt**: `cargo fmt --check` — standard Rust formatting
-- **clippy**: `cargo clippy -- -D warnings` — treats all clippy warnings as errors
-- No custom lint plugins or configuration beyond defaults
-
-## CI pipeline
-
-Three GitHub Actions workflows at `.github/workflows/`:
-
-| Workflow | Trigger | Jobs |
-|----------|---------|------|
-| `ci.yml` | Push to main, PRs | Build, tests, contract tests, registry rollout gates, clippy, OWS tests, formatting |
-| `release.yml` | Tag `v*`, manual dispatch | Multi-platform builds (linux x86_64, linux arm64, macos x86_64, macos arm64), archive packaging, checksum generation |
-| `security.yml` | PRs, push to main, weekly Mondays | `cargo audit` for dependency vulnerabilities, Gitleaks secret scanning |
-
-## Code generation
-
-- **Contract fixtures**: `HYPERLIQUID_UPDATE_CONTRACTS=1 task contracts` updates JSON fixtures under `tests/fixtures/contracts/`
+| Task | Equivalent |
+|------|------------|
+| `task fmt` | `cargo fmt --check` |
+| `task clippy` | `cargo clippy -- -D warnings` |
+| `task test` | `cargo test` |
+| `task contracts` | Schema/registry/dry-run/output characterization tests |
+| `task build` | `cargo build --release --bin hyperliquid` |
+| `task bind` | Build release + symlink `~/.local/bin/hyperliquid` |
+| `task qa:matrix` | `scripts/qa-command-matrix.sh` against the bound binary |
+| `task qa:matrix:strict` | QA matrix with `HL_QA_STRICT_SKIPS=1` |
+| `task qa:registry-rollout` | Registry rollout gate checks |
+| `task qa:registry-canary-plan` | Manual canary plan under `.qa/` |
+| `task release:check` | Pre-release secret/artifact gate |
+| `task ci` | All of the above |
 
 ## QA scripts
 
 | Script | Purpose |
 |--------|---------|
-| `scripts/qa-command-matrix.sh` | Sweeps the full command surface against the QA wallet (dry-run for mutating commands) |
-| `scripts/pre-release-check.sh` | Verifies no local-only secrets/artifacts are in the release |
-| `scripts/qa-registry-rollout-gates.sh` | Validates registry rollout policy compliance |
+| `scripts/qa-command-matrix.sh` | Broad dry-run sweep of the command surface |
+| `scripts/qa-registry-rollout-gates.sh` | Gate checks for registry rollout |
+| `scripts/pre-release-check.sh` | Local-only secret/artifact gate |
 
-## Installer
+QA sweeps default to dry-run for unsafe commands. Funded-live QA requires `HL_ENABLE_FUNDED_LIVE_QA=1` and out-of-repo credentials.
 
-`install.sh` downloads the release archive for the current platform, verifies SHA-256, and copies `hyperliquid` into `~/.local/bin`.
+## CI workflows
+
+| Workflow | File | Purpose |
+|----------|------|---------|
+| CI | `.github/workflows/ci.yml` | fmt + clippy + tests on PRs |
+| Release | `.github/workflows/release.yml` | Build and publish artifacts on tag |
+| Security | `.github/workflows/security.yml` | Security scan |
+
+## Dependabot
+
+`.github/dependabot.yml` enables Cargo updates. Bumps for `hypersdk`, `alloy`, `rand`, `rpassword`, and `sha2` have all landed via this path.
+
+## Build script
+
+`build.rs` embeds packaged defaults at compile time:
+
+- `DEFAULT_BUILDER_ADDRESS`
+- `DEFAULT_BUILDER_FEE_RATE`
+- `DEFAULT_REFERRAL_CODE`
+
+These are overridable at runtime via the corresponding `HYPERLIQUID_DEFAULT_*` env vars.
+
+## Tmp space (Cursor / sandboxes)
+
+When macOS scratch space is constrained:
+
+```bash
+mkdir -p .tmp
+TMPDIR="$PWD/.tmp" CARGO_TARGET_DIR="$PWD/target" task qa:matrix
+```
+
+`cargo clean` is safe between attempts.
+
+## See also
+
+- [development-workflow](development-workflow.md)
+- [testing](testing.md)
+- [systems/update-and-release](../systems/update-and-release.md)

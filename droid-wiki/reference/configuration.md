@@ -1,105 +1,83 @@
 # Configuration
 
-## Config file
+The CLI reads configuration from three sources, in order:
 
-Location: platform config directory + `/hyperliquid/config.json`
+1. CLI flags (`--private-key`, `--testnet`, `--format`, etc.)
+2. Environment variables
+3. Config file `~/.config/hyperliquid/config.json`
 
-| Platform | Path |
-|----------|------|
-| macOS | `~/Library/Application Support/hyperliquid/config.json` |
-| Linux | `~/.config/hyperliquid/config.json` |
-| Windows | `C:\Users\<user>\AppData\Roaming\hyperliquid\config.json` |
-
-```json
-{
-  "private_key": null,
-  "network": "mainnet",
-  "default_wallet_id": null,
-  "default_builder_address": null,
-  "default_builder_fee_rate": null,
-  "default_referral_code": null
-}
-```
-
-Fields are optional — missing config is not an error for read-only commands.
+A missing config file is not an error for read-only commands. The file is only created by `hyperliquid setup` or by `wallet create / import / import-mnemonic`.
 
 ## Environment variables
 
-### Network and API
+| Variable | Used by | Purpose |
+|----------|---------|---------|
+| `HYPERLIQUID_PRIVATE_KEY` | `src/config.rs` | Signer private key (least secure; prefer OWS) |
+| `HYPERLIQUID_NETWORK` | `src/config.rs` | `mainnet` or `testnet` |
+| `HYPERLIQUID_API_BASE_URL` | `src/config.rs` | Override both mainnet and testnet base URL |
+| `HYPERLIQUID_MAINNET_API_BASE_URL` | `src/config.rs` | Override mainnet base URL |
+| `HYPERLIQUID_TESTNET_API_BASE_URL` | `src/config.rs` | Override testnet base URL |
+| `HYPERLIQUID_FORMAT` | `src/output/mod.rs` | Default output format (`pretty`/`table`/`json`) |
+| `HYPERLIQUID_AGENT` | `src/output/mod.rs`, `src/update_check.rs` | When `=1`, default to JSON and suppress prompts/update notices |
+| `HYPERLIQUID_NO_UPDATE_CHECK` | `src/update_check.rs` | Disable passive update notices |
+| `HYPERLIQUID_WATCH_MAX_TICKS` | `src/watch.rs` | Cap snapshot watch ticks |
+| `HYPERLIQUID_OWS_VAULT_PATH` | `src/ows.rs` | Override OWS vault path (default `~/.hyperliquid`) |
+| `OWS_PASSPHRASE` | `src/ows.rs` | Unattended unlock passphrase for the OWS vault |
+| `HYPERLIQUID_ACCOUNT_KEY_PASSPHRASE` | `src/db.rs` | Passphrase-derived key material for the encrypted SQLite account DB (tests/headless) |
+| `HYPERLIQUID_ACCOUNT_KEYCHAIN_DISABLED` | `src/db.rs` | Disable OS keychain backend for account-DB key material |
+| `HYPERLIQUID_ACCOUNT_KEY_STORE_DIR` | `src/db.rs` | Legacy test directory for key material |
+| `HYPERLIQUID_DEFAULT_BUILDER_ADDRESS` | `build.rs`, `src/commands/setup.rs` | Runtime override of packaged default builder address |
+| `HYPERLIQUID_DEFAULT_BUILDER_FEE_RATE` | `build.rs`, `src/commands/setup.rs` | Runtime override of packaged default builder fee rate |
+| `HYPERLIQUID_DEFAULT_REFERRAL_CODE` | `build.rs`, `src/commands/setup.rs` | Runtime override of packaged default referral code |
+| `HYPERLIQUID_UPDATE_CONTRACTS` | tests | When `=1`, regenerate characterization fixtures |
+| `HL_ENABLE_FUNDED_LIVE_QA` | QA scripts | Opt-in for funded-live QA actions |
+| `HL_BIN` | `scripts/qa-command-matrix.sh` | Binary path to test |
+| `HL_QA_STRICT_SKIPS` | QA scripts | Fail on intentionally skipped commands |
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `HYPERLIQUID_NETWORK` | `mainnet` | Network selection (`mainnet` or `testnet`) |
-| `HYPERLIQUID_API_BASE_URL` | (network default) | Custom API base URL (overrides network) |
-| `HYPERLIQUID_MAINNET_API_BASE_URL` | `https://api.hyperliquid.xyz` | Override mainnet API URL |
-| `HYPERLIQUID_TESTNET_API_BASE_URL` | `https://api.hyperliquid-testnet.xyz` | Override testnet API URL |
-| `HYPERLIQUID_NO_UPDATE_CHECK` | (unset) | Disable best-effort release update checks for normal command execution |
+## Config file
 
-### Output format
+`~/.config/hyperliquid/config.json`. All fields optional.
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `HYPERLIQUID_FORMAT` | dynamic | Output format: `pretty`, `table`, or `json`; explicit env wins over TTY/agent defaults |
-| `HYPERLIQUID_AGENT` | (unset) | Set to `1` to default one-shot commands to JSON format |
+```json
+{
+  "private_key": "0x...",            // discouraged; prefer OWS
+  "network": "mainnet",
+  "default_ows_wallet": "alice",
+  "default_account": "alice",
+  "default_builder_address": "0x...",
+  "default_builder_fee_rate": "0.001",
+  "default_referral_code": "ABC123"
+}
+```
 
-### Signing
+The exact schema is defined in `src/config.rs::Config`. Fields are filled from env and CLI overrides as needed.
 
-| Variable | Description |
-|----------|-------------|
-| `HYPERLIQUID_PRIVATE_KEY` | Raw private key for signing (0x-prefixed hex) |
+## Vault and storage paths
 
-### Account storage
+| Path | Purpose |
+|------|---------|
+| `~/.hyperliquid` (or `HYPERLIQUID_OWS_VAULT_PATH`) | OWS vault directory |
+| `~/.config/hyperliquid/config.json` | CLI config |
+| `~/.config/hyperliquid/version.json` | Update-check cache |
+| Account DB (SQLite) | Created on demand; encrypted via AES-256-GCM |
+| OS keychain `hyperliquid-cli` / `accounts-data-encryption-key` | Stores account DB key material by default |
 
-| Variable | Description |
-|----------|-------------|
-| `HYPERLIQUID_ACCOUNT_KEY_PASSPHRASE` | Passphrase for account encryption key derivation |
-| `HYPERLIQUID_ACCOUNT_KEYCHAIN_DISABLED` | Set to `1` to disable OS keychain and require passphrase |
-| `HYPERLIQUID_ACCOUNT_KEY_STORE_DIR` | Override the local directory used for file-backed account encryption key material |
+## Format precedence
 
-### OWS wallet
+```mermaid
+graph TD
+    Flag[--format] --> Effective
+    Flag -->|absent| Env[HYPERLIQUID_FORMAT]
+    Env -->|absent| TTY{stdout TTY?}
+    TTY -->|yes| Pretty
+    TTY -->|no| Json
+    AgentFlag[HYPERLIQUID_AGENT=1] --> Json
+    Pretty --> Effective[Effective format]
+    Json --> Effective
+```
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `HYPERLIQUID_OWS_VAULT_PATH` | `~/.hyperliquid` | OWS vault directory |
-| `OWS_PASSPHRASE` | (none) | Passphrase to unlock encrypted OWS wallet |
+## See also
 
-### Watch mode
-
-| Variable | Description |
-|----------|-------------|
-| `HYPERLIQUID_WATCH_MAX_TICKS` | Default max ticks for snapshot watch mode in agent contexts |
-| `HYPERLIQUID_SUBSCRIBE_MAX_EVENTS` | Default max events for WebSocket subscribe commands in agent contexts |
-
-### Builder and referral defaults
-
-| Variable | Description |
-|----------|-------------|
-| `HYPERLIQUID_DEFAULT_BUILDER_ADDRESS` | Default builder address used when builder-aware commands need one |
-| `HYPERLIQUID_DEFAULT_BUILDER_FEE_RATE` | Default builder fee rate paired with the default builder address |
-| `HYPERLIQUID_DEFAULT_REFERRAL_CODE` | Default referral code for `referral set` when no code is passed |
-
-## Resolution priority
-
-For any setting, the resolution order is:
-
-1. CLI flag (e.g., `--private-key`, `--testnet`, `--format json`)
-2. Environment variable (e.g., `HYPERLIQUID_PRIVATE_KEY`, `HYPERLIQUID_FORMAT`)
-3. Config file (`config.json`)
-4. Hardcoded default
-
-## Account database
-
-Location: platform data directory + `/hyperliquid/accounts.db`
-
-| Platform | Path |
-|----------|------|
-| macOS | `~/Library/Application Support/hyperliquid/accounts.db` |
-| Linux | `~/.local/share/hyperliquid/accounts.db` |
-
-Encrypted with AES-256-GCM. Encryption key material is stored in the OS keychain when available, or in the file-backed key store when keychain use is disabled/unavailable; `HYPERLIQUID_ACCOUNT_KEY_PASSPHRASE` provides deterministic passphrase-derived key material for headless use.
-
-## OWS vault
-
-Default location: `~/.hyperliquid/`
-
-Contains OWS-managed wallets. Override with `HYPERLIQUID_OWS_VAULT_PATH`.
+- [systems/signing-and-wallets](../systems/signing-and-wallets.md)
+- [features/agent-output-contract](../features/agent-output-contract.md)
+- [security](../security.md)

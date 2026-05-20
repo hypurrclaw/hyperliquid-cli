@@ -1,24 +1,18 @@
 # How to contribute
 
-This section covers the development workflow, testing strategy, debugging, coding conventions, and tooling for `hyperliquid-cli`.
+Start with `CONTRIBUTING.md` and `AGENTS.md` at the repository root. This section expands on both for working inside the codebase day-to-day.
 
-## Before you start
+| Page | Purpose |
+|------|---------|
+| [development-workflow](development-workflow.md) | Branch, build, test, PR cycle |
+| [testing](testing.md) | Test layers, helpers, contract characterization |
+| [debugging](debugging.md) | Error categories, dry-run for live previews, logs |
+| [patterns-and-conventions](patterns-and-conventions.md) | Coding conventions and selector semantics |
+| [tooling](tooling.md) | Taskfile, QA scripts, CI workflows |
 
-1. Read the [architecture overview](../overview/architecture.md) and [glossary](../overview/glossary.md) to understand the codebase structure
-2. Run `cargo build && cargo test` to confirm your environment works
-3. Pick up an issue or propose a change in a focused PR
+Quick checklist before opening a PR:
 
-## PR expectations
-
-- Run `cargo fmt --check`, `cargo clippy -- -D warnings`, and `cargo test` before pushing
-- Update the [tool catalog](../../src/command_catalog.json) if you add or change a command
-- Run `HYPERLIQUID_UPDATE_CONTRACTS=1 task contracts` to update characterization contracts
-- Keep QA credentials and local artifacts out of the diff
-- Note any live-mutating behavior and the exact dry-run or mocked evidence used
-
-## Definition of done
-
-- Code compiles without warnings or errors
-- All tests pass (unit tests, integration tests, contract characterization tests)
-- CLI interface respects existing output contracts (pretty/table/JSON, field selection, exit codes)
-- New commands have entries in `src/command_catalog.json` with correct `lifecycle`, `risk`, `dry_run`, and `confirmation` metadata
+1. `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test`
+2. Refresh contract fixtures if command metadata changed: `HYPERLIQUID_UPDATE_CONTRACTS=1 task contracts`
+3. For new commands, add catalog metadata and at least one integration test
+4. Note any live-mutating behavior and the exact dry-run or mocked evidence used

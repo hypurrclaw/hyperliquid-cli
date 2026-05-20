@@ -1,140 +1,106 @@
 # Data models
 
-## Core types
+Key types developers and reviewers encounter, grouped by topic. All file paths are relative to the repository root.
 
-### Network
+## Asset resolution (`src/commands/mod.rs`)
 
-```rust
-enum Network {
-    Mainnet,
-    Testnet,
-}
-```
+| Type | Purpose |
+|------|---------|
+| `AssetQuery` | Enum: `Perp(String)`, `Spot(String)`, `Hip3 { dex, token }`, `Outcome(String)` |
+| `PerpAsset` | Resolved perpetual: name, index, optional DEX, sz_decimals, collateral |
+| `SpotAsset` | Resolved spot pair |
+| `ResolvedAsset` | Sum type of resolved assets |
+| `AssetResolver` | Resolves an `AssetQuery` against cached metadata |
+| `MetadataCache` | 60-second TTL cache of perps/spot metadata (`METADATA_TTL`) |
+| `AssetMetadata` | Raw exchange metadata blob |
 
-Serialized as `"mainnet"` or `"testnet"` (case-insensitive on deserialization).
+## Auth and signing (`src/auth.rs`, `src/signing.rs`, `src/resolvers.rs`)
 
-### OutputFormat
+| Type | Purpose |
+|------|---------|
+| `ResolvedSigner` | Public wrapper around `SelectedSigner` |
+| `SelectedSigner` | Backend-neutral signer (`LocalPrivateKey` or `Ows`) |
+| `SignerSource` | `PrivateKey`, `Keystore`, `StoredAccount { alias }`, `Ows { selector }` |
+| `SignerResolverInput` | Inputs to `resolvers::resolve_selected_signer` |
+| `DefaultSignerFallback` | `AllowStoredDefaultOrFirst`, `Disallow` |
 
-```rust
-enum OutputFormat {
-    Pretty,
-    Table,
-    Json,
-}
-```
+## OWS (`src/ows.rs`)
 
-### CliError
+| Type | Purpose |
+|------|---------|
+| `OwsSignerConfig` | Selector + address + optional `OwsWalletSelection` + vault path |
+| `OwsSigningConfig` | Backend signing config used by `SelectedSigner` |
+| `OwsWalletSelection` | Wallet id, name, chain id |
+| `HYPERLIQUID_CAIP2` const | `"eip155:999"` |
 
-Structured error variants with exit codes 0-15. See the [debugging guide](../how-to-contribute/debugging.md) for common errors and exit codes.
+## Account storage (`src/db.rs`)
 
-### AssetQuery
+| Type | Purpose |
+|------|---------|
+| `Account` | Stored account row (alias, address, encrypted key blob) |
+| `AccountStore` | SQLite-backed store with AES-256-GCM |
+| `EncryptionKeyStore` (trait) | Key-material backend (OS keychain or passphrase) |
+| `AgentAccountMetadata` | Master address, agent name, expiry for API/agent wallets |
 
-Parsed asset input:
+## Command registry (`src/command_registry.rs`)
 
-```rust
-enum AssetQuery {
-    Perp(String),          // "BTC"
-    Spot(String),          // "PURR/USDC"
-    Hip3 { dex, token },   // "dex:TOKEN"
-    Outcome(String),       // "#10" or "+10"
-}
-```
+| Type | Purpose |
+|------|---------|
+| `CommandRegistry` | Loaded from `src/command_catalog.json` |
+| `CommandContract` | Per-command typed contract |
+| `Lifecycle` | Lifecycle category |
+| `Risk` | `safe`, `funds_movement`, `irreversible` |
+| `Mutability` | Mutation flag |
+| `DryRunPolicy` | `not_applicable`, `supported`, `dry_run_only` |
+| `RawPayloadPolicy` | Raw-payload support level |
+| `ConfirmationPolicy` | `none`, `required`, `required_unless_yes` |
+| `Transport` | HTTP / WebSocket usage |
+| `OwsSupport` | OWS support level |
+| `OutputContract` | Success-shape descriptor |
+| `HandlerBinding` | Runtime handler dispatch tag (`src/command_handlers.rs`) |
+| `InputContract` | Per-arg metadata (input_kind, required, default) |
 
-## Command contracts
+## Dry-run (`src/dry_run.rs`)
 
-### Lifecycle
+| Type | Purpose |
+|------|---------|
+| `ActionPlan` | `would_execute`, `kind`, `reversibility`, `live_submission` |
+| `ActionKind` | `SignedExchangeAction`, `LocalStateMutation` |
+| `ActionReversibility` | `Reversible`, `PartiallyReversible`, `Irreversible` |
+| `LiveSubmissionPolicy` | `DryRunOnly`, `ValidateConfirmSignSubmit` |
+| `DryRunSigningContext` | `signer`, `acting_as`, `vault_address` |
+| `DryRunEnvelope` | Stable JSON envelope for `--dry-run` |
 
-```rust
-enum Lifecycle {
-    ReadOnly,
-    Streaming,
-    InteractiveLocal,
-    LiveMutating,
-    BlockedUnsupported,
-}
-```
+## Output (`src/output/mod.rs`)
 
-### Risk
+| Type | Purpose |
+|------|---------|
+| `OutputFormat` | `Pretty`, `Table`, `Json` |
+| `TableData` (trait) | Implemented by every renderable type |
+| `colors::*` | ANSI color helpers |
 
-```rust
-enum Risk {
-    None,
-    LocalState,
-    LocalSecret,
-    AccountState,
-    FundsMovement,
-}
-```
+## Errors (`src/errors.rs`)
 
-### DryRunPolicy
+| Type | Purpose |
+|------|---------|
+| `CliError` | Top-level error variants with exit-code mapping |
 
-```rust
-enum DryRunPolicy {
-    NotSupported,
-    Optional,
-}
-```
+## Config (`src/config.rs`)
 
-### ConfirmationPolicy
+| Type | Purpose |
+|------|---------|
+| `Config` | On-disk config |
+| `Network` | `Mainnet`, `Testnet` |
 
-```rust
-enum ConfirmationPolicy {
-    None,
-    Prompt,
-}
-```
+## Watch (`src/watch.rs`)
 
-## Financial values
+| Type | Purpose |
+|------|---------|
+| `SubscribeEventKind` | `Trades`, `Orderbook`, `Candles`, `AllMids`, `OrderUpdates`, `Fills` |
+| `SnapshotWatchArgs` | Flattened clap struct for `--watch`-capable commands |
 
-All prices, sizes, and amounts use `rust_decimal::Decimal`. In JSON, they are serialized as strings:
+## See also
 
-```json
-{
-  "price": "50000.5",
-  "size": "0.001"
-}
-```
-
-## Action signing
-
-### Action types (subset)
-
-| Action | Description |
-|--------|-------------|
-| `OrderRequest` | Limit, market, stop-loss, take-profit, stop-limit, take-limit |
-| `Cancel` | Cancel by order ID |
-| `CancelByCloid` | Cancel by client order ID |
-| `BatchCancel` | Cancel multiple orders |
-| `Modify` | Modify an existing order |
-| `ScheduleCancel` | Dead man's switch |
-| `UsdClassTransfer` | Spot↔perp USDC transfer |
-| `UsdSend` | USDC send to address |
-| `SpotSend` | Spot token send |
-| `Withdraw` | Withdraw to Arbitrum |
-| `UpdateLeverage` | Update position leverage |
-| `UpdateIsolatedMargin` | Adjust isolated margin |
-| `ApproveAgent` | Approve API/agent wallet |
-| `VaultTransfer` | Vault deposit/withdraw |
-| `TokenDelegate` | Staking delegate/undelegate |
-| `CDeposit` / `CWithdraw` | Staking deposit/withdraw |
-| `ApproveBuilderFee` | Builder fee approval |
-| `CoreWriter` action id 15 | Borrow/lend supply and withdraw |
-
-All actions are signed via EIP-712 typed data using the `HyperliquidTransaction:` domain prefix.
-
-## Stored account schema
-
-```sql
-CREATE TABLE accounts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    alias TEXT NOT NULL UNIQUE,
-    address TEXT NOT NULL,
-    encrypted_private_key TEXT NOT NULL,
-    type TEXT NOT NULL,
-    is_default INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL,
-    master_address TEXT,
-    agent_name TEXT,
-    expires_at INTEGER
-);
-```
+- [systems/command-registry](../systems/command-registry.md)
+- [features/dry-run](../features/dry-run.md)
+- [systems/signing-and-wallets](../systems/signing-and-wallets.md)
