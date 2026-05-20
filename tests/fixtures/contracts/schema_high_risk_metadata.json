@@ -10,7 +10,8 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement"
+      "risk": "funds_movement",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": true,
@@ -21,7 +22,8 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "account_state"
+      "risk": "account_state",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": true,
@@ -32,7 +34,8 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement"
+      "risk": "funds_movement",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": true,
@@ -43,7 +46,8 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement"
+      "risk": "funds_movement",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": true,
@@ -54,7 +58,8 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement"
+      "risk": "funds_movement",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": false,
@@ -65,7 +70,8 @@
       "lifecycle": "read_only",
       "ows_signer": "not_applicable",
       "raw_payload": "unsupported",
-      "risk": "local_state"
+      "risk": "local_state",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": false,
@@ -76,7 +82,8 @@
       "lifecycle": "interactive_local",
       "ows_signer": "not_applicable",
       "raw_payload": "unsupported",
-      "risk": "local_secret"
+      "risk": "local_secret",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": false,
@@ -87,7 +94,8 @@
       "lifecycle": "interactive_local",
       "ows_signer": "not_applicable",
       "raw_payload": "unsupported",
-      "risk": "local_state"
+      "risk": "local_state",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": false,
@@ -98,7 +106,8 @@
       "lifecycle": "interactive_local",
       "ows_signer": "not_applicable",
       "raw_payload": "unsupported",
-      "risk": "local_state"
+      "risk": "local_state",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": true,
@@ -109,7 +118,8 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement"
+      "risk": "funds_movement",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": true,
@@ -120,7 +130,8 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement"
+      "risk": "funds_movement",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": true,
@@ -131,7 +142,8 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement"
+      "risk": "funds_movement",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": false,
@@ -142,7 +154,8 @@
       "lifecycle": "interactive_local",
       "ows_signer": "not_applicable",
       "raw_payload": "unsupported",
-      "risk": "local_secret"
+      "risk": "local_secret",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": false,
@@ -153,7 +166,8 @@
       "lifecycle": "interactive_local",
       "ows_signer": "not_applicable",
       "raw_payload": "unsupported",
-      "risk": "local_secret"
+      "risk": "local_secret",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": true,
@@ -164,7 +178,8 @@
       "lifecycle": "read_only",
       "ows_signer": "address_selector_supported",
       "raw_payload": "unsupported",
-      "risk": "local_secret"
+      "risk": "local_secret",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": true,
@@ -175,7 +190,8 @@
       "lifecycle": "read_only",
       "ows_signer": "address_selector_supported",
       "raw_payload": "unsupported",
-      "risk": "local_secret"
+      "risk": "local_secret",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": false,
@@ -186,7 +202,8 @@
       "lifecycle": "interactive_local",
       "ows_signer": "not_applicable",
       "raw_payload": "unsupported",
-      "risk": "local_state"
+      "risk": "local_state",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": false,
@@ -197,7 +214,8 @@
       "lifecycle": "interactive_local",
       "ows_signer": "not_applicable",
       "raw_payload": "unsupported",
-      "risk": "local_secret"
+      "risk": "local_secret",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": false,
@@ -208,7 +226,8 @@
       "lifecycle": "read_only",
       "ows_signer": "not_applicable",
       "raw_payload": "unsupported",
-      "risk": "local_state"
+      "risk": "local_state",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": false,
@@ -219,7 +238,8 @@
       "lifecycle": "interactive_local",
       "ows_signer": "not_applicable",
       "raw_payload": "unsupported",
-      "risk": "local_state"
+      "risk": "local_state",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": false,
@@ -230,7 +250,8 @@
       "lifecycle": "interactive_local",
       "ows_signer": "not_applicable",
       "raw_payload": "unsupported",
-      "risk": "local_state"
+      "risk": "local_state",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": false,
@@ -241,7 +262,8 @@
       "lifecycle": "interactive_local",
       "ows_signer": "not_applicable",
       "raw_payload": "unsupported",
-      "risk": "local_secret"
+      "risk": "local_secret",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": true,
@@ -252,7 +274,8 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement"
+      "risk": "funds_movement",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": true,
@@ -263,7 +286,8 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement"
+      "risk": "funds_movement",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": true,
@@ -274,7 +298,8 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement"
+      "risk": "funds_movement",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": true,
@@ -285,7 +310,8 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement"
+      "risk": "funds_movement",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": true,
@@ -296,7 +322,8 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement"
+      "risk": "funds_movement",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": true,
@@ -307,7 +334,8 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement"
+      "risk": "funds_movement",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": true,
@@ -318,7 +346,8 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement"
+      "risk": "funds_movement",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": true,
@@ -329,7 +358,8 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement"
+      "risk": "funds_movement",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": true,
@@ -340,7 +370,8 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement"
+      "risk": "funds_movement",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": true,
@@ -351,7 +382,8 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement"
+      "risk": "funds_movement",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": true,
@@ -362,7 +394,8 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement"
+      "risk": "funds_movement",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": true,
@@ -373,7 +406,8 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement"
+      "risk": "funds_movement",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": true,
@@ -384,7 +418,8 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement"
+      "risk": "funds_movement",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": true,
@@ -395,7 +430,8 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement"
+      "risk": "funds_movement",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": true,
@@ -406,7 +442,8 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement"
+      "risk": "funds_movement",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": true,
@@ -417,7 +454,8 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement"
+      "risk": "funds_movement",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": true,
@@ -428,7 +466,8 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement"
+      "risk": "funds_movement",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": true,
@@ -439,7 +478,8 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement"
+      "risk": "funds_movement",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": true,
@@ -450,7 +490,8 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement"
+      "risk": "funds_movement",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": true,
@@ -461,7 +502,8 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement"
+      "risk": "funds_movement",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": true,
@@ -472,7 +514,8 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement"
+      "risk": "funds_movement",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": true,
@@ -483,7 +526,8 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement"
+      "risk": "funds_movement",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": true,
@@ -494,7 +538,8 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement"
+      "risk": "funds_movement",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": true,
@@ -505,7 +550,8 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement"
+      "risk": "funds_movement",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": true,
@@ -516,7 +562,8 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement"
+      "risk": "funds_movement",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": true,
@@ -527,7 +574,8 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement"
+      "risk": "funds_movement",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": true,
@@ -538,7 +586,8 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement"
+      "risk": "funds_movement",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": true,
@@ -549,7 +598,8 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement"
+      "risk": "funds_movement",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": true,
@@ -560,7 +610,8 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement"
+      "risk": "funds_movement",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": true,
@@ -571,7 +622,8 @@
       "lifecycle": "live_mutating",
       "ows_signer": "local_only",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement"
+      "risk": "funds_movement",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": true,
@@ -582,7 +634,8 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement"
+      "risk": "funds_movement",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": true,
@@ -593,7 +646,8 @@
       "lifecycle": "live_mutating",
       "ows_signer": "experimental_feature_gated",
       "raw_payload": "dry_run_only",
-      "risk": "funds_movement"
+      "risk": "funds_movement",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": false,
@@ -604,7 +658,8 @@
       "lifecycle": "interactive_local",
       "ows_signer": "not_required",
       "raw_payload": "unsupported",
-      "risk": "local_state"
+      "risk": "local_state",
+      "bankr_signer": "not_required"
     },
     {
       "auth_required": false,
@@ -615,7 +670,8 @@
       "lifecycle": "interactive_local",
       "ows_signer": "not_applicable",
       "raw_payload": "unsupported",
-      "risk": "local_secret"
+      "risk": "local_secret",
+      "bankr_signer": "not_required"
     }
   ],
   "review_required_to_update": true

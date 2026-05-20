@@ -39,6 +39,7 @@ struct CommandSchema {
     confirmation: String,
     confirmation_bypass: Value,
     ows_signer: String,
+    bankr_signer: String,
     transport: Value,
     output_contract: String,
     stream_bounds: Value,
@@ -172,6 +173,7 @@ fn command_schema(command: &CommandContract) -> CommandSchema {
             .cloned()
             .unwrap_or_else(|| json!({"supported": false, "arg": null})),
         ows_signer: metadata_string(&metadata, "ows_signer"),
+        bankr_signer: metadata_string(&metadata, "bankr_signer"),
         transport: metadata
             .get("transport")
             .cloned()

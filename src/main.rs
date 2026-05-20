@@ -65,7 +65,7 @@ struct Cli {
     #[arg(
         long,
         global = true,
-        conflicts_with_all = ["private_key", "keystore", "keystore_password", "ows_signer"]
+        conflicts_with_all = ["private_key", "keystore", "keystore_password", "ows_signer", "bankr_signer"]
     )]
     account: Option<String>,
 
@@ -75,9 +75,18 @@ struct Cli {
         global = true,
         value_name = "SELECTOR",
         alias = "wallet",
-        conflicts_with_all = ["private_key", "keystore", "keystore_password", "account"]
+        conflicts_with_all = ["private_key", "keystore", "keystore_password", "account", "bankr_signer"]
     )]
     ows_signer: Option<String>,
+
+    /// Bankr signer selector. Currently only 'default' is supported and uses BANKR_API_KEY.
+    #[arg(
+        long,
+        global = true,
+        value_name = "SELECTOR",
+        conflicts_with_all = ["private_key", "keystore", "keystore_password", "account", "ows_signer"]
+    )]
+    bankr_signer: Option<String>,
 
     /// Use testnet instead of mainnet
     #[arg(long, global = true)]

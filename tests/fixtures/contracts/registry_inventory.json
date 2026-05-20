@@ -38,7 +38,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -77,7 +78,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -131,7 +133,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -198,7 +201,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -238,7 +242,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -292,7 +297,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -371,7 +377,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -437,7 +444,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -542,7 +550,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -595,7 +604,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -648,7 +658,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -702,7 +713,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -769,7 +781,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -823,7 +836,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -877,7 +891,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -944,7 +959,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -998,7 +1014,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -1078,7 +1095,8 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -1171,7 +1189,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -1225,7 +1244,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -1279,7 +1299,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -1333,7 +1354,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -1387,7 +1409,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -1441,7 +1464,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -1495,7 +1519,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -1575,7 +1600,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -1655,7 +1681,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -1709,7 +1736,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -1802,7 +1830,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -1856,7 +1885,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -1928,7 +1958,8 @@
       "risk": "account_state",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [
@@ -1984,7 +2015,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [
@@ -2040,7 +2072,8 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [
@@ -2138,7 +2171,8 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [
@@ -2249,7 +2283,8 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -2289,7 +2324,8 @@
       "risk": "local_state",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -2382,7 +2418,8 @@
       "risk": "local_secret",
       "transport": [
         "cli_interactive"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -2436,7 +2473,8 @@
       "risk": "local_state",
       "transport": [
         "cli_interactive"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -2503,7 +2541,8 @@
       "risk": "local_state",
       "transport": [
         "cli_interactive"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [
@@ -2598,7 +2637,8 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [
@@ -2693,7 +2733,8 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [
@@ -2749,7 +2790,8 @@
       "risk": "account_state",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [
@@ -2805,7 +2847,8 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -2845,7 +2888,8 @@
       "risk": "local_secret",
       "transport": [
         "cli_interactive"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -2899,7 +2943,8 @@
       "risk": "local_secret",
       "transport": [
         "cli_interactive"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -2939,7 +2984,8 @@
       "risk": "local_secret",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -2979,7 +3025,8 @@
       "risk": "local_secret",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -3033,7 +3080,8 @@
       "risk": "local_state",
       "transport": [
         "cli_interactive"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -3100,7 +3148,8 @@
       "risk": "local_secret",
       "transport": [
         "cli_interactive"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -3140,7 +3189,8 @@
       "risk": "local_state",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -3207,7 +3257,8 @@
       "risk": "local_state",
       "transport": [
         "cli_interactive"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -3274,7 +3325,8 @@
       "risk": "local_state",
       "transport": [
         "cli_interactive"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -3341,7 +3393,8 @@
       "risk": "local_secret",
       "transport": [
         "cli_interactive"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -3408,7 +3461,8 @@
       "risk": "account_state",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -3448,7 +3502,8 @@
       "risk": "account_state",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -3535,7 +3590,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -3602,7 +3658,8 @@
       "risk": "account_state",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -3642,7 +3699,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -3696,7 +3754,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -3750,7 +3809,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -3804,7 +3864,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [
@@ -3911,7 +3972,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [
@@ -4011,7 +4073,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [
@@ -4067,7 +4130,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [
@@ -4123,7 +4187,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -4163,7 +4228,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -4217,7 +4283,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -4271,7 +4338,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -4338,7 +4406,8 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -4418,7 +4487,8 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -4458,7 +4528,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -4498,7 +4569,8 @@
       "risk": "account_state",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -4818,7 +4890,8 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -5025,7 +5098,8 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -5105,7 +5179,8 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -5284,7 +5359,8 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -5364,7 +5440,8 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -5457,7 +5534,8 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -5583,7 +5661,8 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -5734,7 +5813,8 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -5827,7 +5907,8 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -5907,7 +5988,8 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -5974,7 +6056,8 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -6067,7 +6150,8 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [
@@ -6136,7 +6220,8 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [
@@ -6205,7 +6290,8 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [
@@ -6287,7 +6373,8 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [
@@ -6382,7 +6469,8 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [
@@ -6516,7 +6604,8 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [
@@ -6598,7 +6687,8 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -6665,7 +6755,8 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -6732,7 +6823,8 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -6786,7 +6878,8 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -6840,7 +6933,8 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -6880,7 +6974,8 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -6948,7 +7043,8 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -7016,7 +7112,8 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [
@@ -7085,7 +7182,8 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [
@@ -7154,7 +7252,8 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -7234,7 +7333,8 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -7288,7 +7388,8 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -7342,7 +7443,8 @@
       "risk": "funds_movement",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -7422,7 +7524,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -7502,7 +7605,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -7595,7 +7699,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -7662,7 +7767,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -7729,7 +7835,8 @@
       "risk": "account_state",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -7796,7 +7903,8 @@
       "risk": "account_state",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -7908,7 +8016,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -7961,7 +8070,8 @@
       "risk": "none",
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -8000,7 +8110,8 @@
       "risk": "local_state",
       "transport": [
         "cli_interactive"
-      ]
+      ],
+      "bankr_signer": null
     },
     {
       "aliases": [],
@@ -8079,7 +8190,8 @@
       "risk": "local_secret",
       "transport": [
         "cli_interactive"
-      ]
+      ],
+      "bankr_signer": null
     }
   ],
   "review_required_to_update": true

@@ -445,7 +445,8 @@
           "stream_bounds": null,
           "transport": [
             "cli_process"
-          ]
+          ],
+          "bankr_signer": "not_required"
         }
       },
       "lifecycle": "live_mutating",
@@ -457,7 +458,8 @@
       "stream_bounds": null,
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": "not_required"
     },
     {
       "aliases": [],
@@ -620,7 +622,8 @@
           "stream_bounds": null,
           "transport": [
             "cli_process"
-          ]
+          ],
+          "bankr_signer": "not_required"
         }
       },
       "lifecycle": "live_mutating",
@@ -632,7 +635,8 @@
       "stream_bounds": null,
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": "not_required"
     },
     {
       "aliases": [
@@ -737,7 +741,8 @@
           "stream_bounds": null,
           "transport": [
             "cli_process"
-          ]
+          ],
+          "bankr_signer": "not_required"
         }
       },
       "lifecycle": "live_mutating",
@@ -749,7 +754,8 @@
       "stream_bounds": null,
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": "not_required"
     },
     {
       "aliases": [],
@@ -790,7 +796,8 @@
           "stream_bounds": null,
           "transport": [
             "cli_process"
-          ]
+          ],
+          "bankr_signer": "not_required"
         }
       },
       "lifecycle": "read_only",
@@ -802,7 +809,8 @@
       "stream_bounds": null,
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": "not_required"
     },
     {
       "aliases": [],
@@ -885,7 +893,8 @@
           "stream_bounds": null,
           "transport": [
             "cli_process"
-          ]
+          ],
+          "bankr_signer": "not_required"
         }
       },
       "lifecycle": "live_mutating",
@@ -897,7 +906,8 @@
       "stream_bounds": null,
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": "not_required"
     },
     {
       "aliases": [],
@@ -984,7 +994,8 @@
           },
           "transport": [
             "cli_process"
-          ]
+          ],
+          "bankr_signer": "not_required"
         }
       },
       "lifecycle": "streaming",
@@ -1006,7 +1017,8 @@
       },
       "transport": [
         "cli_process"
-      ]
+      ],
+      "bankr_signer": "not_required"
     }
   ],
   "review_required_to_update": true

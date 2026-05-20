@@ -19,7 +19,7 @@ path = "src/main.rs"
 [dependencies]
 # Primary SDK for Hyperliquid API
 hypersdk = "0.2"
-reqwest = { version = "0.13", features = ["json"] }
+reqwest = { version = "0.13", features = ["blocking", "json"] }
 alloy-signer-local = { version = "2.0.4", features = ["keystore"] }
 # hypersdk 0.2 still re-exports Alloy 1.x signer types. Keep the v1 crates
 # feature-enabled until hypersdk moves to Alloy 2 so local keystores and

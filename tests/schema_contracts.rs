@@ -42,6 +42,7 @@ fn high_risk_schema_metadata_stays_classified() {
                 "raw_payload": schema["raw_payload"],
                 "confirmation": schema["confirmation"],
                 "ows_signer": schema["json_schema"]["x-hyperliquid"]["ows_signer"],
+                "bankr_signer": schema["json_schema"]["x-hyperliquid"]["bankr_signer"],
             })
         })
         .collect::<Vec<_>>();

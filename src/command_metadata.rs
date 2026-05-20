@@ -8,6 +8,7 @@ pub(crate) trait CatalogCommandMetadata {
     fn raw_payload(&self) -> Option<&str>;
     fn confirmation(&self) -> Option<&str>;
     fn ows_signer(&self) -> Option<&str>;
+    fn bankr_signer(&self) -> Option<&str>;
     fn auth_required(&self) -> bool;
     fn dangerous(&self) -> bool;
 }
@@ -30,6 +31,7 @@ pub(crate) struct CommandMetadata {
     pub(crate) raw_payload: String,
     pub(crate) confirmation: String,
     pub(crate) ows_signer: String,
+    pub(crate) bankr_signer: String,
 }
 
 pub(crate) fn command_metadata(
@@ -66,6 +68,10 @@ pub(crate) fn command_metadata(
             .ows_signer()
             .map(str::to_string)
             .unwrap_or_else(|| inferred_ows_signer(command_key, command)),
+        bankr_signer: command
+            .bankr_signer()
+            .map(str::to_string)
+            .unwrap_or_else(|| inferred_bankr_signer(command_key, command)),
     }
 }
 
@@ -173,6 +179,22 @@ fn inferred_ows_signer(command_key: &str, command: &impl CatalogCommandMetadata)
     }
     if command.auth_required() {
         return "experimental_feature_gated".to_string();
+    }
+    "not_required".to_string()
+}
+
+fn inferred_bankr_signer(command_key: &str, command: &impl CatalogCommandMetadata) -> String {
+    if matches!(command_key, "wallet show" | "wallet address") {
+        return "address_selector_supported".to_string();
+    }
+    if command_key == "prio bid" {
+        return "local_only".to_string();
+    }
+    if is_local_only_command(command_key) {
+        return "not_applicable".to_string();
+    }
+    if command.auth_required() {
+        return "unsupported_raw_l1_signing".to_string();
     }
     "not_required".to_string()
 }

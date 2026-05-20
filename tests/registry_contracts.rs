@@ -71,6 +71,10 @@ fn registry_inventory_matches_schema_contracts() {
             command_value["ows_signer"], schema["json_schema"]["x-hyperliquid"]["ows_signer"],
             "registry/schema drift for {command_key} field ows_signer"
         );
+        assert_eq!(
+            command_value["bankr_signer"], schema["json_schema"]["x-hyperliquid"]["bankr_signer"],
+            "registry/schema drift for {command_key} field bankr_signer"
+        );
         assert_one_of_required_matches_schema(
             &command_key,
             &command_value["one_of_required"],

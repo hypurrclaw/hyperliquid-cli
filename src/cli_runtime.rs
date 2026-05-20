@@ -67,6 +67,7 @@ async fn run_command(cli: &Cli, registry_path: Option<&[String]>) -> Result<(), 
             context.keystore_password.as_deref(),
             context.account.as_deref(),
             context.ows_signer.as_deref(),
+            context.bankr_signer.as_deref(),
             cli.format,
         ),
         Some(Commands::Wallet {
@@ -77,6 +78,7 @@ async fn run_command(cli: &Cli, registry_path: Option<&[String]>) -> Result<(), 
             context.keystore_password.as_deref(),
             context.account.as_deref(),
             context.ows_signer.as_deref(),
+            context.bankr_signer.as_deref(),
             cli.format,
         ),
         Some(Commands::Perps {
@@ -1440,6 +1442,7 @@ struct AppContext {
     keystore_password: Option<String>,
     account: Option<String>,
     ows_signer: Option<String>,
+    bankr_signer: Option<String>,
     network: config::Network,
     api_base_url_override: Option<reqwest::Url>,
 }
@@ -1452,17 +1455,19 @@ impl AppContext {
         } else {
             config::Network::Mainnet
         };
-        let private_key = if cli.account.is_some() || cli.ows_signer.is_some() {
-            None
-        } else {
-            config::resolve_private_key(cli.private_key.as_deref())?
-        };
+        let private_key =
+            if cli.account.is_some() || cli.ows_signer.is_some() || cli.bankr_signer.is_some() {
+                None
+            } else {
+                config::resolve_private_key(cli.private_key.as_deref())?
+            };
         Ok(Self {
             private_key,
             keystore: cli.keystore.clone(),
             keystore_password: cli.keystore_password.clone(),
             account: cli.account.clone(),
             ows_signer: cli.ows_signer.clone(),
+            bankr_signer: cli.bankr_signer.clone(),
             network,
             api_base_url_override: config::resolve_api_base_url_override_for_network(network)?,
         })
@@ -1500,6 +1505,7 @@ impl AppContext {
             keystore_password: self.keystore_password.as_deref(),
             account_selector: self.account.as_deref(),
             ows_selector: self.ows_signer.as_deref(),
+            bankr_selector: self.bankr_signer.as_deref(),
             default_fallback: DefaultSignerFallback::AllowStoredDefaultOrFirst,
         })
     }

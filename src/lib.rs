@@ -10,6 +10,7 @@
 extern crate alloy_signer_local_v1 as _;
 
 pub mod auth;
+pub mod bankr;
 pub mod command_context;
 pub mod command_handlers;
 pub(crate) mod command_metadata;

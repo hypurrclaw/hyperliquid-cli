@@ -406,8 +406,23 @@ pub fn show(
     keystore_password: Option<&str>,
     account_selector: Option<&str>,
     ows_selector: Option<&str>,
+    bankr_selector: Option<&str>,
     format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
+    if let Some(selector) = bankr_selector {
+        let resolved = auth::resolve_bankr_signer(selector)?;
+        let (alias, source) = signer_display(resolved.source());
+        print_wallet_info(
+            "Current wallet",
+            &resolved.address().to_string(),
+            alias,
+            &source,
+            None,
+            format,
+        );
+        return Ok(());
+    }
+
     // When --ows-signer is explicit, resolve the specific wallet.
     // When no signer at all is specified, auto-detect the first OWS wallet.
     let vault_path = crate::ows::ows_vault_path();
@@ -511,6 +526,7 @@ fn signer_display(source: &SignerSource) -> (Option<String>, String) {
             (Some(alias.clone()), "stored signing account".to_string())
         }
         SignerSource::Ows { selector } => (None, format!("OWS signer ({selector})")),
+        SignerSource::Bankr { selector } => (None, format!("Bankr signer ({selector})")),
     }
 }
 
@@ -520,11 +536,14 @@ pub fn address(
     keystore_password: Option<&str>,
     account_selector: Option<&str>,
     ows_selector: Option<&str>,
+    bankr_selector: Option<&str>,
     format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
     let vault_path = crate::ows::ows_vault_path();
 
-    let address_str = if let Some(selector) = ows_selector {
+    let address_str = if let Some(selector) = bankr_selector {
+        auth::resolve_bankr_signer(selector)?.address().to_string()
+    } else if let Some(selector) = ows_selector {
         // Explicit --ows-signer: resolve the specific wallet
         match crate::ows::get_ows_wallet(selector, vault_path.as_deref()) {
             Ok(wallet) => {

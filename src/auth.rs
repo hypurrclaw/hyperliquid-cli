@@ -121,6 +121,11 @@ pub fn resolve_signer_with_account_and_ows(
     resolve_stored_default_signer()
 }
 
+pub fn resolve_bankr_signer(selector: &str) -> Result<ResolvedSigner, anyhow::Error> {
+    let bankr = crate::bankr::resolve_selector(selector)?;
+    Ok(ResolvedSigner::new(SelectedSigner::bankr(bankr)))
+}
+
 pub fn resolve_stored_account_signer(selector: &str) -> Result<ResolvedSigner, anyhow::Error> {
     // Try OWS first: selector may be an OWS wallet name or id.
     let vault_path = crate::ows::ows_vault_path();

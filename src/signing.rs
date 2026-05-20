@@ -25,12 +25,14 @@ pub enum SignerSource {
     Keystore,
     StoredAccount { alias: String },
     Ows { selector: String },
+    Bankr { selector: String },
 }
 
 #[derive(Debug, Clone)]
 enum SignerBackend {
     LocalPrivateKey(PrivateKeySigner),
     Ows(crate::ows::OwsSigningConfig),
+    Bankr(crate::bankr::BankrSigningConfig),
 }
 
 #[derive(Debug, Clone)]
@@ -71,10 +73,22 @@ impl SelectedSigner {
     }
 
     #[must_use]
+    pub fn bankr(config: crate::bankr::BankrSigningConfig) -> Self {
+        let selector = config.selector().to_string();
+        let address = config.address();
+        Self {
+            backend: SignerBackend::Bankr(config),
+            source: SignerSource::Bankr { selector },
+            query_address: address,
+        }
+    }
+
+    #[must_use]
     pub fn address(&self) -> Address {
         match &self.backend {
             SignerBackend::LocalPrivateKey(signer) => signer.address(),
             SignerBackend::Ows(config) => config.address(),
+            SignerBackend::Bankr(config) => config.address(),
         }
     }
 
@@ -94,6 +108,9 @@ impl SelectedSigner {
             SignerBackend::Ows(config) => {
                 Err(crate::ows::unsupported_live_signing(config.selector()))
             }
+            SignerBackend::Bankr(config) => Err(crate::bankr::unsupported_local_private_key(
+                config.selector(),
+            )),
         }
     }
 
@@ -108,6 +125,7 @@ impl SelectedSigner {
             SignerBackend::Ows(config) => {
                 Err(crate::ows::unsupported_live_signing(config.selector()))
             }
+            SignerBackend::Bankr(_) => Ok(()),
         }
     }
 
@@ -148,6 +166,10 @@ impl SelectedSigner {
                     CliError::Internal(anyhow::anyhow!("failed to encode signed action: {err}"))
                 })
             }
+            SignerBackend::Bankr(config) => {
+                let _ = (action, nonce, vault_address, chain);
+                Err(crate::bankr::unsupported_raw_l1_signing(config.selector()))
+            }
         }
     }
 
@@ -158,6 +180,7 @@ impl SelectedSigner {
                 .map(Into::into)
                 .map_err(|err| CliError::Internal(anyhow::anyhow!("failed to sign action: {err}"))),
             SignerBackend::Ows(config) => crate::ows::sign_typed_data(config, typed_data),
+            SignerBackend::Bankr(config) => crate::bankr::sign_typed_data(config, typed_data),
         }
     }
 
@@ -173,6 +196,10 @@ impl SelectedSigner {
             SignerBackend::Ows(config) => {
                 crate::ows::sign_hash(config, agent_signing_hash(chain, connection_id))
             }
+            SignerBackend::Bankr(config) => {
+                let _ = (chain, connection_id);
+                Err(crate::bankr::unsupported_raw_l1_signing(config.selector()))
+            }
         }
     }
 
@@ -184,6 +211,7 @@ impl SelectedSigner {
                 })
             }
             SignerBackend::Ows(config) => crate::ows::sign_message(config, message),
+            SignerBackend::Bankr(config) => crate::bankr::sign_message(config, message),
         }
     }
 }
@@ -278,5 +306,37 @@ mod tests {
             }
         );
         assert_eq!(selected.sign_message(b"nope").unwrap_err().exit_code(), 13);
+    }
+
+    #[test]
+    fn bankr_signer_rejects_raw_l1_action_signing() {
+        let address: Address = "0x0000000000000000000000000000000000000001"
+            .parse()
+            .unwrap();
+        let selected = SelectedSigner::bankr(crate::bankr::BankrSigningConfig::new(
+            "default".to_string(),
+            "bk_test_key".to_string(),
+            "https://api.bankr.bot".to_string(),
+            address,
+        ));
+
+        let err = selected
+            .sign_l1_action_sync(
+                Action::UpdateLeverage(hypersdk::hypercore::api::UpdateLeverage {
+                    asset: 3,
+                    is_cross: true,
+                    leverage: 2,
+                }),
+                1_777_963_000_000,
+                None,
+                Chain::Testnet,
+            )
+            .unwrap_err();
+
+        assert_eq!(err.exit_code(), 13);
+        assert!(
+            err.to_string()
+                .contains("cannot sign raw Hyperliquid L1 action hashes")
+        );
     }
 }

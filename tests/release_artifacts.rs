@@ -525,6 +525,7 @@ fn tool_catalog_materializes_registry_policy_metadata() {
             "raw_payload",
             "confirmation",
             "ows_signer",
+            "bankr_signer",
         ] {
             assert_eq!(
                 catalog_command[field], registry_value[field],

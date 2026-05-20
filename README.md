@@ -129,6 +129,16 @@ hyperliquid --keystore ~/.foundry/keystores/my-wallet ...
 hyperliquid --private-key 0x... ...     # avoid in shared shells / history
 ```
 
+Bankr can also be used as an external signer for supported payloads. Bankr account setup and API-key creation happen outside this CLI; `hyperliquid` only uses the Bankr Wallet API to resolve the attached EVM wallet and request signatures.
+
+```bash
+export BANKR_API_KEY=bk_...
+hyperliquid --bankr-signer default wallet address
+hyperliquid --bankr-signer default --dry-run orders create --coin BTC --side buy --price 1 --size 0.001
+```
+
+Bankr support is intentionally fail-closed for raw Hyperliquid L1 action hashes until Bankr raw digest signing support is confirmed and verified. Use OWS, a keystore, stored local signing account, or explicit private key for live order/trading commands that require raw L1 signing.
+
 Or set environment variables:
 
 ```bash
@@ -138,7 +148,7 @@ export OWS_PASSPHRASE=...               # unlock encrypted OWS wallet
 
 ### Safety rules
 
-- **Never** commit private keys, mnemonics, keystore files, OWS secrets, or config databases.
+- **Never** commit private keys, mnemonics, keystore files, OWS secrets, Bankr API keys, or config databases.
 - Prefer OWS wallets or keystores over raw `--private-key` flags in shared environments.
 - Use API wallets when delegating trading to scripts or agents — they can't withdraw funds.
 - `--testnet` is one flag away whenever you want to rehearse a flow before going live.

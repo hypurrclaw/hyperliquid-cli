@@ -70,6 +70,7 @@ pub struct CommandContract {
     pub confirmation: ConfirmationPolicy,
     pub transport: Vec<Transport>,
     pub ows_signer: OwsSupport,
+    pub bankr_signer: BankrSupport,
     pub output_contract: OutputContract,
     pub handler: HandlerBinding,
     pub one_of_required: Vec<Vec<String>>,
@@ -92,6 +93,7 @@ impl CommandContract {
         let raw_payload = RawPayloadPolicy::from(metadata.raw_payload.as_str());
         let confirmation = ConfirmationPolicy::from(metadata.confirmation.as_str());
         let ows_signer = OwsSupport::from(metadata.ows_signer.as_str());
+        let bankr_signer = BankrSupport::from(metadata.bankr_signer.as_str());
         let transport = primary_transport(lifecycle);
         Ok(Self {
             command: command.command,
@@ -109,6 +111,7 @@ impl CommandContract {
             confirmation,
             transport,
             ows_signer,
+            bankr_signer,
             output_contract: output_contract(&command_key, lifecycle, dry_run),
             handler: HandlerBinding::for_command_key(&command_key),
             one_of_required: command.one_of_required,
@@ -157,6 +160,7 @@ impl CommandContract {
                 "arg": if yes_support { Some("yes") } else { None },
             },
             "ows_signer": self.ows_signer,
+            "bankr_signer": self.bankr_signer,
             "transport": self.transport,
             "output_contract": self.output_contract,
             "stream_bounds": stream_bounds,
@@ -262,6 +266,17 @@ pub enum OwsSupport {
     NotRequired,
     AddressSelectorSupported,
     ExperimentalFeatureGated,
+    LocalOnly,
+    NotApplicable,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BankrSupport {
+    NotRequired,
+    AddressSelectorSupported,
+    TypedDataSupported,
+    UnsupportedRawL1Signing,
     LocalOnly,
     NotApplicable,
 }
@@ -397,6 +412,19 @@ impl From<&str> for OwsSupport {
     }
 }
 
+impl From<&str> for BankrSupport {
+    fn from(value: &str) -> Self {
+        match value {
+            "address_selector_supported" => Self::AddressSelectorSupported,
+            "typed_data_supported" => Self::TypedDataSupported,
+            "unsupported_raw_l1_signing" => Self::UnsupportedRawL1Signing,
+            "local_only" => Self::LocalOnly,
+            "not_applicable" => Self::NotApplicable,
+            _ => Self::NotRequired,
+        }
+    }
+}
+
 impl From<&str> for InputKind {
     fn from(value: &str) -> Self {
         match value {
@@ -488,6 +516,8 @@ struct CatalogCommand {
     confirmation: Option<String>,
     #[serde(default)]
     ows_signer: Option<String>,
+    #[serde(default)]
+    bankr_signer: Option<String>,
     description: String,
     #[serde(default)]
     one_of_required: Vec<Vec<String>>,
@@ -551,6 +581,10 @@ impl CatalogCommandMetadata for CatalogCommand {
 
     fn ows_signer(&self) -> Option<&str> {
         self.ows_signer.as_deref()
+    }
+
+    fn bankr_signer(&self) -> Option<&str> {
+        self.bankr_signer.as_deref()
     }
 
     fn auth_required(&self) -> bool {

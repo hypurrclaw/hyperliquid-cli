@@ -27,6 +27,7 @@ pub struct SignerResolverInput<'a> {
     pub keystore_password: Option<&'a str>,
     pub account_selector: Option<&'a str>,
     pub ows_selector: Option<&'a str>,
+    pub bankr_selector: Option<&'a str>,
     pub default_fallback: DefaultSignerFallback,
 }
 
@@ -35,6 +36,10 @@ pub fn resolve_selected_signer(
 ) -> Result<ResolvedSigner, anyhow::Error> {
     if let Some(selector) = input.ows_selector {
         return auth::resolve_signer_with_account_and_ows(None, None, None, None, Some(selector));
+    }
+
+    if let Some(selector) = input.bankr_selector {
+        return auth::resolve_bankr_signer(selector);
     }
 
     if let Some(private_key) = input.resolved_private_key {
@@ -276,6 +281,7 @@ mod tests {
             keystore_password: None,
             account_selector: None,
             ows_selector: Some("0x0000000000000000000000000000000000000001"),
+            bankr_selector: None,
             default_fallback: DefaultSignerFallback::Disallow,
         })
         .unwrap();
