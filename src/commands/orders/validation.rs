@@ -130,6 +130,7 @@ pub fn validate_create_resolved_asset(
     asset: &ResolvedAsset,
 ) -> Result<(), CliError> {
     if matches!(asset, ResolvedAsset::Spot { .. }) {
+        reject_spot_buy_builder_fee(args)?;
         reject_spot_margin_mode(args.margin_mode)?;
         reject_spot_reduce_only(args)?;
         reject_spot_trigger_order(args)?;
@@ -305,6 +306,17 @@ pub(super) fn reject_spot_tpsl_grouping(args: &CreateArgs) -> Result<(), CliErro
     if create_has_tpsl_legs(args) {
         return Err(CliError::Unsupported(
             "orders create TP/SL grouping currently supports perpetual markets only".to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
+pub(super) fn reject_spot_buy_builder_fee(args: &CreateArgs) -> Result<(), CliError> {
+    if args.side == OrderSide::Buy && (args.builder.is_some() || args.builder_fee_rate.is_some()) {
+        return Err(CliError::Unsupported(
+            "spot buy orders do not support builder fees; Hyperliquid builder codes apply to spot sells and both sides of perpetual orders"
+                .to_string(),
         ));
     }
 

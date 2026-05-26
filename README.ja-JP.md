@@ -1,6 +1,6 @@
 # Hyperliquid CLI
 
-[![Crates.io](https://img.shields.io/badge/crates.io-v0.11.0-orange.svg)](https://crates.io/crates/hyperliquid-cli)
+[![Crates.io](https://img.shields.io/badge/crates.io-v0.11.1-orange.svg)](https://crates.io/crates/hyperliquid-cli)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.93%2B-blue.svg)](https://www.rust-lang.org)
 [![Built on hypersdk](https://img.shields.io/badge/built%20on-hypersdk-blueviolet.svg)](https://github.com/infinitefield/hypersdk)
@@ -30,7 +30,7 @@ sh install.sh
 hyperliquid --version
 ```
 
-インストーラはバイナリを `~/.local/bin` にコピーする前に SHA-256 チェックサムを検証します。デフォルトでは最新 release をインストールします。repo、固定 version、install directory は `HYPERLIQUID_CLI_REPO=OWNER/REPO`、`HYPERLIQUID_CLI_VERSION=v0.11.0`、`BIN_DIR=/path/to/bin` で上書きできます。
+インストーラはバイナリを `~/.local/bin` にコピーする前に SHA-256 チェックサムを検証します。デフォルトでは最新 release をインストールします。repo、固定 version、install directory は `HYPERLIQUID_CLI_REPO=OWNER/REPO`、`HYPERLIQUID_CLI_VERSION=v0.11.1`、`BIN_DIR=/path/to/bin` で上書きできます。
 
 ソースから:
 
@@ -347,7 +347,7 @@ Outcome market notation（`#N` spot coin と `+N` token name）は、`outcomes l
 
 `vaults` は `vault` の alias として受け付けられます。
 
-Builder approval は `0.001%` のような percent string を使用します。`0%` は承認済み max fee をゼロに設定して取り消します。approval action は API wallet ではなく master account によって署名される必要があります。`orders create` は対になった `--builder <ADDRESS> --builder-fee-rate <PERCENT>` フラグを受け付け、署名済み order action に公式の `builder: { b, f }` wire object を含めます。perp builder fee は `0.1%`、spot builder fee は `1%` が上限です。fork/distribution はビルド時にデフォルトの order builder parameters を組み込めます:
+Builder approval は `0.001%` のような percent string を使用します。`0%` は承認済み max fee をゼロに設定して取り消します。approval action は API wallet ではなく master account によって署名される必要があります。`orders create` は対になった `--builder <ADDRESS> --builder-fee-rate <PERCENT>` フラグを受け付け、署名済み order action に公式の `builder: { b, f }` wire object を含めます。perp builder fee は `0.1%`、spot builder fee は `1%` が上限ですが、spot sell のみに適用されます。Hyperliquid は spot buy に builder fee を適用しません。fork/distribution はビルド時にデフォルトの order builder parameters を組み込めます:
 
 ```bash
 HYPERLIQUID_DEFAULT_BUILDER_ADDRESS=0x... \

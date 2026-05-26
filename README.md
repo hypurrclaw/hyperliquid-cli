@@ -1,6 +1,6 @@
 # Hyperliquid CLI
 
-[![Crates.io](https://img.shields.io/badge/crates.io-v0.11.0-orange.svg)](https://crates.io/crates/hyperliquid-cli)
+[![Crates.io](https://img.shields.io/badge/crates.io-v0.11.1-orange.svg)](https://crates.io/crates/hyperliquid-cli)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.93%2B-blue.svg)](https://www.rust-lang.org)
 [![Built on hypersdk](https://img.shields.io/badge/built%20on-hypersdk-blueviolet.svg)](https://github.com/infinitefield/hypersdk)
@@ -30,7 +30,7 @@ sh install.sh
 hyperliquid --version
 ```
 
-The installer verifies a SHA-256 checksum before copying the binary to `~/.local/bin`. By default it installs the latest release; override the repo, pinned version, or install directory with `HYPERLIQUID_CLI_REPO=OWNER/REPO`, `HYPERLIQUID_CLI_VERSION=v0.11.0`, and `BIN_DIR=/path/to/bin`.
+The installer verifies a SHA-256 checksum before copying the binary to `~/.local/bin`. By default it installs the latest release; override the repo, pinned version, or install directory with `HYPERLIQUID_CLI_REPO=OWNER/REPO`, `HYPERLIQUID_CLI_VERSION=v0.11.1`, and `BIN_DIR=/path/to/bin`.
 
 From source:
 
@@ -349,7 +349,7 @@ Outcome market notation (`#N` spot coin and `+N` token name) is available for di
 
 `vaults` is accepted as an alias for `vault`.
 
-Builder approvals use percent strings such as `0.001%`; `0%` revokes by setting the approved max fee to zero. The approval action must be signed by the master account, not an API wallet. `orders create` accepts paired `--builder <ADDRESS> --builder-fee-rate <PERCENT>` flags and includes the official `builder: { b, f }` wire object in the signed order action; perp builder fees are capped at `0.1%`, spot builder fees at `1%`. Forks/distributions can bake in default order builder parameters at build time:
+Builder approvals use percent strings such as `0.001%`; `0%` revokes by setting the approved max fee to zero. The approval action must be signed by the master account, not an API wallet. `orders create` accepts paired `--builder <ADDRESS> --builder-fee-rate <PERCENT>` flags and includes the official `builder: { b, f }` wire object in the signed order action; perp builder fees are capped at `0.1%`, and spot builder fees are capped at `1%` but only apply to spot sells. Hyperliquid does not apply builder fees to spot buys. Forks/distributions can bake in default order builder parameters at build time:
 
 ```bash
 HYPERLIQUID_DEFAULT_BUILDER_ADDRESS=0x... \

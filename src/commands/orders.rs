@@ -859,7 +859,16 @@ pub async fn load_perp_resolver_from_api_base(
 fn order_builder_fee(
     args: &CreateArgs,
     asset_kind: TradableAssetKind,
+    side: OrderSide,
 ) -> Result<Option<OrderBuilderFee>, CliError> {
+    if asset_kind == TradableAssetKind::Spot
+        && side == OrderSide::Buy
+        && args.builder.is_none()
+        && args.builder_fee_rate.is_none()
+    {
+        return Ok(None);
+    }
+
     let address: Address;
     let fee: u64;
     match (args.builder.as_deref(), args.builder_fee_rate.as_deref()) {
@@ -885,6 +894,12 @@ fn order_builder_fee(
             None => return Ok(None),
         },
     };
+    if asset_kind == TradableAssetKind::Spot && side == OrderSide::Buy {
+        return Err(CliError::Unsupported(
+            "spot buy orders do not support builder fees; Hyperliquid builder codes apply to spot sells and both sides of perpetual orders"
+                .to_string(),
+        ));
+    }
     if asset_kind == TradableAssetKind::Perp && fee > 100 {
         return Err(CliError::Unsupported(
             "perp order builder fee rate cannot exceed 0.1%".to_string(),
@@ -2238,6 +2253,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn spot_buy_builder_fees_are_rejected() {
+        let client = HttpClient::new(hypersdk::hypercore::Chain::Testnet);
+        let mut args = base_args();
+        args.coin = "HYPE/USDC".to_string();
+        args.builder = Some("0x1111111111111111111111111111111111111111".to_string());
+        args.builder_fee_rate = Some("0.01%".to_string());
+
+        let err = prepare_order(&client, &resolver(), &args)
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.exit_code(), 13);
+        assert!(err.to_string().contains("spot buy orders"));
+        assert!(err.to_string().contains("spot sells"));
+    }
+
+    #[tokio::test]
+    async fn spot_sell_builder_fees_are_allowed() {
+        let client = HttpClient::new(hypersdk::hypercore::Chain::Testnet);
+        let mut args = base_args();
+        args.coin = "HYPE/USDC".to_string();
+        args.side = OrderSide::Sell;
+        args.builder = Some("0x1111111111111111111111111111111111111111".to_string());
+        args.builder_fee_rate = Some("0.01%".to_string());
+
+        let prepared = prepare_order(&client, &resolver(), &args).await.unwrap();
+
+        let builder = prepared.builder.unwrap();
+        assert_eq!(builder.b, "0x1111111111111111111111111111111111111111");
+        assert_eq!(builder.f, 10);
+    }
+
+    #[tokio::test]
     async fn limit_order_reduce_only_builds_hypersdk_request() {
         let client = HttpClient::new(hypersdk::hypercore::Chain::Testnet);
         let mut args = base_args();
@@ -2363,6 +2411,26 @@ mod tests {
             err.to_string()
                 .contains("trigger orders currently support perpetual markets only")
         );
+    }
+
+    #[test]
+    fn spot_buy_builder_fees_are_rejected_after_asset_resolution() {
+        let mut args = base_args();
+        args.coin = "HYPE/USDC".to_string();
+        args.builder = Some("0x1111111111111111111111111111111111111111".to_string());
+        args.builder_fee_rate = Some("0.01%".to_string());
+        let asset = ResolvedAsset::Spot {
+            symbol: "HYPE/USDC".to_string(),
+            index: 11_035,
+            base: "HYPE".to_string(),
+            quote: "USDC".to_string(),
+            base_sz_decimals: 2,
+        };
+
+        let err = validate_create_resolved_asset(&args, &asset).unwrap_err();
+
+        assert_eq!(err.exit_code(), 13);
+        assert!(err.to_string().contains("spot buy orders"));
     }
 
     #[tokio::test]

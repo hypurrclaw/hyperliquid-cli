@@ -1,6 +1,6 @@
 # Hyperliquid CLI
 
-[![Crates.io](https://img.shields.io/badge/crates.io-v0.11.0-orange.svg)](https://crates.io/crates/hyperliquid-cli)
+[![Crates.io](https://img.shields.io/badge/crates.io-v0.11.1-orange.svg)](https://crates.io/crates/hyperliquid-cli)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.93%2B-blue.svg)](https://www.rust-lang.org)
 [![Built on hypersdk](https://img.shields.io/badge/built%20on-hypersdk-blueviolet.svg)](https://github.com/infinitefield/hypersdk)
@@ -30,7 +30,7 @@ sh install.sh
 hyperliquid --version
 ```
 
-安装器会在把二进制文件复制到 `~/.local/bin` 之前验证 SHA-256 校验和。默认安装最新 release；可使用 `HYPERLIQUID_CLI_REPO=OWNER/REPO`、`HYPERLIQUID_CLI_VERSION=v0.11.0` 和 `BIN_DIR=/path/to/bin` 覆盖仓库、固定版本或安装目录。
+安装器会在把二进制文件复制到 `~/.local/bin` 之前验证 SHA-256 校验和。默认安装最新 release；可使用 `HYPERLIQUID_CLI_REPO=OWNER/REPO`、`HYPERLIQUID_CLI_VERSION=v0.11.1` 和 `BIN_DIR=/path/to/bin` 覆盖仓库、固定版本或安装目录。
 
 从源码安装：
 
@@ -347,7 +347,7 @@ Outcome market 表示法（`#N` spot coin 和 `+N` token name）可通过 `outco
 
 `vaults` 可作为 `vault` 的别名。
 
-Builder approvals 使用类似 `0.001%` 的百分数字符串；`0%` 通过把已批准 max fee 设为零来撤销。批准操作必须由 master account 签名，而不是 API wallet。`orders create` 接受成对的 `--builder <ADDRESS> --builder-fee-rate <PERCENT>` 标志，并在已签名 order action 中包含官方 `builder: { b, f }` wire object；perp builder fees 上限为 `0.1%`，spot builder fees 上限为 `1%`。Forks/distributions 可以在构建时内置默认 order builder parameters：
+Builder approvals 使用类似 `0.001%` 的百分数字符串；`0%` 通过把已批准 max fee 设为零来撤销。批准操作必须由 master account 签名，而不是 API wallet。`orders create` 接受成对的 `--builder <ADDRESS> --builder-fee-rate <PERCENT>` 标志，并在已签名 order action 中包含官方 `builder: { b, f }` wire object；perp builder fees 上限为 `0.1%`，spot builder fees 上限为 `1%`，但仅适用于 spot 卖单。Hyperliquid 不会对 spot 买单应用 builder fees。Forks/distributions 可以在构建时内置默认 order builder parameters：
 
 ```bash
 HYPERLIQUID_DEFAULT_BUILDER_ADDRESS=0x... \

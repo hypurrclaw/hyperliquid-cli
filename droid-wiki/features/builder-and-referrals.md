@@ -21,6 +21,8 @@ Builder fees let a Hyperliquid builder (a third-party UI/app) collect a fee on a
 
 `--max-fee-rate` accepts a decimal percentage (`0.001%`) or basis points; the planning helper normalizes it. The signed action is `approveBuilderFee`.
 
+Per-order builder fees apply to both sides of perpetual orders and to spot sells. Hyperliquid does not apply builder fees to spot buys, so `orders create` rejects explicit builder-fee flags on spot buy orders and skips packaged default builder fees for that path.
+
 ## Referrals
 
 | Command | Purpose |

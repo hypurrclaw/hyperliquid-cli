@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.11.1 - 2026-05-26
+
+Highlights:
+
+- Aligned order builder-fee handling with Hyperliquid builder-code semantics: explicit builder fees are rejected for spot buys, spot sells remain supported, and packaged default builder fees are skipped where they cannot apply.
+- Clarified spot builder-fee applicability in English, Chinese, Korean, Japanese, and internal contributor docs.
+
 ## 0.11.0 - 2026-05-17
 
 Highlights:

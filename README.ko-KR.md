@@ -1,6 +1,6 @@
 # Hyperliquid CLI
 
-[![Crates.io](https://img.shields.io/badge/crates.io-v0.11.0-orange.svg)](https://crates.io/crates/hyperliquid-cli)
+[![Crates.io](https://img.shields.io/badge/crates.io-v0.11.1-orange.svg)](https://crates.io/crates/hyperliquid-cli)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.93%2B-blue.svg)](https://www.rust-lang.org)
 [![Built on hypersdk](https://img.shields.io/badge/built%20on-hypersdk-blueviolet.svg)](https://github.com/infinitefield/hypersdk)
@@ -30,7 +30,7 @@ sh install.sh
 hyperliquid --version
 ```
 
-설치 프로그램은 바이너리를 `~/.local/bin`에 복사하기 전에 SHA-256 체크섬을 검증합니다. 기본적으로 최신 release를 설치합니다. `HYPERLIQUID_CLI_REPO=OWNER/REPO`, `HYPERLIQUID_CLI_VERSION=v0.11.0`, `BIN_DIR=/path/to/bin`으로 repo, 고정 version, install directory를 재정의할 수 있습니다.
+설치 프로그램은 바이너리를 `~/.local/bin`에 복사하기 전에 SHA-256 체크섬을 검증합니다. 기본적으로 최신 release를 설치합니다. `HYPERLIQUID_CLI_REPO=OWNER/REPO`, `HYPERLIQUID_CLI_VERSION=v0.11.1`, `BIN_DIR=/path/to/bin`으로 repo, 고정 version, install directory를 재정의할 수 있습니다.
 
 소스에서 설치:
 
@@ -347,7 +347,7 @@ Outcome market notation(`#N` spot coin 및 `+N` token name)은 `outcomes list`�
 
 `vaults`는 `vault`의 alias로 허용됩니다.
 
-Builder approvals는 `0.001%` 같은 percent strings를 사용합니다. `0%`는 approved max fee를 zero로 설정해 철회합니다. 승인 action은 API wallet이 아니라 master account가 서명해야 합니다. `orders create`는 짝을 이루는 `--builder <ADDRESS> --builder-fee-rate <PERCENT>` flags를 허용하며 signed order action에 공식 `builder: { b, f }` wire object를 포함합니다. perp builder fees는 `0.1%`, spot builder fees는 `1%`로 제한됩니다. Forks/distributions는 build time에 default order builder parameters를 내장할 수 있습니다.
+Builder approvals는 `0.001%` 같은 percent strings를 사용합니다. `0%`는 approved max fee를 zero로 설정해 철회합니다. 승인 action은 API wallet이 아니라 master account가 서명해야 합니다. `orders create`는 짝을 이루는 `--builder <ADDRESS> --builder-fee-rate <PERCENT>` flags를 허용하며 signed order action에 공식 `builder: { b, f }` wire object를 포함합니다. perp builder fees는 `0.1%`, spot builder fees는 `1%`로 제한되지만 spot 매도에만 적용됩니다. Hyperliquid는 spot 매수에 builder fees를 적용하지 않습니다. Forks/distributions는 build time에 default order builder parameters를 내장할 수 있습니다.
 
 ```bash
 HYPERLIQUID_DEFAULT_BUILDER_ADDRESS=0x... \

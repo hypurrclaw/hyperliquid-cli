@@ -1,5 +1,6 @@
 use super::validation::{
-    reject_spot_reduce_only, reject_spot_tpsl_grouping, reject_spot_trigger_order, require_decimal,
+    reject_spot_buy_builder_fee, reject_spot_reduce_only, reject_spot_tpsl_grouping,
+    reject_spot_trigger_order, require_decimal,
 };
 use super::*;
 
@@ -232,6 +233,9 @@ pub(crate) async fn prepare_order(
         asset_kind,
         TradableAssetKind::Spot | TradableAssetKind::Outcome
     ) {
+        if asset_kind == TradableAssetKind::Spot {
+            reject_spot_buy_builder_fee(args)?;
+        }
         reject_spot_reduce_only(args)?;
         reject_spot_trigger_order(args)?;
         reject_spot_tpsl_grouping(args)?;
@@ -353,7 +357,7 @@ pub(crate) async fn prepare_order(
         amount,
         amount_unit,
         warning,
-        builder: order_builder_fee(args, asset_kind)?,
+        builder: order_builder_fee(args, asset_kind, args.side)?,
     })
 }
 
