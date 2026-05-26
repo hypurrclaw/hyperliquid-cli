@@ -26,7 +26,7 @@ alloy-signer-local = { version = "2.0.4", features = ["keystore"] }
 # synchronous signing continue to compile.
 alloy-signer-local-v1 = { package = "alloy-signer-local", version = "1.8", features = ["keystore"] }
 alloy-v1 = { package = "alloy", version = "1.8", features = ["signers"], default-features = false }
-alloy = { version = "2.0.4", features = ["dyn-abi", "eip712", "sol-types", "signers"], default-features = false }
+alloy = { version = "2.0.5", features = ["dyn-abi", "eip712", "sol-types", "signers"], default-features = false }
 
 # CLI framework
 clap = { version = "4", features = ["derive"] }
