@@ -758,6 +758,667 @@
           "positional_index": null,
           "required": false,
           "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": "all",
+          "description": "Restrict results to one venue.",
+          "enum_values": [
+            "all",
+            "perp",
+            "hip3",
+            "spot",
+            "outcome"
+          ],
+          "id": "type",
+          "kind": null,
+          "long": "type",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        }
+      ],
+      "lifecycle": "read_only",
+      "mutability": "read_only",
+      "one_of_required": [],
+      "output_contract": "json_value",
+      "ows_signer": "not_required",
+      "raw_payload": "unsupported",
+      "risk": "none",
+      "transport": [
+        "cli_process"
+      ]
+    },
+    {
+      "aliases": [],
+      "auth_required": false,
+      "command": "hyperliquid search <QUERY>",
+      "command_path": [
+        "search"
+      ],
+      "confirmation": "none",
+      "dangerous": false,
+      "description": "Search perps, HIP-3, spot, and outcome markets in one list. Each row includes a stable venue field. Retry: safe. Pipe --select coin into buy --dry-run.",
+      "dry_run": "not_supported",
+      "group": "market",
+      "handler": {
+        "dispatch": "legacy_fallback",
+        "fallbacks": [
+          "cli_dispatch"
+        ],
+        "id": null,
+        "purity": {
+          "direct_stdio": true,
+          "local_state": true,
+          "process_global_cli_state": true,
+          "process_global_output": true,
+          "prompts": true,
+          "signs_or_submits": true
+        }
+      },
+      "inputs": [
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Search query, for example GOLD, BTC, PURR/USDC, or #10.",
+          "enum_values": [],
+          "id": "query",
+          "kind": "identifier",
+          "long": null,
+          "multiple": false,
+          "positional_index": 0,
+          "required": true,
+          "short": null
+        },
+        {
+          "arg_type": "integer",
+          "default": "20",
+          "description": "Maximum number of matching assets to return.",
+          "enum_values": [],
+          "id": "limit",
+          "kind": null,
+          "long": "limit",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": "all",
+          "description": "Restrict results to one venue.",
+          "enum_values": [
+            "all",
+            "perp",
+            "hip3",
+            "spot",
+            "outcome"
+          ],
+          "id": "type",
+          "kind": null,
+          "long": "type",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        }
+      ],
+      "lifecycle": "read_only",
+      "mutability": "read_only",
+      "one_of_required": [],
+      "output_contract": "json_value",
+      "ows_signer": "not_required",
+      "raw_payload": "unsupported",
+      "risk": "none",
+      "transport": [
+        "cli_process"
+      ]
+    },
+    {
+      "aliases": [],
+      "auth_required": true,
+      "command": "hyperliquid buy",
+      "command_path": [
+        "buy"
+      ],
+      "confirmation": "prompt",
+      "dangerous": true,
+      "description": "Market buy alias for orders create --side buy. Limit if --price is set. Accepts --size or --amount. Dry-run first. Retry: check_open_orders — not idempotent.",
+      "dry_run": "optional",
+      "group": "trade",
+      "handler": {
+        "dispatch": "legacy_fallback",
+        "fallbacks": [
+          "cli_dispatch"
+        ],
+        "id": null,
+        "purity": {
+          "direct_stdio": true,
+          "local_state": true,
+          "process_global_cli_state": true,
+          "process_global_output": true,
+          "prompts": true,
+          "signs_or_submits": true
+        }
+      },
+      "inputs": [
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Perpetual coin, spot pair, or outcome notation.",
+          "enum_values": [],
+          "id": "coin",
+          "kind": "market_symbol",
+          "long": "coin",
+          "multiple": false,
+          "positional_index": null,
+          "required": true,
+          "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "HIP-3 DEX name.",
+          "enum_values": [],
+          "id": "dex",
+          "kind": "venue_selector",
+          "long": "dex",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Limit price. When set, the order is a limit instead of a market.",
+          "enum_values": [],
+          "id": "price",
+          "kind": "price",
+          "long": "price",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Base-asset size. Accepted for market and required for limit.",
+          "enum_values": [],
+          "id": "size",
+          "kind": "amount",
+          "long": "size",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Quote-sized amount. Alternative to --size for market orders.",
+          "enum_values": [],
+          "id": "amount",
+          "kind": "amount",
+          "long": "amount",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        },
+        {
+          "arg_type": "boolean",
+          "default": null,
+          "description": "Skip confirmation prompt for deliberate automation.",
+          "enum_values": [],
+          "id": "yes",
+          "kind": "boolean",
+          "long": "yes",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": "y"
+        }
+      ],
+      "lifecycle": "live_mutating",
+      "mutability": "live_mutating",
+      "one_of_required": [],
+      "output_contract": "command_result_or_dry_run_envelope",
+      "ows_signer": "experimental_feature_gated",
+      "raw_payload": "dry_run_only",
+      "risk": "funds_movement",
+      "transport": [
+        "cli_process"
+      ]
+    },
+    {
+      "aliases": [],
+      "auth_required": true,
+      "command": "hyperliquid sell",
+      "command_path": [
+        "sell"
+      ],
+      "confirmation": "prompt",
+      "dangerous": true,
+      "description": "Market sell alias for orders create --side sell. Limit if --price is set. Accepts --size or --amount. Dry-run first. Retry: check_open_orders — not idempotent.",
+      "dry_run": "optional",
+      "group": "trade",
+      "handler": {
+        "dispatch": "legacy_fallback",
+        "fallbacks": [
+          "cli_dispatch"
+        ],
+        "id": null,
+        "purity": {
+          "direct_stdio": true,
+          "local_state": true,
+          "process_global_cli_state": true,
+          "process_global_output": true,
+          "prompts": true,
+          "signs_or_submits": true
+        }
+      },
+      "inputs": [
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Perpetual coin, spot pair, or outcome notation.",
+          "enum_values": [],
+          "id": "coin",
+          "kind": "market_symbol",
+          "long": "coin",
+          "multiple": false,
+          "positional_index": null,
+          "required": true,
+          "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "HIP-3 DEX name.",
+          "enum_values": [],
+          "id": "dex",
+          "kind": "venue_selector",
+          "long": "dex",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Limit price. When set, the order is a limit instead of a market.",
+          "enum_values": [],
+          "id": "price",
+          "kind": "price",
+          "long": "price",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Base-asset size. Accepted for market and required for limit.",
+          "enum_values": [],
+          "id": "size",
+          "kind": "amount",
+          "long": "size",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Quote-sized amount. Alternative to --size for market orders.",
+          "enum_values": [],
+          "id": "amount",
+          "kind": "amount",
+          "long": "amount",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        },
+        {
+          "arg_type": "boolean",
+          "default": null,
+          "description": "Skip confirmation prompt for deliberate automation.",
+          "enum_values": [],
+          "id": "yes",
+          "kind": "boolean",
+          "long": "yes",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": "y"
+        }
+      ],
+      "lifecycle": "live_mutating",
+      "mutability": "live_mutating",
+      "one_of_required": [],
+      "output_contract": "command_result_or_dry_run_envelope",
+      "ows_signer": "experimental_feature_gated",
+      "raw_payload": "dry_run_only",
+      "risk": "funds_movement",
+      "transport": [
+        "cli_process"
+      ]
+    },
+    {
+      "aliases": [],
+      "auth_required": true,
+      "command": "hyperliquid outcome-buy",
+      "command_path": [
+        "outcome-buy"
+      ],
+      "confirmation": "prompt",
+      "dangerous": true,
+      "description": "Buy a HIP-4 outcome token. Coin must be #N or +N notation. Dry-run first. Retry: check_open_orders — not idempotent.",
+      "dry_run": "optional",
+      "group": "trade",
+      "handler": {
+        "dispatch": "legacy_fallback",
+        "fallbacks": [
+          "cli_dispatch"
+        ],
+        "id": null,
+        "purity": {
+          "direct_stdio": true,
+          "local_state": true,
+          "process_global_cli_state": true,
+          "process_global_output": true,
+          "prompts": true,
+          "signs_or_submits": true
+        }
+      },
+      "inputs": [
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Outcome notation such as #10 or +10.",
+          "enum_values": [],
+          "id": "coin",
+          "kind": "market_symbol",
+          "long": "coin",
+          "multiple": false,
+          "positional_index": null,
+          "required": true,
+          "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Limit price. When omitted, attempts a market order.",
+          "enum_values": [],
+          "id": "price",
+          "kind": "price",
+          "long": "price",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Outcome token size.",
+          "enum_values": [],
+          "id": "size",
+          "kind": "amount",
+          "long": "size",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        },
+        {
+          "arg_type": "boolean",
+          "default": null,
+          "description": "Skip confirmation prompt for deliberate automation.",
+          "enum_values": [],
+          "id": "yes",
+          "kind": "boolean",
+          "long": "yes",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": "y"
+        }
+      ],
+      "lifecycle": "live_mutating",
+      "mutability": "live_mutating",
+      "one_of_required": [],
+      "output_contract": "command_result_or_dry_run_envelope",
+      "ows_signer": "experimental_feature_gated",
+      "raw_payload": "dry_run_only",
+      "risk": "funds_movement",
+      "transport": [
+        "cli_process"
+      ]
+    },
+    {
+      "aliases": [],
+      "auth_required": true,
+      "command": "hyperliquid outcome-sell",
+      "command_path": [
+        "outcome-sell"
+      ],
+      "confirmation": "prompt",
+      "dangerous": true,
+      "description": "Sell a HIP-4 outcome token. Coin must be #N or +N notation. Dry-run first. Retry: check_open_orders — not idempotent.",
+      "dry_run": "optional",
+      "group": "trade",
+      "handler": {
+        "dispatch": "legacy_fallback",
+        "fallbacks": [
+          "cli_dispatch"
+        ],
+        "id": null,
+        "purity": {
+          "direct_stdio": true,
+          "local_state": true,
+          "process_global_cli_state": true,
+          "process_global_output": true,
+          "prompts": true,
+          "signs_or_submits": true
+        }
+      },
+      "inputs": [
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Outcome notation such as #10 or +10.",
+          "enum_values": [],
+          "id": "coin",
+          "kind": "market_symbol",
+          "long": "coin",
+          "multiple": false,
+          "positional_index": null,
+          "required": true,
+          "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Limit price. When omitted, attempts a market order.",
+          "enum_values": [],
+          "id": "price",
+          "kind": "price",
+          "long": "price",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Outcome token size.",
+          "enum_values": [],
+          "id": "size",
+          "kind": "amount",
+          "long": "size",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        },
+        {
+          "arg_type": "boolean",
+          "default": null,
+          "description": "Skip confirmation prompt for deliberate automation.",
+          "enum_values": [],
+          "id": "yes",
+          "kind": "boolean",
+          "long": "yes",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": "y"
+        }
+      ],
+      "lifecycle": "live_mutating",
+      "mutability": "live_mutating",
+      "one_of_required": [],
+      "output_contract": "command_result_or_dry_run_envelope",
+      "ows_signer": "experimental_feature_gated",
+      "raw_payload": "dry_run_only",
+      "risk": "funds_movement",
+      "transport": [
+        "cli_process"
+      ]
+    },
+    {
+      "aliases": [],
+      "auth_required": false,
+      "command": "hyperliquid watch risk",
+      "command_path": [
+        "watch",
+        "risk"
+      ],
+      "confirmation": "none",
+      "dangerous": false,
+      "description": "Read-only liquidation and risk watcher. Emits JSON-line alerts with kind alert or heartbeat and never places orders. Retry: safe. Agent mode requires --max-events or --idle-timeout-ms.",
+      "dry_run": "not_supported",
+      "group": "watch",
+      "handler": {
+        "dispatch": "legacy_fallback",
+        "fallbacks": [
+          "cli_dispatch"
+        ],
+        "id": null,
+        "purity": {
+          "direct_stdio": true,
+          "local_state": true,
+          "process_global_cli_state": true,
+          "process_global_output": true,
+          "prompts": true,
+          "signs_or_submits": true
+        }
+      },
+      "inputs": [
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Protocol user address to watch. Defaults to the selected signer.",
+          "enum_values": [],
+          "id": "user",
+          "kind": "identifier",
+          "long": "user",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": "info",
+          "description": "Minimum alert severity to emit.",
+          "enum_values": [
+            "info",
+            "warning",
+            "critical"
+          ],
+          "id": "min_severity",
+          "kind": null,
+          "long": "min-severity",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Disable a risk rule.",
+          "enum_values": [
+            "liq_proximity",
+            "margin_usage",
+            "no_tpsl",
+            "stale_order",
+            "funding_bleed",
+            "position_lifecycle"
+          ],
+          "id": "disable",
+          "kind": null,
+          "long": "disable",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Only evaluate these risk rules.",
+          "enum_values": [
+            "liq_proximity",
+            "margin_usage",
+            "no_tpsl",
+            "stale_order",
+            "funding_bleed",
+            "position_lifecycle"
+          ],
+          "id": "only",
+          "kind": null,
+          "long": "only",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        },
+        {
+          "arg_type": "integer",
+          "default": null,
+          "description": "Stop after this many alerts. Required in agent mode unless --idle-timeout-ms is set.",
+          "enum_values": [],
+          "id": "max_events",
+          "kind": null,
+          "long": "max-events",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        },
+        {
+          "arg_type": "integer",
+          "default": null,
+          "description": "Stop after this many idle milliseconds.",
+          "enum_values": [],
+          "id": "idle_timeout_ms",
+          "kind": null,
+          "long": "idle-timeout-ms",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
         }
       ],
       "lifecycle": "read_only",
@@ -5117,7 +5778,7 @@
       ],
       "confirmation": "prompt",
       "dangerous": true,
-      "description": "Create position-attached take-profit and/or stop-loss orders.",
+      "description": "Create position-attached take-profit and/or stop-loss orders. Dry-run first. Retry: check_open_orders — a second tpsl can duplicate working triggers.",
       "dry_run": "optional",
       "group": "trade",
       "handler": {
@@ -5178,7 +5839,7 @@
         {
           "arg_type": "string",
           "default": null,
-          "description": "Take-profit trigger price for a market trigger order.",
+          "description": "Take-profit trigger: absolute price, percent offset such as +10%, or entry.",
           "enum_values": [],
           "id": "take_profit",
           "kind": "price",
@@ -5191,7 +5852,7 @@
         {
           "arg_type": "string",
           "default": null,
-          "description": "Stop-loss trigger price for a market trigger order.",
+          "description": "Stop-loss trigger: absolute price, percent offset such as -5%, or entry.",
           "enum_values": [],
           "id": "stop_loss",
           "kind": "price",
@@ -6039,6 +6700,344 @@
           "id": "on_behalf_of",
           "kind": "acting_account_selector",
           "long": "on-behalf-of",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        },
+        {
+          "arg_type": "boolean",
+          "default": null,
+          "description": "Skip confirmation prompt for deliberate automation.",
+          "enum_values": [],
+          "id": "yes",
+          "kind": "boolean",
+          "long": "yes",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": "y"
+        }
+      ],
+      "lifecycle": "live_mutating",
+      "mutability": "live_mutating",
+      "one_of_required": [],
+      "output_contract": "command_result_or_dry_run_envelope",
+      "ows_signer": "experimental_feature_gated",
+      "raw_payload": "dry_run_only",
+      "risk": "funds_movement",
+      "transport": [
+        "cli_process"
+      ]
+    },
+    {
+      "aliases": [],
+      "auth_required": true,
+      "command": "hyperliquid orders chase",
+      "command_path": [
+        "orders",
+        "chase"
+      ],
+      "confirmation": "prompt",
+      "dangerous": true,
+      "description": "Bounded ALO requote loop that chases mid by a basis-point offset until fill, timeout, or max chase distance. Dry-run first. Retry: check_open_orders — not idempotent. Agent mode requires --timeout.",
+      "dry_run": "optional",
+      "group": "trade",
+      "handler": {
+        "dispatch": "legacy_fallback",
+        "fallbacks": [
+          "cli_dispatch"
+        ],
+        "id": null,
+        "purity": {
+          "direct_stdio": true,
+          "local_state": true,
+          "process_global_cli_state": true,
+          "process_global_output": true,
+          "prompts": true,
+          "signs_or_submits": true
+        }
+      },
+      "inputs": [
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Perpetual coin, for example ETH.",
+          "enum_values": [],
+          "id": "coin",
+          "kind": "market_symbol",
+          "long": "coin",
+          "multiple": false,
+          "positional_index": null,
+          "required": true,
+          "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "HIP-3 DEX name.",
+          "enum_values": [],
+          "id": "dex",
+          "kind": "venue_selector",
+          "long": "dex",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Order side.",
+          "enum_values": [
+            "buy",
+            "sell"
+          ],
+          "id": "side",
+          "kind": null,
+          "long": "side",
+          "multiple": false,
+          "positional_index": null,
+          "required": true,
+          "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Base-asset size to chase.",
+          "enum_values": [],
+          "id": "size",
+          "kind": "amount",
+          "long": "size",
+          "multiple": false,
+          "positional_index": null,
+          "required": true,
+          "short": null
+        },
+        {
+          "arg_type": "integer",
+          "default": "5",
+          "description": "Offset from mid in basis points.",
+          "enum_values": [],
+          "id": "offset",
+          "kind": null,
+          "long": "offset",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Max chase duration, for example 60s. Required in agent mode.",
+          "enum_values": [],
+          "id": "timeout",
+          "kind": "duration",
+          "long": "timeout",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": "2s",
+          "description": "Requote interval.",
+          "enum_values": [],
+          "id": "interval",
+          "kind": "duration",
+          "long": "interval",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        },
+        {
+          "arg_type": "integer",
+          "default": "100",
+          "description": "Cancel and stop if mid travels this many basis points from the first mid.",
+          "enum_values": [],
+          "id": "max_chase",
+          "kind": null,
+          "long": "max-chase",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        },
+        {
+          "arg_type": "boolean",
+          "default": null,
+          "description": "Skip confirmation prompt for deliberate automation.",
+          "enum_values": [],
+          "id": "yes",
+          "kind": "boolean",
+          "long": "yes",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": "y"
+        }
+      ],
+      "lifecycle": "live_mutating",
+      "mutability": "live_mutating",
+      "one_of_required": [],
+      "output_contract": "command_result_or_dry_run_envelope",
+      "ows_signer": "experimental_feature_gated",
+      "raw_payload": "dry_run_only",
+      "risk": "funds_movement",
+      "transport": [
+        "cli_process"
+      ]
+    },
+    {
+      "aliases": [],
+      "auth_required": true,
+      "command": "hyperliquid orders bracket",
+      "command_path": [
+        "orders",
+        "bracket"
+      ],
+      "confirmation": "prompt",
+      "dangerous": true,
+      "description": "Place an entry order, then arm position TP/SL. Limit entries wait for fill up to --entry-timeout. Dry-run first. Retry: check_open_orders — not idempotent. Emits one result object.",
+      "dry_run": "optional",
+      "group": "trade",
+      "handler": {
+        "dispatch": "legacy_fallback",
+        "fallbacks": [
+          "cli_dispatch"
+        ],
+        "id": null,
+        "purity": {
+          "direct_stdio": true,
+          "local_state": true,
+          "process_global_cli_state": true,
+          "process_global_output": true,
+          "prompts": true,
+          "signs_or_submits": true
+        }
+      },
+      "inputs": [
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Perpetual coin, for example ETH.",
+          "enum_values": [],
+          "id": "coin",
+          "kind": "market_symbol",
+          "long": "coin",
+          "multiple": false,
+          "positional_index": null,
+          "required": true,
+          "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Entry side.",
+          "enum_values": [
+            "buy",
+            "sell"
+          ],
+          "id": "side",
+          "kind": null,
+          "long": "side",
+          "multiple": false,
+          "positional_index": null,
+          "required": true,
+          "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Base-asset size.",
+          "enum_values": [],
+          "id": "size",
+          "kind": "amount",
+          "long": "size",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Quote-sized amount for market entry.",
+          "enum_values": [],
+          "id": "amount",
+          "kind": "amount",
+          "long": "amount",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": "market",
+          "description": "Entry order type.",
+          "enum_values": [
+            "limit",
+            "market"
+          ],
+          "id": "entry",
+          "kind": null,
+          "long": "entry",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Limit entry price.",
+          "enum_values": [],
+          "id": "price",
+          "kind": "price",
+          "long": "price",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Take-profit trigger: absolute price, +10%, or entry.",
+          "enum_values": [],
+          "id": "take_profit",
+          "kind": "price",
+          "long": "take-profit",
+          "multiple": false,
+          "positional_index": null,
+          "required": true,
+          "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Stop-loss trigger: absolute price, -5%, or entry.",
+          "enum_values": [],
+          "id": "stop_loss",
+          "kind": "price",
+          "long": "stop-loss",
+          "multiple": false,
+          "positional_index": null,
+          "required": true,
+          "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": "300s",
+          "description": "How long to wait for a limit entry fill before returning entry_resting_unprotected.",
+          "enum_values": [],
+          "id": "entry_timeout",
+          "kind": "duration",
+          "long": "entry-timeout",
           "multiple": false,
           "positional_index": null,
           "required": false,

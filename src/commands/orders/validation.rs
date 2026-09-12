@@ -38,9 +38,21 @@ pub fn validate_create_args(args: &CreateArgs) -> Result<(), CliError> {
                 "limit trigger orders",
             )?;
         }
-        CreateOrderType::Market => {
-            require_decimal(args.amount, "--amount", "market orders")?;
-        }
+        CreateOrderType::Market => match (args.amount, args.size) {
+            (Some(_), None) | (None, Some(_)) => {}
+            (Some(_), Some(_)) => {
+                return Err(CliError::Configuration(
+                    "orders create --type market accepts --amount or --size, not both".to_string(),
+                ));
+            }
+            (None, None) => {
+                return Err(CliError::Configuration(
+                    "orders create requires --amount or --size for market orders.\n  \
+                     hyperliquid --format json --dry-run buy --coin BTC --size 0.001"
+                        .to_string(),
+                ));
+            }
+        },
     }
 
     Ok(())
@@ -98,15 +110,17 @@ pub fn validate_tpsl_args(args: &TpslArgs) -> Result<(), CliError> {
     if let Some(cloid) = args.cloid.as_deref() {
         parse_cloid(cloid)?;
     }
-    validate_positive(args.take_profit, "take-profit")?;
-    validate_positive(args.stop_loss, "stop-loss")?;
+    validate_trigger_price_spec(args.take_profit.as_ref(), "take-profit")?;
+    validate_trigger_price_spec(args.stop_loss.as_ref(), "stop-loss")?;
     validate_positive(args.size, "size")?;
     if args.take_profit.is_none() && args.stop_loss.is_none() {
         return Err(CliError::Configuration(
-            "orders tpsl requires --take-profit or --stop-loss".to_string(),
+            "orders tpsl requires --take-profit or --stop-loss.\n  \
+             hyperliquid --format json --dry-run orders tpsl --coin ETH --take-profit +10% --stop-loss -5%"
+                .to_string(),
         ));
     }
-    if let (Some(take_profit), Some(stop_loss)) = (args.take_profit, args.stop_loss)
+    if let (Some(take_profit), Some(stop_loss)) = (&args.take_profit, &args.stop_loss)
         && take_profit == stop_loss
     {
         return Err(CliError::Configuration(
@@ -186,11 +200,14 @@ fn validate_create_order_type_flags(args: &CreateArgs) -> Result<(), CliError> {
             "orders create --type market uses --amount; remove --trigger-price or use --type stop-loss/take-profit for market trigger orders, or --type stop-limit/take-limit with --price and --size"
                 .to_string(),
         )),
-        CreateOrderType::Market if args.price.is_some() || args.size.is_some() => {
-            let incompatible = incompatible_price_size_flags(args);
-            Err(CliError::Configuration(format!(
-                "orders create --type market uses --amount; remove {incompatible} or use --type limit with --price and --size"
-            )))
+        CreateOrderType::Market if args.price.is_some() => Err(CliError::Configuration(
+            "orders create --type market accepts --amount or --size; remove --price or use --type limit with --price and --size"
+                .to_string(),
+        )),
+        CreateOrderType::Market if args.size.is_some() && args.amount.is_some() => {
+            Err(CliError::Configuration(
+                "orders create --type market accepts --amount or --size, not both".to_string(),
+            ))
         }
         CreateOrderType::StopLoss | CreateOrderType::TakeProfit if args.amount.is_some() => {
             Err(CliError::Configuration(format!(
@@ -264,6 +281,7 @@ fn reject_spot_margin_mode(margin_mode: Option<MarginModeArg>) -> Result<(), Cli
     Ok(())
 }
 
+#[allow(dead_code)]
 fn incompatible_price_size_flags(args: &CreateArgs) -> &'static str {
     match (
         args.price.is_some(),
@@ -359,6 +377,18 @@ fn require_market_trigger_price(args: &CreateArgs) -> Result<(), CliError> {
         ));
     }
     Ok(())
+}
+
+fn validate_trigger_price_spec(
+    value: Option<&TriggerPriceSpec>,
+    name: &'static str,
+) -> Result<(), CliError> {
+    match value {
+        Some(TriggerPriceSpec::Absolute(price)) if *price <= Decimal::ZERO => {
+            Err(CliError::Configuration(format!("{name} must be positive")))
+        }
+        _ => Ok(()),
+    }
 }
 
 fn validate_positive(value: Option<Decimal>, name: &'static str) -> Result<(), CliError> {

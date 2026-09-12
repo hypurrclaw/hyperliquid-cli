@@ -176,7 +176,7 @@ If GitHub has no release endpoint/artifact and returns 404, classify `update` as
 ## Gotchas From The Session
 
 - `task qa:matrix` and `scripts/qa-command-matrix.sh` are dry-run oriented; do not use them as the final report when the user asked for no dry-run.
-- `orders create --type market` requires `--amount`; passing `--size` is a configuration error.
+- `orders create --type market` accepts `--amount` or `--size`, not both. Passing `--price` on a market order is a configuration error.
 - `orders cancel` does not accept `-y`.
 - `orders modify` can replace the order ID; if cleanup cancel by original OID fails with “already canceled or filled,” inspect open orders and run `cancel-all`.
 - `orders scale` requires different start/end prices when `--orders > 1`.

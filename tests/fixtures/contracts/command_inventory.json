@@ -279,6 +279,149 @@
     },
     {
       "auth_required": false,
+      "command": "hyperliquid search <QUERY>",
+      "command_path": [
+        "search"
+      ],
+      "confirmation": "none",
+      "dangerous": false,
+      "dry_run": "not_supported",
+      "group": "market",
+      "input_kinds": {
+        "query": "identifier"
+      },
+      "mutability": "read_only",
+      "output_contract": "json_value",
+      "raw_payload": "unsupported",
+      "risk": "none",
+      "transport": [
+        "cli_process"
+      ]
+    },
+    {
+      "auth_required": true,
+      "command": "hyperliquid buy",
+      "command_path": [
+        "buy"
+      ],
+      "confirmation": "prompt",
+      "dangerous": true,
+      "dry_run": "optional",
+      "group": "trade",
+      "input_kinds": {
+        "amount": "amount",
+        "coin": "market_symbol",
+        "dex": "venue_selector",
+        "price": "price",
+        "size": "amount",
+        "yes": "boolean"
+      },
+      "mutability": "live_mutating",
+      "output_contract": "command_result_or_dry_run_envelope",
+      "raw_payload": "dry_run_only",
+      "risk": "funds_movement",
+      "transport": [
+        "cli_process"
+      ]
+    },
+    {
+      "auth_required": true,
+      "command": "hyperliquid sell",
+      "command_path": [
+        "sell"
+      ],
+      "confirmation": "prompt",
+      "dangerous": true,
+      "dry_run": "optional",
+      "group": "trade",
+      "input_kinds": {
+        "amount": "amount",
+        "coin": "market_symbol",
+        "dex": "venue_selector",
+        "price": "price",
+        "size": "amount",
+        "yes": "boolean"
+      },
+      "mutability": "live_mutating",
+      "output_contract": "command_result_or_dry_run_envelope",
+      "raw_payload": "dry_run_only",
+      "risk": "funds_movement",
+      "transport": [
+        "cli_process"
+      ]
+    },
+    {
+      "auth_required": true,
+      "command": "hyperliquid outcome-buy",
+      "command_path": [
+        "outcome-buy"
+      ],
+      "confirmation": "prompt",
+      "dangerous": true,
+      "dry_run": "optional",
+      "group": "trade",
+      "input_kinds": {
+        "coin": "market_symbol",
+        "price": "price",
+        "size": "amount",
+        "yes": "boolean"
+      },
+      "mutability": "live_mutating",
+      "output_contract": "command_result_or_dry_run_envelope",
+      "raw_payload": "dry_run_only",
+      "risk": "funds_movement",
+      "transport": [
+        "cli_process"
+      ]
+    },
+    {
+      "auth_required": true,
+      "command": "hyperliquid outcome-sell",
+      "command_path": [
+        "outcome-sell"
+      ],
+      "confirmation": "prompt",
+      "dangerous": true,
+      "dry_run": "optional",
+      "group": "trade",
+      "input_kinds": {
+        "coin": "market_symbol",
+        "price": "price",
+        "size": "amount",
+        "yes": "boolean"
+      },
+      "mutability": "live_mutating",
+      "output_contract": "command_result_or_dry_run_envelope",
+      "raw_payload": "dry_run_only",
+      "risk": "funds_movement",
+      "transport": [
+        "cli_process"
+      ]
+    },
+    {
+      "auth_required": false,
+      "command": "hyperliquid watch risk",
+      "command_path": [
+        "watch",
+        "risk"
+      ],
+      "confirmation": "none",
+      "dangerous": false,
+      "dry_run": "not_supported",
+      "group": "watch",
+      "input_kinds": {
+        "user": "identifier"
+      },
+      "mutability": "read_only",
+      "output_contract": "json_value",
+      "raw_payload": "unsupported",
+      "risk": "none",
+      "transport": [
+        "cli_process"
+      ]
+    },
+    {
+      "auth_required": false,
       "command": "hyperliquid outcomes list",
       "command_path": [
         "outcomes",
@@ -1854,6 +1997,62 @@
         "clear": "boolean",
         "in_duration": "duration",
         "on_behalf_of": "acting_account_selector",
+        "yes": "boolean"
+      },
+      "mutability": "live_mutating",
+      "output_contract": "command_result_or_dry_run_envelope",
+      "raw_payload": "dry_run_only",
+      "risk": "funds_movement",
+      "transport": [
+        "cli_process"
+      ]
+    },
+    {
+      "auth_required": true,
+      "command": "hyperliquid orders chase",
+      "command_path": [
+        "orders",
+        "chase"
+      ],
+      "confirmation": "prompt",
+      "dangerous": true,
+      "dry_run": "optional",
+      "group": "trade",
+      "input_kinds": {
+        "coin": "market_symbol",
+        "dex": "venue_selector",
+        "interval": "duration",
+        "size": "amount",
+        "timeout": "duration",
+        "yes": "boolean"
+      },
+      "mutability": "live_mutating",
+      "output_contract": "command_result_or_dry_run_envelope",
+      "raw_payload": "dry_run_only",
+      "risk": "funds_movement",
+      "transport": [
+        "cli_process"
+      ]
+    },
+    {
+      "auth_required": true,
+      "command": "hyperliquid orders bracket",
+      "command_path": [
+        "orders",
+        "bracket"
+      ],
+      "confirmation": "prompt",
+      "dangerous": true,
+      "dry_run": "optional",
+      "group": "trade",
+      "input_kinds": {
+        "amount": "amount",
+        "coin": "market_symbol",
+        "entry_timeout": "duration",
+        "price": "price",
+        "size": "amount",
+        "stop_loss": "price",
+        "take_profit": "price",
         "yes": "boolean"
       },
       "mutability": "live_mutating",

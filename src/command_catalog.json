@@ -313,6 +313,323 @@
           "arg_type": "integer",
           "default": "20",
           "description": "Maximum number of matching assets to return."
+        },
+        {
+          "id": "type",
+          "long": "type",
+          "default": "all",
+          "enum_values": [
+            "all",
+            "perp",
+            "hip3",
+            "spot",
+            "outcome"
+          ],
+          "description": "Restrict results to one venue."
+        }
+      ],
+      "lifecycle": "read_only",
+      "risk": "none",
+      "dry_run": "not_supported",
+      "raw_payload": "unsupported",
+      "confirmation": "none",
+      "ows_signer": "not_required"
+    },
+    {
+      "command": "hyperliquid search <QUERY>",
+      "group": "market",
+      "auth_required": false,
+      "dangerous": false,
+      "description": "Search perps, HIP-3, spot, and outcome markets in one list. Each row includes a stable venue field. Retry: safe. Pipe --select coin into buy --dry-run.",
+      "args": [
+        {
+          "id": "query",
+          "positional_index": 0,
+          "required": true,
+          "description": "Search query, for example GOLD, BTC, PURR/USDC, or #10.",
+          "input_kind": "identifier"
+        },
+        {
+          "id": "limit",
+          "long": "limit",
+          "arg_type": "integer",
+          "default": "20",
+          "description": "Maximum number of matching assets to return."
+        },
+        {
+          "id": "type",
+          "long": "type",
+          "default": "all",
+          "enum_values": [
+            "all",
+            "perp",
+            "hip3",
+            "spot",
+            "outcome"
+          ],
+          "description": "Restrict results to one venue."
+        }
+      ],
+      "lifecycle": "read_only",
+      "risk": "none",
+      "dry_run": "not_supported",
+      "raw_payload": "unsupported",
+      "confirmation": "none",
+      "ows_signer": "not_required"
+    },
+    {
+      "command": "hyperliquid buy",
+      "group": "trade",
+      "auth_required": true,
+      "dangerous": true,
+      "description": "Market buy alias for orders create --side buy. Limit if --price is set. Accepts --size or --amount. Dry-run first. Retry: check_open_orders — not idempotent.",
+      "args": [
+        {
+          "id": "coin",
+          "long": "coin",
+          "required": true,
+          "description": "Perpetual coin, spot pair, or outcome notation.",
+          "input_kind": "market_symbol"
+        },
+        {
+          "id": "dex",
+          "long": "dex",
+          "description": "HIP-3 DEX name.",
+          "input_kind": "venue_selector"
+        },
+        {
+          "id": "price",
+          "long": "price",
+          "description": "Limit price. When set, the order is a limit instead of a market.",
+          "input_kind": "price"
+        },
+        {
+          "id": "size",
+          "long": "size",
+          "description": "Base-asset size. Accepted for market and required for limit.",
+          "input_kind": "amount"
+        },
+        {
+          "id": "amount",
+          "long": "amount",
+          "description": "Quote-sized amount. Alternative to --size for market orders.",
+          "input_kind": "amount"
+        },
+        {
+          "id": "yes",
+          "long": "yes",
+          "short": "y",
+          "arg_type": "boolean",
+          "description": "Skip confirmation prompt for deliberate automation.",
+          "input_kind": "boolean"
+        }
+      ],
+      "lifecycle": "live_mutating",
+      "risk": "funds_movement",
+      "dry_run": "optional",
+      "raw_payload": "dry_run_only",
+      "confirmation": "prompt",
+      "ows_signer": "experimental_feature_gated"
+    },
+    {
+      "command": "hyperliquid sell",
+      "group": "trade",
+      "auth_required": true,
+      "dangerous": true,
+      "description": "Market sell alias for orders create --side sell. Limit if --price is set. Accepts --size or --amount. Dry-run first. Retry: check_open_orders — not idempotent.",
+      "args": [
+        {
+          "id": "coin",
+          "long": "coin",
+          "required": true,
+          "description": "Perpetual coin, spot pair, or outcome notation.",
+          "input_kind": "market_symbol"
+        },
+        {
+          "id": "dex",
+          "long": "dex",
+          "description": "HIP-3 DEX name.",
+          "input_kind": "venue_selector"
+        },
+        {
+          "id": "price",
+          "long": "price",
+          "description": "Limit price. When set, the order is a limit instead of a market.",
+          "input_kind": "price"
+        },
+        {
+          "id": "size",
+          "long": "size",
+          "description": "Base-asset size. Accepted for market and required for limit.",
+          "input_kind": "amount"
+        },
+        {
+          "id": "amount",
+          "long": "amount",
+          "description": "Quote-sized amount. Alternative to --size for market orders.",
+          "input_kind": "amount"
+        },
+        {
+          "id": "yes",
+          "long": "yes",
+          "short": "y",
+          "arg_type": "boolean",
+          "description": "Skip confirmation prompt for deliberate automation.",
+          "input_kind": "boolean"
+        }
+      ],
+      "lifecycle": "live_mutating",
+      "risk": "funds_movement",
+      "dry_run": "optional",
+      "raw_payload": "dry_run_only",
+      "confirmation": "prompt",
+      "ows_signer": "experimental_feature_gated"
+    },
+    {
+      "command": "hyperliquid outcome-buy",
+      "group": "trade",
+      "auth_required": true,
+      "dangerous": true,
+      "description": "Buy a HIP-4 outcome token. Coin must be #N or +N notation. Dry-run first. Retry: check_open_orders — not idempotent.",
+      "args": [
+        {
+          "id": "coin",
+          "long": "coin",
+          "required": true,
+          "description": "Outcome notation such as #10 or +10.",
+          "input_kind": "market_symbol"
+        },
+        {
+          "id": "price",
+          "long": "price",
+          "description": "Limit price. When omitted, attempts a market order.",
+          "input_kind": "price"
+        },
+        {
+          "id": "size",
+          "long": "size",
+          "description": "Outcome token size.",
+          "input_kind": "amount"
+        },
+        {
+          "id": "yes",
+          "long": "yes",
+          "short": "y",
+          "arg_type": "boolean",
+          "description": "Skip confirmation prompt for deliberate automation.",
+          "input_kind": "boolean"
+        }
+      ],
+      "lifecycle": "live_mutating",
+      "risk": "funds_movement",
+      "dry_run": "optional",
+      "raw_payload": "dry_run_only",
+      "confirmation": "prompt",
+      "ows_signer": "experimental_feature_gated"
+    },
+    {
+      "command": "hyperliquid outcome-sell",
+      "group": "trade",
+      "auth_required": true,
+      "dangerous": true,
+      "description": "Sell a HIP-4 outcome token. Coin must be #N or +N notation. Dry-run first. Retry: check_open_orders — not idempotent.",
+      "args": [
+        {
+          "id": "coin",
+          "long": "coin",
+          "required": true,
+          "description": "Outcome notation such as #10 or +10.",
+          "input_kind": "market_symbol"
+        },
+        {
+          "id": "price",
+          "long": "price",
+          "description": "Limit price. When omitted, attempts a market order.",
+          "input_kind": "price"
+        },
+        {
+          "id": "size",
+          "long": "size",
+          "description": "Outcome token size.",
+          "input_kind": "amount"
+        },
+        {
+          "id": "yes",
+          "long": "yes",
+          "short": "y",
+          "arg_type": "boolean",
+          "description": "Skip confirmation prompt for deliberate automation.",
+          "input_kind": "boolean"
+        }
+      ],
+      "lifecycle": "live_mutating",
+      "risk": "funds_movement",
+      "dry_run": "optional",
+      "raw_payload": "dry_run_only",
+      "confirmation": "prompt",
+      "ows_signer": "experimental_feature_gated"
+    },
+    {
+      "command": "hyperliquid watch risk",
+      "group": "watch",
+      "auth_required": false,
+      "dangerous": false,
+      "description": "Read-only liquidation and risk watcher. Emits JSON-line alerts with kind alert or heartbeat and never places orders. Retry: safe. Agent mode requires --max-events or --idle-timeout-ms.",
+      "args": [
+        {
+          "id": "user",
+          "long": "user",
+          "description": "Protocol user address to watch. Defaults to the selected signer.",
+          "input_kind": "identifier"
+        },
+        {
+          "id": "min_severity",
+          "long": "min-severity",
+          "default": "info",
+          "enum_values": [
+            "info",
+            "warning",
+            "critical"
+          ],
+          "description": "Minimum alert severity to emit."
+        },
+        {
+          "id": "disable",
+          "long": "disable",
+          "enum_values": [
+            "liq_proximity",
+            "margin_usage",
+            "no_tpsl",
+            "stale_order",
+            "funding_bleed",
+            "position_lifecycle"
+          ],
+          "description": "Disable a risk rule."
+        },
+        {
+          "id": "only",
+          "long": "only",
+          "enum_values": [
+            "liq_proximity",
+            "margin_usage",
+            "no_tpsl",
+            "stale_order",
+            "funding_bleed",
+            "position_lifecycle"
+          ],
+          "description": "Only evaluate these risk rules."
+        },
+        {
+          "id": "max_events",
+          "long": "max-events",
+          "arg_type": "integer",
+          "description": "Stop after this many alerts. Required in agent mode unless --idle-timeout-ms is set."
+        },
+        {
+          "id": "idle_timeout_ms",
+          "long": "idle-timeout-ms",
+          "arg_type": "integer",
+          "description": "Stop after this many idle milliseconds."
         }
       ],
       "lifecycle": "read_only",
@@ -2180,7 +2497,7 @@
       "group": "trade",
       "auth_required": true,
       "dangerous": true,
-      "description": "Create position-attached take-profit and/or stop-loss orders.",
+      "description": "Create position-attached take-profit and/or stop-loss orders. Dry-run first. Retry: check_open_orders — a second tpsl can duplicate working triggers.",
       "args": [
         {
           "id": "coin",
@@ -2204,13 +2521,13 @@
         {
           "id": "take_profit",
           "long": "take-profit",
-          "description": "Take-profit trigger price for a market trigger order.",
+          "description": "Take-profit trigger: absolute price, percent offset such as +10%, or entry.",
           "input_kind": "price"
         },
         {
           "id": "stop_loss",
           "long": "stop-loss",
-          "description": "Stop-loss trigger price for a market trigger order.",
+          "description": "Stop-loss trigger: absolute price, percent offset such as -5%, or entry.",
           "input_kind": "price"
         },
         {
@@ -2605,6 +2922,175 @@
           "long": "on-behalf-of",
           "description": "Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id.",
           "input_kind": "acting_account_selector"
+        },
+        {
+          "id": "yes",
+          "long": "yes",
+          "short": "y",
+          "arg_type": "boolean",
+          "description": "Skip confirmation prompt for deliberate automation.",
+          "input_kind": "boolean"
+        }
+      ],
+      "lifecycle": "live_mutating",
+      "risk": "funds_movement",
+      "dry_run": "optional",
+      "raw_payload": "dry_run_only",
+      "confirmation": "prompt",
+      "ows_signer": "experimental_feature_gated"
+    },
+    {
+      "command": "hyperliquid orders chase",
+      "group": "trade",
+      "auth_required": true,
+      "dangerous": true,
+      "description": "Bounded ALO requote loop that chases mid by a basis-point offset until fill, timeout, or max chase distance. Dry-run first. Retry: check_open_orders — not idempotent. Agent mode requires --timeout.",
+      "args": [
+        {
+          "id": "coin",
+          "long": "coin",
+          "required": true,
+          "description": "Perpetual coin, for example ETH.",
+          "input_kind": "market_symbol"
+        },
+        {
+          "id": "dex",
+          "long": "dex",
+          "description": "HIP-3 DEX name.",
+          "input_kind": "venue_selector"
+        },
+        {
+          "id": "side",
+          "long": "side",
+          "required": true,
+          "enum_values": [
+            "buy",
+            "sell"
+          ],
+          "description": "Order side."
+        },
+        {
+          "id": "size",
+          "long": "size",
+          "required": true,
+          "description": "Base-asset size to chase.",
+          "input_kind": "amount"
+        },
+        {
+          "id": "offset",
+          "long": "offset",
+          "arg_type": "integer",
+          "default": "5",
+          "description": "Offset from mid in basis points."
+        },
+        {
+          "id": "timeout",
+          "long": "timeout",
+          "description": "Max chase duration, for example 60s. Required in agent mode.",
+          "input_kind": "duration"
+        },
+        {
+          "id": "interval",
+          "long": "interval",
+          "default": "2s",
+          "description": "Requote interval.",
+          "input_kind": "duration"
+        },
+        {
+          "id": "max_chase",
+          "long": "max-chase",
+          "arg_type": "integer",
+          "default": "100",
+          "description": "Cancel and stop if mid travels this many basis points from the first mid."
+        },
+        {
+          "id": "yes",
+          "long": "yes",
+          "short": "y",
+          "arg_type": "boolean",
+          "description": "Skip confirmation prompt for deliberate automation.",
+          "input_kind": "boolean"
+        }
+      ],
+      "lifecycle": "live_mutating",
+      "risk": "funds_movement",
+      "dry_run": "optional",
+      "raw_payload": "dry_run_only",
+      "confirmation": "prompt",
+      "ows_signer": "experimental_feature_gated"
+    },
+    {
+      "command": "hyperliquid orders bracket",
+      "group": "trade",
+      "auth_required": true,
+      "dangerous": true,
+      "description": "Place an entry order, then arm position TP/SL. Limit entries wait for fill up to --entry-timeout. Dry-run first. Retry: check_open_orders — not idempotent. Emits one result object.",
+      "args": [
+        {
+          "id": "coin",
+          "long": "coin",
+          "required": true,
+          "description": "Perpetual coin, for example ETH.",
+          "input_kind": "market_symbol"
+        },
+        {
+          "id": "side",
+          "long": "side",
+          "required": true,
+          "enum_values": [
+            "buy",
+            "sell"
+          ],
+          "description": "Entry side."
+        },
+        {
+          "id": "size",
+          "long": "size",
+          "description": "Base-asset size.",
+          "input_kind": "amount"
+        },
+        {
+          "id": "amount",
+          "long": "amount",
+          "description": "Quote-sized amount for market entry.",
+          "input_kind": "amount"
+        },
+        {
+          "id": "entry",
+          "long": "entry",
+          "default": "market",
+          "enum_values": [
+            "limit",
+            "market"
+          ],
+          "description": "Entry order type."
+        },
+        {
+          "id": "price",
+          "long": "price",
+          "description": "Limit entry price.",
+          "input_kind": "price"
+        },
+        {
+          "id": "take_profit",
+          "long": "take-profit",
+          "required": true,
+          "description": "Take-profit trigger: absolute price, +10%, or entry.",
+          "input_kind": "price"
+        },
+        {
+          "id": "stop_loss",
+          "long": "stop-loss",
+          "required": true,
+          "description": "Stop-loss trigger: absolute price, -5%, or entry.",
+          "input_kind": "price"
+        },
+        {
+          "id": "entry_timeout",
+          "long": "entry-timeout",
+          "default": "300s",
+          "description": "How long to wait for a limit entry fill before returning entry_resting_unprotected.",
+          "input_kind": "duration"
         },
         {
           "id": "yes",

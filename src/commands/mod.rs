@@ -32,6 +32,7 @@ pub mod subaccounts;
 pub mod transfers;
 pub mod vaults;
 pub mod wallet;
+pub mod watch_risk;
 
 use std::collections::HashMap;
 use std::sync::Mutex;
