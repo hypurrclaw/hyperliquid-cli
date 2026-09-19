@@ -594,7 +594,13 @@ pub enum TriggerPriceSpec {
 }
 
 impl TriggerPriceSpec {
-    pub fn resolve(&self, entry: Decimal) -> Result<Decimal, CliError> {
+    /// Resolve a trigger spec against a position entry price.
+    ///
+    /// `position_side` is the direction of the position being protected (the
+    /// entry side), not the close side. Percent specs are directional: `+N%`
+    /// always means N% in the position's favor and `-N%` N% against it, so a
+    /// short take-profit resolves below entry and a short stop-loss above.
+    pub fn resolve(&self, entry: Decimal, position_side: OrderSide) -> Result<Decimal, CliError> {
         if entry <= Decimal::ZERO {
             return Err(CliError::Unsupported(
                 "percent and entry TP/SL require a positive position entry price".to_string(),
@@ -605,7 +611,11 @@ impl TriggerPriceSpec {
             Self::Entry => Ok(entry),
             Self::Percent(percent) => {
                 let hundred = Decimal::from(100);
-                Ok(entry * (Decimal::ONE + *percent / hundred))
+                let signed = match position_side {
+                    OrderSide::Buy => *percent,
+                    OrderSide::Sell => -*percent,
+                };
+                Ok(entry * (Decimal::ONE + signed / hundred))
             }
         }
     }
@@ -665,17 +675,41 @@ mod trigger_price_spec_tests {
         let entry = Decimal::from(100);
         assert_eq!(
             TriggerPriceSpec::Percent(Decimal::from(10))
-                .resolve(entry)
+                .resolve(entry, OrderSide::Buy)
                 .unwrap(),
             Decimal::from(110)
         );
         assert_eq!(
             TriggerPriceSpec::Percent(Decimal::from(-5))
-                .resolve(entry)
+                .resolve(entry, OrderSide::Buy)
                 .unwrap(),
             Decimal::from(95)
         );
-        assert_eq!(TriggerPriceSpec::Entry.resolve(entry).unwrap(), entry);
+        assert_eq!(
+            TriggerPriceSpec::Entry
+                .resolve(entry, OrderSide::Buy)
+                .unwrap(),
+            entry
+        );
+    }
+
+    #[test]
+    fn resolve_percent_inverts_for_short_entry() {
+        let entry = Decimal::from(100);
+        // +10% take-profit on a short resolves below entry (favorable move).
+        assert_eq!(
+            TriggerPriceSpec::Percent(Decimal::from(10))
+                .resolve(entry, OrderSide::Sell)
+                .unwrap(),
+            Decimal::from(90)
+        );
+        // -5% stop-loss on a short resolves above entry (adverse move).
+        assert_eq!(
+            TriggerPriceSpec::Percent(Decimal::from(-5))
+                .resolve(entry, OrderSide::Sell)
+                .unwrap(),
+            Decimal::from(105)
+        );
     }
 }
 

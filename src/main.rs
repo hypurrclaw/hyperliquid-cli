@@ -579,7 +579,7 @@ enum OrderCommands {
     #[command(
         about = "Entry plus linked TP/SL",
         long_about = "Place an entry order, then arm position TP/SL. Limit entries wait for fill up to --entry-timeout.\n\n\
-                      Retry: check_open_orders — not idempotent. On limit-entry timeout the resting entry is left unprotected.\n\n\
+                      Retry: check_open_orders — not idempotent. On limit-entry timeout the remaining entry is cancelled and any filled portion is protected.\n\n\
                       Examples:\n  \
                       hyperliquid --format json --dry-run orders bracket --coin ETH --side buy --size 0.1 --take-profit +10% --stop-loss -5%\n  \
                       hyperliquid --format json --dry-run orders bracket --coin ETH --side buy --entry limit --price 3000 --size 0.1 --take-profit +10% --stop-loss -5%\n  \

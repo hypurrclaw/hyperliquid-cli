@@ -99,6 +99,7 @@ pub async fn execute_hip3_margin_transfer(
             yes: true,
         },
         OutputFormat::Json,
+        false,
     )
     .await
 }

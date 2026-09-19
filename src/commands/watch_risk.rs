@@ -1,6 +1,6 @@
 //! Read-only position risk watcher.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::IsTerminal;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -86,18 +86,28 @@ pub async fn watch_risk(
     }
 
     let enabled = enabled_rules(args);
-    let started = Instant::now();
     let mut emitted = 0usize;
     let mut last_sizes: HashMap<String, Decimal> = HashMap::new();
     let mut first_seen: HashMap<String, Instant> = HashMap::new();
     let mut funding_seen: HashMap<String, Instant> = HashMap::new();
+    let mut funding_baseline: HashMap<String, Decimal> = HashMap::new();
+    let mut funding_alerted: HashSet<String> = HashSet::new();
+    let mut flat_announced = false;
+    // Idle means "no output": the clock restarts on every emitted event so an
+    // actively alerting stream is not cut off mid-incident.
     let idle = args
         .idle_timeout_ms
         .map(Duration::from_millis)
         .unwrap_or(Duration::from_secs(60 * 60));
+    let mut last_output = Instant::now();
+
+    // Seed position ages from fill history so positions opened before this
+    // watcher started do not wait a full threshold window for age-based rules.
+    let fills = client.user_fills(user).await.unwrap_or_default();
+    let open_times = position_open_times(&fills);
 
     loop {
-        if started.elapsed() > idle {
+        if last_output.elapsed() > idle {
             break;
         }
         if let Some(max) = args.max_events
@@ -119,6 +129,9 @@ pub async fn watch_risk(
             last_sizes: &mut last_sizes,
             first_seen: &mut first_seen,
             funding_seen: &mut funding_seen,
+            funding_baseline: &mut funding_baseline,
+            funding_alerted: &mut funding_alerted,
+            open_times: &open_times,
         };
         let snapshot = RiskSnapshot {
             positions: &state.asset_positions,
@@ -133,15 +146,22 @@ pub async fn watch_risk(
             .asset_positions
             .iter()
             .all(|position| position.position.szi.is_zero());
-        if alerts.is_empty() && no_positions {
-            alerts.push(alert(
-                user,
-                "heartbeat",
-                None,
-                AlertSeverity::Info,
-                "no open positions".to_string(),
-                json!({ "positions": 0 }),
-            ));
+        if no_positions {
+            // Heartbeat once per flat transition; a flat account keeps
+            // monitoring so positions opened later are still observed.
+            if !flat_announced {
+                alerts.push(alert(
+                    user,
+                    "heartbeat",
+                    None,
+                    AlertSeverity::Info,
+                    "no open positions".to_string(),
+                    json!({ "positions": 0 }),
+                ));
+                flat_announced = true;
+            }
+        } else {
+            flat_announced = false;
         }
 
         for alert in alerts {
@@ -157,6 +177,7 @@ pub async fn watch_risk(
                 }
             }
             emitted += 1;
+            last_output = Instant::now();
             if let Some(max) = args.max_events
                 && emitted >= max
             {
@@ -164,9 +185,6 @@ pub async fn watch_risk(
             }
         }
 
-        if no_positions {
-            return Ok(());
-        }
         tokio::time::sleep(args.interval).await;
     }
     Ok(())
@@ -181,7 +199,6 @@ fn agent_mode() -> bool {
             )
         })
 }
-
 struct RiskSnapshot<'a> {
     positions: &'a [hypersdk::hypercore::types::AssetPosition],
     open_orders: &'a [hypersdk::hypercore::types::BasicOrder],
@@ -194,6 +211,52 @@ struct RiskEvalState<'a> {
     last_sizes: &'a mut HashMap<String, Decimal>,
     first_seen: &'a mut HashMap<String, Instant>,
     funding_seen: &'a mut HashMap<String, Instant>,
+    funding_baseline: &'a mut HashMap<String, Decimal>,
+    funding_alerted: &'a mut HashSet<String>,
+    /// Coin → position open time (ms since epoch) seeded from fill history.
+    open_times: &'a HashMap<String, u64>,
+}
+
+fn position_open_times(fills: &[hypersdk::hypercore::types::Fill]) -> HashMap<String, u64> {
+    let mut open_times: HashMap<String, u64> = HashMap::new();
+    let mut oldest: HashMap<String, u64> = HashMap::new();
+    for fill in fills {
+        oldest
+            .entry(fill.coin.clone())
+            .and_modify(|time| *time = (*time).min(fill.time))
+            .or_insert(fill.time);
+        let signed_sz = if fill.side == hypersdk::hypercore::types::Side::Bid {
+            fill.sz
+        } else {
+            -fill.sz
+        };
+        let after = fill.start_position + signed_sz;
+        let opened_here = fill.start_position.is_zero()
+            || fill.start_position.is_sign_positive() != after.is_sign_positive();
+        if opened_here {
+            open_times
+                .entry(fill.coin.clone())
+                .and_modify(|time| *time = (*time).max(fill.time))
+                .or_insert(fill.time);
+        }
+    }
+    for (coin, time) in oldest {
+        open_times.entry(coin).or_insert(time);
+    }
+    open_times
+}
+
+/// Instant approximating a position open time in ms since epoch.
+fn open_instant(open_times: &HashMap<String, u64>, coin: &str) -> Option<Instant> {
+    let ms = *open_times.get(coin)?;
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    if ms >= now_ms {
+        return None;
+    }
+    Instant::now().checked_sub(Duration::from_millis(now_ms - ms))
 }
 
 fn evaluate_state(
@@ -216,6 +279,37 @@ fn evaluate_state(
             format!("margin used {pct}% of equity"),
             json!({ "margin_used_pct": pct.to_string() }),
         ));
+    }
+
+    // Detect positions that closed by disappearing from the snapshot entirely:
+    // a coin remembered with nonzero size that is absent now has closed.
+    if enabled.contains(&RiskRule::PositionLifecycle) {
+        let present: HashSet<String> = snapshot
+            .positions
+            .iter()
+            .map(|position| position.position.coin.clone())
+            .collect();
+        let vanished: Vec<String> = state
+            .last_sizes
+            .iter()
+            .filter(|(coin, size)| !size.is_zero() && !present.contains(*coin))
+            .map(|(coin, _)| coin.clone())
+            .collect();
+        for coin in vanished {
+            alerts.push(alert(
+                user,
+                "position_lifecycle",
+                Some(&coin),
+                AlertSeverity::Info,
+                format!("{coin} closed"),
+                json!({ "size": "0" }),
+            ));
+            state.last_sizes.insert(coin.clone(), Decimal::ZERO);
+            state.first_seen.remove(&coin);
+            state.funding_seen.remove(&coin);
+            state.funding_baseline.remove(&coin);
+            state.funding_alerted.remove(&coin);
+        }
     }
 
     for position in snapshot.positions {
@@ -262,12 +356,17 @@ fn evaluate_state(
         if size.is_zero() {
             state.first_seen.remove(&coin);
             state.funding_seen.remove(&coin);
+            state.funding_baseline.remove(&coin);
+            state.funding_alerted.remove(&coin);
             continue;
         }
+        // Seed from fill history when available so pre-existing positions do
+        // not restart their age clocks at watcher startup.
+        let seeded = open_instant(state.open_times, &coin);
         state
             .first_seen
             .entry(coin.clone())
-            .or_insert_with(Instant::now);
+            .or_insert_with(|| seeded.unwrap_or_else(Instant::now));
 
         if enabled.contains(&RiskRule::LiqProximity)
             && let Some(liq) = position.position.liquidation_px
@@ -330,20 +429,32 @@ fn evaluate_state(
         }
 
         if enabled.contains(&RiskRule::FundingBleed) {
+            // Bleed = funding actually paid while watching: the delta of
+            // cum_funding.since_open since the position was first observed.
+            let paid = position.position.cum_funding.since_open;
+            let baseline = *state.funding_baseline.entry(coin.clone()).or_insert(paid);
             state
                 .funding_seen
                 .entry(coin.clone())
-                .or_insert_with(Instant::now);
+                .or_insert_with(|| seeded.unwrap_or_else(Instant::now));
             if let Some(seen) = state.funding_seen.get(&coin)
                 && seen.elapsed() >= Duration::from_secs(60 * 60)
+                && paid - baseline > Decimal::ZERO
+                && state.funding_alerted.insert(coin.clone())
             {
                 alerts.push(alert(
                     user,
                     "funding_bleed",
                     Some(&coin),
                     AlertSeverity::Warning,
-                    format!("{coin} funding bleed window exceeded"),
-                    json!({ "open_for_secs": seen.elapsed().as_secs() }),
+                    format!(
+                        "{coin} paid {} funding since watch started",
+                        paid - baseline
+                    ),
+                    json!({
+                        "open_for_secs": seen.elapsed().as_secs(),
+                        "funding_paid": (paid - baseline).to_string(),
+                    }),
                 ));
             }
         }

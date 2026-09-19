@@ -1,14 +1,25 @@
 use std::time::{Duration, Instant};
 
 use hypersdk::Address;
+use hypersdk::Decimal;
+use hypersdk::hypercore::Cloid;
+use hypersdk::hypercore::types::{
+    Action, BasicOrder, BatchCancel, BatchCancelCloid, Cancel, CancelByCloid, OrderResponseStatus,
+};
 use serde_json::json;
 
+use crate::commands::actions;
 use crate::errors::CliError;
 use crate::output::{self, OutputFormat, TableData};
+use crate::response_sanitization::labelled_untrusted_text;
 
+use super::planning::{
+    CreateOrderSubmission, prepare_create_order_plan, resolve_trigger_prices,
+    validate_tpsl_price_ordering,
+};
 use super::{
-    BracketArgs, CreateArgs, CreateOrderType, OrderExecutionContext, TifArg, TpslArgs, create,
-    create_dry_run_preview, tpsl, tpsl_dry_run_preview,
+    BracketArgs, CreateArgs, CreateOrderType, OrderExecutionContext, TifArg, TpslArgs,
+    place_prepared_single, validate_tpsl_args,
 };
 
 const DEFAULT_ENTRY_TIMEOUT: Duration = Duration::from_secs(300);
@@ -58,8 +69,9 @@ pub async fn bracket_dry_run_plan(
     args: &BracketArgs,
 ) -> Result<serde_json::Value, CliError> {
     validate_bracket_args(args)?;
-    let entry = create_dry_run_preview(client, resolver, &entry_create_args(args)).await?;
-    let protection = tpsl_dry_run_preview(resolver, &protection_tpsl_args(args))?;
+    let entry =
+        super::create_dry_run_preview(client, resolver, &entry_create_args(args, None)).await?;
+    let protection = super::tpsl_dry_run_preview(resolver, &protection_tpsl_args(args, args.size))?;
     Ok(json!({
         "coin": args.coin,
         "dex": args.dex,
@@ -72,6 +84,15 @@ pub async fn bracket_dry_run_plan(
         "entry_plan": entry,
         "protection_plan": protection,
     }))
+}
+
+/// A resting bracket entry tracked by OID and/or cloid.
+struct EntryTracking {
+    oid: Option<u64>,
+    cloid: Cloid,
+    asset: u32,
+    /// Latest known open size of the entry order.
+    open_size: Decimal,
 }
 
 pub async fn bracket(
@@ -91,44 +112,174 @@ pub async fn bracket(
     }
 
     let started = Instant::now();
-    create(
-        context,
-        &entry_create_args(args),
-        vault_address,
-        OutputFormat::Json,
-        false,
-    )
-    .await?;
-
-    if args.entry == CreateOrderType::Limit {
-        let filled = wait_for_entry_fill(context, args, vault_address, started).await?;
-        if !filled {
-            output::print_data(
-                &BracketOutput {
-                    status: "entry_resting_unprotected".to_string(),
-                    coin: args.coin.clone(),
-                    elapsed_ms: elapsed_ms(started),
-                },
-                format,
-                started.elapsed(),
-            );
-            return Err(CliError::PartialResults("entry_resting_unprotected".to_string()).into());
+    let cloid = super::generated_cloid(1)?;
+    let entry_args = entry_create_args(args, Some(cloid));
+    let plan = prepare_create_order_plan(context.client, context.resolver, &entry_args).await?;
+    let prepared = match plan.submission {
+        CreateOrderSubmission::Single(prepared) => prepared,
+        CreateOrderSubmission::NormalTpsl(_) => {
+            return Err(CliError::Internal(anyhow::anyhow!(
+                "bracket entries cannot attach TP/SL children"
+            ))
+            .into());
         }
+    };
+    let asset = u32::try_from(prepared.request.asset).map_err(|_| {
+        CliError::Internal(anyhow::anyhow!(
+            "bracket entry asset index {} does not fit cancel-by-cloid",
+            prepared.request.asset
+        ))
+    })?;
+    let requested_size = prepared.size;
+
+    // Fail fast before the entry executes: the protection legs must be
+    // constructible and correctly ordered for the position side.
+    validate_tpsl_args(&protection_tpsl_args(args, Some(requested_size)))?;
+    let (est_tp, est_sl) = resolve_trigger_prices(
+        Some(&args.take_profit),
+        Some(&args.stop_loss),
+        Some(prepared.price),
+        args.side,
+    )?;
+    validate_tpsl_price_ordering(args.side.opposite(), est_tp, est_sl, "orders bracket")?;
+
+    let statuses =
+        place_prepared_single(context, prepared, &entry_args, vault_address, format).await?;
+    let entry_status = statuses.into_iter().next().ok_or_else(|| {
+        CliError::Internal(anyhow::anyhow!("bracket entry returned no order status"))
+    })?;
+
+    let mut tracking = match entry_status {
+        OrderResponseStatus::Filled { total_sz, .. } => {
+            return arm_protection(
+                context,
+                args,
+                vault_address,
+                format,
+                started,
+                total_sz,
+                "armed",
+            )
+            .await;
+        }
+        OrderResponseStatus::Resting { oid, .. } => EntryTracking {
+            oid: Some(oid),
+            cloid,
+            asset,
+            open_size: requested_size,
+        },
+        OrderResponseStatus::Success => EntryTracking {
+            oid: None,
+            cloid,
+            asset,
+            open_size: requested_size,
+        },
+        OrderResponseStatus::Error(err) => {
+            return Err(CliError::Unsupported(format!(
+                "bracket entry rejected: {}",
+                labelled_untrusted_text(&err)
+            ))
+            .into());
+        }
+    };
+
+    // Poll the entry order itself (not position presence) so pre-existing
+    // exposure cannot falsely complete the bracket.
+    let timeout = if args.entry_timeout.is_zero() {
+        DEFAULT_ENTRY_TIMEOUT
+    } else {
+        args.entry_timeout
+    };
+    let user = vault_address.unwrap_or_else(|| context.submission.signer.query_address());
+    while started.elapsed() < timeout {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let open = context
+            .client
+            .open_orders(user, None)
+            .await
+            .map_err(crate::commands::map_api_error)?;
+        let open_size = entry_open_size(&open, &tracking);
+        if open_size <= Decimal::ZERO {
+            let filled = requested_size - tracking.open_size;
+            return arm_protection(
+                context,
+                args,
+                vault_address,
+                format,
+                started,
+                filled,
+                "armed",
+            )
+            .await;
+        }
+        tracking.open_size = open_size;
     }
 
-    tpsl(
+    // Entry timed out: cancel the remainder so it cannot fill unprotected,
+    // then protect whatever already filled.
+    cancel_entry(context, &tracking, vault_address).await?;
+    let filled = requested_size - tracking.open_size;
+    if filled > Decimal::ZERO {
+        arm_protection(
+            context,
+            args,
+            vault_address,
+            format,
+            started,
+            filled,
+            "entry_cancelled_protected",
+        )
+        .await
+    } else {
+        output::print_data(
+            &BracketOutput {
+                status: "entry_cancelled".to_string(),
+                coin: args.coin.clone(),
+                protected_size: "0".to_string(),
+                elapsed_ms: elapsed_ms(started),
+            },
+            format,
+            started.elapsed(),
+        );
+        Err(CliError::PartialResults("entry_cancelled".to_string()).into())
+    }
+}
+
+async fn arm_protection(
+    context: OrderExecutionContext<'_>,
+    args: &BracketArgs,
+    vault_address: Option<Address>,
+    format: OutputFormat,
+    started: Instant,
+    filled: Decimal,
+    status: &str,
+) -> Result<(), anyhow::Error> {
+    if filled <= Decimal::ZERO {
+        output::print_data(
+            &BracketOutput {
+                status: "entry_unfilled".to_string(),
+                coin: args.coin.clone(),
+                protected_size: "0".to_string(),
+                elapsed_ms: elapsed_ms(started),
+            },
+            format,
+            started.elapsed(),
+        );
+        return Err(CliError::PartialResults("entry_unfilled".to_string()).into());
+    }
+    super::tpsl(
         context,
-        &protection_tpsl_args(args),
+        &protection_tpsl_args(args, Some(filled)),
         vault_address,
         OutputFormat::Json,
         false,
     )
     .await?;
-
     output::print_data(
         &BracketOutput {
-            status: "armed".to_string(),
+            status: status.to_string(),
             coin: args.coin.clone(),
+            protected_size: filled.to_string(),
             elapsed_ms: elapsed_ms(started),
         },
         format,
@@ -137,7 +288,7 @@ pub async fn bracket(
     Ok(())
 }
 
-fn entry_create_args(args: &BracketArgs) -> CreateArgs {
+fn entry_create_args(args: &BracketArgs, cloid: Option<Cloid>) -> CreateArgs {
     CreateArgs {
         coin: args.coin.clone(),
         dex: args.dex.clone(),
@@ -157,20 +308,22 @@ fn entry_create_args(args: &BracketArgs) -> CreateArgs {
         margin_mode: None,
         builder: None,
         builder_fee_rate: None,
-        cloid: None,
+        cloid: cloid.map(|cloid| format!("{cloid:#x}")),
         yes: true,
     }
 }
 
-fn protection_tpsl_args(args: &BracketArgs) -> TpslArgs {
+/// TP/SL args for the filled size. `size` is `None` only in dry-run previews,
+/// where the live position size is used instead.
+fn protection_tpsl_args(args: &BracketArgs, size: Option<Decimal>) -> TpslArgs {
     TpslArgs {
         coin: args.coin.clone(),
         dex: args.dex.clone(),
         take_profit: Some(args.take_profit.clone()),
         stop_loss: Some(args.stop_loss.clone()),
         grouping: super::PositionTpslGroupingArg::PositionTpsl,
-        side: Some(args.side.opposite()),
-        size: args.size,
+        side: size.map(|_| args.side.opposite()),
+        size,
         on_behalf_of: args.on_behalf_of.clone(),
         margin_mode: None,
         yes: true,
@@ -178,33 +331,50 @@ fn protection_tpsl_args(args: &BracketArgs) -> TpslArgs {
     }
 }
 
-async fn wait_for_entry_fill(
+/// Open size of the tracked entry order, matched by OID or cloid only.
+fn entry_open_size(orders: &[BasicOrder], tracking: &EntryTracking) -> Decimal {
+    orders
+        .iter()
+        .filter(|order| {
+            tracking.oid.is_some_and(|oid| order.oid == oid)
+                || order.cloid.is_some_and(|cloid| cloid == tracking.cloid)
+        })
+        .map(|order| order.sz)
+        .fold(Decimal::ZERO, |total, size| total + size)
+}
+
+/// Cancel the remaining entry order so a timed-out bracket cannot fill
+/// unprotected later.
+async fn cancel_entry(
     context: OrderExecutionContext<'_>,
-    args: &BracketArgs,
+    tracking: &EntryTracking,
     vault_address: Option<Address>,
-    started: Instant,
-) -> Result<bool, CliError> {
-    let timeout = if args.entry_timeout.is_zero() {
-        DEFAULT_ENTRY_TIMEOUT
-    } else {
-        args.entry_timeout
+) -> Result<(), CliError> {
+    let action = match tracking.oid {
+        Some(oid) => Action::Cancel(BatchCancel {
+            cancels: vec![Cancel {
+                asset: tracking.asset as usize,
+                oid,
+            }],
+        }),
+        None => Action::CancelByCloid(BatchCancelCloid {
+            cancels: vec![CancelByCloid {
+                asset: tracking.asset,
+                cloid: tracking.cloid,
+            }],
+        }),
     };
-    let user = vault_address.unwrap_or_else(|| context.submission.signer.query_address());
-    while started.elapsed() < timeout {
-        let state = context
-            .client
-            .clearinghouse_state(user, args.dex.clone())
-            .await
-            .map_err(crate::commands::map_api_error)?;
-        if state.asset_positions.iter().any(|position| {
-            position.position.coin.eq_ignore_ascii_case(&args.coin)
-                && !position.position.szi.is_zero()
-        }) {
-            return Ok(true);
-        }
-        tokio::time::sleep(Duration::from_millis(500)).await;
-    }
-    Ok(false)
+    actions::send_l1_action_raw(
+        context.submission.api_base_url,
+        context.submission.chain,
+        context.submission.signer,
+        action,
+        actions::nonce_now(),
+        vault_address,
+        "bracket entry cancel failed",
+    )
+    .await?;
+    Ok(())
 }
 
 fn elapsed_ms(started: Instant) -> u64 {
@@ -214,18 +384,19 @@ fn elapsed_ms(started: Instant) -> u64 {
 struct BracketOutput {
     status: String,
     coin: String,
+    protected_size: String,
     elapsed_ms: u64,
 }
-
 impl TableData for BracketOutput {
     fn headers(&self) -> Vec<&str> {
-        vec!["Status", "Coin", "Elapsed ms"]
+        vec!["Status", "Coin", "Protected Size", "Elapsed ms"]
     }
 
     fn rows(&self) -> Vec<Vec<String>> {
         vec![vec![
             self.status.clone(),
             self.coin.clone(),
+            self.protected_size.clone(),
             self.elapsed_ms.to_string(),
         ]]
     }
@@ -235,6 +406,7 @@ impl TableData for BracketOutput {
             "kind": "result",
             "status": self.status,
             "coin": self.coin,
+            "protected_size": self.protected_size,
             "elapsed_ms": self.elapsed_ms,
         })
     }
@@ -282,10 +454,43 @@ mod tests {
     }
 
     #[test]
+    fn amount_entry_protection_uses_filled_size() {
+        // --amount entries have no --size; protection must be built from the
+        // confirmed filled size, not the (absent) size flag.
+        let mut args = sample_args();
+        args.size = None;
+        args.amount = Some(Decimal::from(100));
+        let tpsl = protection_tpsl_args(&args, Some(Decimal::new(25, 3)));
+        assert_eq!(tpsl.size, Some(Decimal::new(25, 3)));
+        assert_eq!(tpsl.side, Some(OrderSide::Sell));
+        assert!(validate_tpsl_args(&tpsl).is_ok());
+    }
+
+    #[test]
+    fn short_bracket_percent_triggers_resolve_favorably() {
+        // Short entry at 100: +10% TP resolves to 90, -5% SL to 105.
+        let mut args = sample_args();
+        args.side = OrderSide::Sell;
+        let (tp, sl) = resolve_trigger_prices(
+            Some(&args.take_profit),
+            Some(&args.stop_loss),
+            Some(Decimal::from(100)),
+            args.side,
+        )
+        .unwrap();
+        assert_eq!(tp, Some(Decimal::from(90)));
+        assert_eq!(sl, Some(Decimal::from(105)));
+        assert!(
+            validate_tpsl_price_ordering(args.side.opposite(), tp, sl, "orders bracket").is_ok()
+        );
+    }
+
+    #[test]
     fn bracket_result_is_one_json_object() {
         let output = BracketOutput {
             status: "armed".to_string(),
             coin: "ETH".to_string(),
+            protected_size: "0.1".to_string(),
             elapsed_ms: 8,
         };
         let value = output.to_json_value();

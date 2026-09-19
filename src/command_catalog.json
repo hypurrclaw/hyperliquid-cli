@@ -3089,7 +3089,7 @@
           "id": "entry_timeout",
           "long": "entry-timeout",
           "default": "300s",
-          "description": "How long to wait for a limit entry fill before returning entry_resting_unprotected.",
+          "description": "How long to wait for a limit entry fill before the remaining entry is cancelled and any filled portion is protected.",
           "input_kind": "duration"
         },
         {

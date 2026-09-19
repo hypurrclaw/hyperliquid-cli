@@ -586,8 +586,12 @@ pub(crate) async fn prepare_position_tpsl_batch(
         }
         _ => unreachable!("validate_tpsl_args rejects partial side/size"),
     };
-    let (take_profit, stop_loss) =
-        resolve_trigger_prices(args.take_profit.as_ref(), args.stop_loss.as_ref(), entry)?;
+    let (take_profit, stop_loss) = resolve_trigger_prices(
+        args.take_profit.as_ref(),
+        args.stop_loss.as_ref(),
+        entry,
+        side.opposite(),
+    )?;
     validate_tpsl_price_ordering(side, take_profit, stop_loss, "orders tpsl")?;
 
     let parsed_cloid = args.cloid.as_deref().map(parse_cloid).transpose()?;
@@ -615,10 +619,11 @@ fn trigger_specs_need_entry(
         .any(|spec| matches!(spec, TriggerPriceSpec::Percent(_) | TriggerPriceSpec::Entry))
 }
 
-fn resolve_trigger_prices(
+pub(crate) fn resolve_trigger_prices(
     take_profit: Option<&TriggerPriceSpec>,
     stop_loss: Option<&TriggerPriceSpec>,
     entry: Option<Decimal>,
+    position_side: OrderSide,
 ) -> Result<(Option<Decimal>, Option<Decimal>), CliError> {
     if trigger_specs_need_entry(take_profit, stop_loss) && entry.is_none() {
         return Err(CliError::Unsupported(
@@ -627,8 +632,12 @@ fn resolve_trigger_prices(
     }
     let entry = entry.unwrap_or(Decimal::ONE);
     Ok((
-        take_profit.map(|spec| spec.resolve(entry)).transpose()?,
-        stop_loss.map(|spec| spec.resolve(entry)).transpose()?,
+        take_profit
+            .map(|spec| spec.resolve(entry, position_side))
+            .transpose()?,
+        stop_loss
+            .map(|spec| spec.resolve(entry, position_side))
+            .transpose()?,
     ))
 }
 
@@ -1434,9 +1443,12 @@ pub fn tpsl_dry_run_preview(
         );
     }
     if let (Some(side), Some(size)) = (args.side, args.size) {
-        if let Ok((take_profit, stop_loss)) =
-            resolve_trigger_prices(args.take_profit.as_ref(), args.stop_loss.as_ref(), None)
-        {
+        if let Ok((take_profit, stop_loss)) = resolve_trigger_prices(
+            args.take_profit.as_ref(),
+            args.stop_loss.as_ref(),
+            None,
+            side.opposite(),
+        ) {
             validate_tpsl_price_ordering(side, take_profit, stop_loss, "orders tpsl")?;
             let parsed_cloid = args.cloid.as_deref().map(parse_cloid).transpose()?;
             let prepared = build_position_tpsl_batch(

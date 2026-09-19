@@ -485,6 +485,7 @@ pub async fn send_asset(
     signer: &SelectedSigner,
     args: &SendAssetArgs,
     format: OutputFormat,
+    emit_output: bool,
 ) -> Result<(), anyhow::Error> {
     validate_send_asset_args(args)?;
     let destination = parse_address(&args.to)?;
@@ -525,15 +526,16 @@ pub async fn send_asset(
         .into_action(chain),
     );
     actions::send_l1_action(api_base_url, chain, signer, action, nonce).await?;
-
-    print_transfer(
-        "send-asset",
-        args.amount,
-        token.name,
-        Some(args.to.clone()),
-        format,
-        start,
-    );
+    if emit_output {
+        print_transfer(
+            "send-asset",
+            args.amount,
+            token.name,
+            Some(args.to.clone()),
+            format,
+            start,
+        );
+    }
     Ok(())
 }
 

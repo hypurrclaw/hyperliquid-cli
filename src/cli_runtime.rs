@@ -3467,6 +3467,7 @@ async fn transfer_send_asset(
         &resolved.selected_signer(),
         args,
         format,
+        true,
     )
     .await
 }
@@ -4281,11 +4282,12 @@ async fn chase_order(
     let vault_address = resolve_optional_acting_account_target(args.on_behalf_of.as_deref())?;
     let vault_address_string = vault_address.map(|address| address.to_string());
     if dry_run {
+        let coin_key = qualify_dex_asset(args.dex.as_deref(), &args.coin);
         let mid = client
             .all_mids(None)
             .await
             .ok()
-            .and_then(|mids| mids.get(&args.coin).copied());
+            .and_then(|mids| mids.get(&coin_key).copied());
         let plan = hyperliquid_cli::commands::orders::chase_dry_run_plan(args, mid)?;
         let (signer, acting_as, vault_address_string) =
             dry_run_vault_signing_addresses(context, vault_address_string);
