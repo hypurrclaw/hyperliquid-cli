@@ -7,7 +7,7 @@
 use std::collections::BTreeSet;
 use std::time::{Duration, Instant};
 
-use clap::Args;
+use clap::{Args, ValueEnum};
 use serde::Serialize;
 use serde_json::{Map, Number, Value};
 use strsim::levenshtein;
@@ -28,10 +28,24 @@ pub struct AssetDecodeArgs {
     pub asset_id: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+#[clap(rename_all = "kebab_case")]
+pub enum SearchVenueFilter {
+    All,
+    Perp,
+    Hip3,
+    Spot,
+    Outcome,
+}
+
 #[derive(Args, Debug, Clone)]
 pub struct AssetSearchArgs {
     /// Asset symbol, market title, app slug, outcome notation, or protocol asset ID
     pub query: String,
+
+    /// Restrict results to one venue
+    #[arg(long = "type", value_enum, default_value = "all")]
+    pub venue: SearchVenueFilter,
 
     /// Maximum number of matching assets to return
     #[arg(long, default_value = "20", value_parser = parse_positive_usize)]
@@ -54,6 +68,25 @@ impl AssetIdKind {
             Self::Spot => "spot",
             Self::Hip3Perp => "hip3_perp",
             Self::Outcome => "outcome",
+        }
+    }
+
+    fn venue(self) -> &'static str {
+        match self {
+            Self::Perp => "perp",
+            Self::Spot => "spot",
+            Self::Hip3Perp => "hip3",
+            Self::Outcome => "outcome",
+        }
+    }
+
+    fn matches_filter(self, filter: SearchVenueFilter) -> bool {
+        match filter {
+            SearchVenueFilter::All => true,
+            SearchVenueFilter::Perp => matches!(self, Self::Perp),
+            SearchVenueFilter::Hip3 => matches!(self, Self::Hip3Perp),
+            SearchVenueFilter::Spot => matches!(self, Self::Spot),
+            SearchVenueFilter::Outcome => matches!(self, Self::Outcome),
         }
     }
 }
@@ -150,6 +183,7 @@ impl DecodedAssetId {
         let mut object = Map::new();
         insert_u64(&mut object, "asset_id", self.asset_id);
         insert_str(&mut object, "kind", self.kind.as_str());
+        insert_str(&mut object, "venue", self.kind.venue());
         insert_str(&mut object, "lookup_status", self.lookup_status.as_str());
         insert_str(&mut object, "network", &self.network);
         insert_option_str(&mut object, "cli_input", self.cli_input.as_deref());
@@ -368,7 +402,7 @@ pub async fn search_query(
     args: &AssetSearchArgs,
 ) -> Result<AssetSearchResult, anyhow::Error> {
     let start = Instant::now();
-    let rows = search_assets(api_base_url, network, &args.query, args.limit).await;
+    let rows = search_assets(api_base_url, network, &args.query, args.venue, args.limit).await;
 
     Ok(AssetSearchResult {
         output: AssetSearchOutput::new(rows),
@@ -447,6 +481,7 @@ async fn search_assets(
     api_base_url: &str,
     network: &str,
     query: &str,
+    venue: SearchVenueFilter,
     limit: usize,
 ) -> Vec<DecodedAssetId> {
     let mut candidates = Vec::new();
@@ -499,6 +534,10 @@ async fn search_assets(
         }
     }
 
+    let candidates = candidates
+        .into_iter()
+        .filter(|candidate| candidate.kind.matches_filter(venue))
+        .collect();
     ranked_search_results(query, candidates, limit)
 }
 

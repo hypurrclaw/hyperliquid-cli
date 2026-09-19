@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use super::validation::parse_relative_duration;
 use super::*;
 
@@ -24,11 +26,11 @@ pub struct CreateArgs {
     #[arg(long, allow_hyphen_values = true)]
     pub trigger_price: Option<Decimal>,
 
-    /// Base-asset size. Required for limit and trigger orders.
+    /// Base-asset size. For market orders use --size or --amount, not both. Required for limit and trigger orders.
     #[arg(long, allow_hyphen_values = true)]
     pub size: Option<Decimal>,
 
-    /// Quote/collateral amount. Required for market orders (for example USDC, USDH, or the market's collateral token).
+    /// Quote/collateral amount. Alternative to --size for market orders (for example USDC, USDH, or the market's collateral token).
     #[arg(long, allow_hyphen_values = true)]
     pub amount: Option<Decimal>,
 
@@ -171,13 +173,13 @@ pub struct TpslArgs {
     #[arg(long)]
     pub dex: Option<String>,
 
-    /// Take-profit trigger price
-    #[arg(long, allow_hyphen_values = true)]
-    pub take_profit: Option<Decimal>,
+    /// Take-profit trigger: absolute price, percent offset (`+10%`), or `entry`
+    #[arg(long, allow_hyphen_values = true, value_parser = parse_trigger_price_spec)]
+    pub take_profit: Option<TriggerPriceSpec>,
 
-    /// Stop-loss trigger price
-    #[arg(long, allow_hyphen_values = true)]
-    pub stop_loss: Option<Decimal>,
+    /// Stop-loss trigger: absolute price, percent offset (`-5%`), or `entry`
+    #[arg(long, allow_hyphen_values = true, value_parser = parse_trigger_price_spec)]
+    pub stop_loss: Option<TriggerPriceSpec>,
 
     /// Position TP/SL grouping
     #[arg(long, value_enum, default_value = "position-tpsl")]
@@ -581,4 +583,294 @@ pub struct BatchCreateOrder {
     pub(super) reduce_only: bool,
     #[serde(default)]
     pub(super) cloid: Option<String>,
+}
+
+/// Absolute price, signed percent of entry, or breakeven (`entry`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TriggerPriceSpec {
+    Absolute(Decimal),
+    Percent(Decimal),
+    Entry,
+}
+
+impl TriggerPriceSpec {
+    /// Resolve a trigger spec against a position entry price.
+    ///
+    /// `position_side` is the direction of the position being protected (the
+    /// entry side), not the close side. Percent specs are directional: `+N%`
+    /// always means N% in the position's favor and `-N%` N% against it, so a
+    /// short take-profit resolves below entry and a short stop-loss above.
+    pub fn resolve(&self, entry: Decimal, position_side: OrderSide) -> Result<Decimal, CliError> {
+        if entry <= Decimal::ZERO {
+            return Err(CliError::Unsupported(
+                "percent and entry TP/SL require a positive position entry price".to_string(),
+            ));
+        }
+        match self {
+            Self::Absolute(price) => Ok(*price),
+            Self::Entry => Ok(entry),
+            Self::Percent(percent) => {
+                let hundred = Decimal::from(100);
+                let signed = match position_side {
+                    OrderSide::Buy => *percent,
+                    OrderSide::Sell => -*percent,
+                };
+                Ok(entry * (Decimal::ONE + signed / hundred))
+            }
+        }
+    }
+
+    pub fn display(&self) -> String {
+        match self {
+            Self::Absolute(price) => price.to_string(),
+            Self::Percent(percent) => format!("{percent}%"),
+            Self::Entry => "entry".to_string(),
+        }
+    }
+}
+
+pub fn parse_trigger_price_spec(raw: &str) -> Result<TriggerPriceSpec, String> {
+    let trimmed = raw.trim();
+    if trimmed.eq_ignore_ascii_case("entry") {
+        return Ok(TriggerPriceSpec::Entry);
+    }
+    if let Some(body) = trimmed.strip_suffix('%') {
+        let percent = Decimal::from_str(body.trim())
+            .map_err(|_| format!("invalid percent trigger '{raw}'"))?;
+        return Ok(TriggerPriceSpec::Percent(percent));
+    }
+    let price = Decimal::from_str(trimmed).map_err(|_| format!("invalid trigger price '{raw}'"))?;
+    if price <= Decimal::ZERO {
+        return Err("trigger price must be greater than zero".to_string());
+    }
+    Ok(TriggerPriceSpec::Absolute(price))
+}
+
+#[cfg(test)]
+mod trigger_price_spec_tests {
+    use super::*;
+
+    #[test]
+    fn parse_percent_entry_and_absolute() {
+        assert_eq!(
+            parse_trigger_price_spec("+10%").unwrap(),
+            TriggerPriceSpec::Percent(Decimal::from(10))
+        );
+        assert_eq!(
+            parse_trigger_price_spec("-5%").unwrap(),
+            TriggerPriceSpec::Percent(Decimal::from(-5))
+        );
+        assert_eq!(
+            parse_trigger_price_spec("entry").unwrap(),
+            TriggerPriceSpec::Entry
+        );
+        assert_eq!(
+            parse_trigger_price_spec("110").unwrap(),
+            TriggerPriceSpec::Absolute(Decimal::from(110))
+        );
+    }
+
+    #[test]
+    fn resolve_percent_and_entry_against_long_entry() {
+        let entry = Decimal::from(100);
+        assert_eq!(
+            TriggerPriceSpec::Percent(Decimal::from(10))
+                .resolve(entry, OrderSide::Buy)
+                .unwrap(),
+            Decimal::from(110)
+        );
+        assert_eq!(
+            TriggerPriceSpec::Percent(Decimal::from(-5))
+                .resolve(entry, OrderSide::Buy)
+                .unwrap(),
+            Decimal::from(95)
+        );
+        assert_eq!(
+            TriggerPriceSpec::Entry
+                .resolve(entry, OrderSide::Buy)
+                .unwrap(),
+            entry
+        );
+    }
+
+    #[test]
+    fn resolve_percent_inverts_for_short_entry() {
+        let entry = Decimal::from(100);
+        // +10% take-profit on a short resolves below entry (favorable move).
+        assert_eq!(
+            TriggerPriceSpec::Percent(Decimal::from(10))
+                .resolve(entry, OrderSide::Sell)
+                .unwrap(),
+            Decimal::from(90)
+        );
+        // -5% stop-loss on a short resolves above entry (adverse move).
+        assert_eq!(
+            TriggerPriceSpec::Percent(Decimal::from(-5))
+                .resolve(entry, OrderSide::Sell)
+                .unwrap(),
+            Decimal::from(105)
+        );
+    }
+}
+
+/// `buy` / `sell` wrapper: same as `orders create` without `--side`.
+#[derive(Args, Debug, Clone)]
+pub struct BuySellArgs {
+    /// Perpetual coin, spot pair, or outcome notation (for example: BTC)
+    #[arg(long)]
+    pub coin: String,
+    /// HIP-3 DEX to trade on (equivalent to --coin dex:COIN)
+    #[arg(long)]
+    pub dex: Option<String>,
+    /// Limit price. When set, the order is a limit instead of a market.
+    #[arg(long, allow_hyphen_values = true)]
+    pub price: Option<Decimal>,
+    /// Base-asset size. For market orders use --size or --amount, not both. Required for limit.
+    #[arg(long, allow_hyphen_values = true)]
+    pub size: Option<Decimal>,
+    /// Quote-sized amount. Alternative to --size for market orders.
+    #[arg(long, allow_hyphen_values = true)]
+    pub amount: Option<Decimal>,
+    #[arg(long = "type", value_enum)]
+    pub order_type: Option<CreateOrderType>,
+    #[arg(long, value_enum, default_value = "gtc")]
+    pub tif: TifArg,
+    #[arg(long)]
+    pub reduce_only: bool,
+    #[arg(
+        long,
+        default_value_t = DEFAULT_MARKET_ORDER_SLIPPAGE_BPS,
+        value_parser = clap::value_parser!(u16).range(
+            i64::from(MIN_MARKET_ORDER_SLIPPAGE_BPS)..=i64::from(MAX_MARKET_ORDER_SLIPPAGE_BPS)
+        )
+    )]
+    pub max_slippage_bps: u16,
+    #[arg(long)]
+    pub on_behalf_of: Option<String>,
+    #[arg(long, value_enum)]
+    pub margin_mode: Option<MarginModeArg>,
+    #[arg(long, requires = "builder_fee_rate")]
+    pub builder: Option<String>,
+    #[arg(long, requires = "builder")]
+    pub builder_fee_rate: Option<String>,
+    #[arg(long)]
+    pub cloid: Option<String>,
+    #[arg(short = 'y', long)]
+    pub yes: bool,
+}
+
+impl BuySellArgs {
+    pub fn into_create(self, side: OrderSide) -> CreateArgs {
+        let order_type = self.order_type.unwrap_or(if self.price.is_some() {
+            CreateOrderType::Limit
+        } else {
+            CreateOrderType::Market
+        });
+        CreateArgs {
+            coin: self.coin,
+            dex: self.dex,
+            side,
+            price: self.price,
+            trigger_price: None,
+            size: self.size,
+            amount: self.amount,
+            order_type,
+            tif: self.tif,
+            reduce_only: self.reduce_only,
+            max_slippage_bps: self.max_slippage_bps,
+            take_profit: None,
+            stop_loss: None,
+            grouping: None,
+            on_behalf_of: self.on_behalf_of,
+            margin_mode: self.margin_mode,
+            builder: self.builder,
+            builder_fee_rate: self.builder_fee_rate,
+            cloid: self.cloid,
+            yes: self.yes,
+        }
+    }
+}
+
+/// Outcome buy/sell: same as buy/sell but the coin must be outcome notation.
+#[derive(Args, Debug, Clone)]
+pub struct OutcomeOrderArgs {
+    #[command(flatten)]
+    pub inner: BuySellArgs,
+}
+
+/// Bounded ALO chase.
+#[derive(Args, Debug, Clone)]
+pub struct ChaseArgs {
+    /// Perpetual coin (for example: ETH)
+    #[arg(long)]
+    pub coin: String,
+    /// HIP-3 DEX to chase on (equivalent to --coin dex:COIN)
+    #[arg(long)]
+    pub dex: Option<String>,
+    /// Order side
+    #[arg(long, value_enum)]
+    pub side: OrderSide,
+    /// Base-asset size to chase
+    #[arg(long, allow_hyphen_values = true)]
+    pub size: Decimal,
+    /// Offset from mid in basis points (default 5 = 0.05%)
+    #[arg(long, default_value_t = 5)]
+    pub offset: u32,
+    /// Max time to chase. Required in agent/non-TTY mode.
+    #[arg(long, value_parser = parse_relative_duration)]
+    pub timeout: Option<Duration>,
+    /// Requote interval
+    #[arg(long, default_value = "2s", value_parser = parse_relative_duration)]
+    pub interval: Duration,
+    /// Max distance from the first mid, in basis points
+    #[arg(long, default_value_t = 100)]
+    pub max_chase: u32,
+    #[arg(long)]
+    pub reduce_only: bool,
+    #[arg(long)]
+    pub on_behalf_of: Option<String>,
+    #[arg(short = 'y', long)]
+    pub yes: bool,
+}
+
+/// Entry plus linked TP/SL.
+#[derive(Args, Debug, Clone)]
+pub struct BracketArgs {
+    /// Perpetual coin (for example: ETH)
+    #[arg(long)]
+    pub coin: String,
+    /// HIP-3 DEX to trade on (equivalent to --coin dex:COIN)
+    #[arg(long)]
+    pub dex: Option<String>,
+    /// Entry side
+    #[arg(long, value_enum)]
+    pub side: OrderSide,
+    /// Base-asset size. For market entry use --size or --amount, not both. Required for limit entry.
+    #[arg(long, allow_hyphen_values = true)]
+    pub size: Option<Decimal>,
+    /// Quote-sized amount. Alternative to --size for market entry.
+    #[arg(long, allow_hyphen_values = true)]
+    pub amount: Option<Decimal>,
+    #[arg(long, value_enum, default_value = "market")]
+    pub entry: CreateOrderType,
+    #[arg(long, allow_hyphen_values = true)]
+    pub price: Option<Decimal>,
+    #[arg(long, allow_hyphen_values = true, value_parser = parse_trigger_price_spec)]
+    pub take_profit: TriggerPriceSpec,
+    #[arg(long, allow_hyphen_values = true, value_parser = parse_trigger_price_spec)]
+    pub stop_loss: TriggerPriceSpec,
+    #[arg(long, default_value = "300s", value_parser = parse_relative_duration)]
+    pub entry_timeout: Duration,
+    #[arg(long)]
+    pub on_behalf_of: Option<String>,
+    #[arg(
+        long,
+        default_value_t = DEFAULT_MARKET_ORDER_SLIPPAGE_BPS,
+        value_parser = clap::value_parser!(u16).range(
+            i64::from(MIN_MARKET_ORDER_SLIPPAGE_BPS)..=i64::from(MAX_MARKET_ORDER_SLIPPAGE_BPS)
+        )
+    )]
+    pub max_slippage_bps: u16,
+    #[arg(short = 'y', long)]
+    pub yes: bool,
 }

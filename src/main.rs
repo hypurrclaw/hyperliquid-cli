@@ -262,6 +262,60 @@ enum Commands {
         #[command(subcommand)]
         subcommand: OutcomeCommands,
     },
+    #[command(
+        about = "Search markets across perps, HIP-3, spot, and outcomes",
+        long_about = "Search markets across perps, HIP-3, spot, and outcomes.\n\n\
+                      Retry: safe.\n\n\
+                      Examples:\n  \
+                      hyperliquid --format json search GOLD --select venue,coin\n  \
+                      hyperliquid --format json search ETH --type perp --select coin\n  \
+                      hyperliquid --format json --dry-run buy --coin ETH --size 0.001"
+    )]
+    Search(hyperliquid_cli::commands::asset::AssetSearchArgs),
+    #[command(
+        about = "Market buy (alias for orders create --side buy)",
+        long_about = "Market buy alias for orders create --side buy. Limit if --price is set.\n\n\
+                      Retry: check_open_orders — not idempotent. Inspect `orders open` / `positions list` before rerunning.\n\n\
+                      Examples:\n  \
+                      hyperliquid --format json --dry-run buy --coin BTC --size 0.001\n  \
+                      hyperliquid --format json --dry-run buy --coin BTC --amount 20\n  \
+                      hyperliquid --format json --dry-run buy --coin ETH --price 3000 --size 0.1\n  \
+                      hyperliquid --format json -y buy --coin BTC --size 0.001"
+    )]
+    Buy(hyperliquid_cli::commands::orders::BuySellArgs),
+    #[command(
+        about = "Market sell (alias for orders create --side sell)",
+        long_about = "Market sell alias for orders create --side sell. Limit if --price is set.\n\n\
+                      Retry: check_open_orders — not idempotent. Inspect `orders open` / `positions list` before rerunning.\n\n\
+                      Examples:\n  \
+                      hyperliquid --format json --dry-run sell --coin BTC --size 0.001\n  \
+                      hyperliquid --format json --dry-run sell --coin ETH --price 3000 --size 0.1\n  \
+                      hyperliquid --format json -y sell --coin BTC --size 0.001"
+    )]
+    Sell(hyperliquid_cli::commands::orders::BuySellArgs),
+    #[command(
+        about = "Buy a HIP-4 outcome token",
+        long_about = "Buy a HIP-4 outcome token. --coin must be #N or +N notation.\n\n\
+                      Retry: check_open_orders — not idempotent.\n\n\
+                      Examples:\n  \
+                      hyperliquid --format json --dry-run outcome-buy --coin #10 --size 1\n  \
+                      hyperliquid --format json -y outcome-buy --coin #10 --size 1"
+    )]
+    OutcomeBuy(hyperliquid_cli::commands::orders::OutcomeOrderArgs),
+    #[command(
+        about = "Sell a HIP-4 outcome token",
+        long_about = "Sell a HIP-4 outcome token. --coin must be #N or +N notation.\n\n\
+                      Retry: check_open_orders — not idempotent.\n\n\
+                      Examples:\n  \
+                      hyperliquid --format json --dry-run outcome-sell --coin #10 --size 1\n  \
+                      hyperliquid --format json -y outcome-sell --coin #10 --size 1"
+    )]
+    OutcomeSell(hyperliquid_cli::commands::orders::OutcomeOrderArgs),
+    /// Read-only risk watcher
+    Watch {
+        #[command(subcommand)]
+        subcommand: WatchCommands,
+    },
     /// Gossip priority auction
     Prio {
         #[command(subcommand)]
@@ -490,7 +544,16 @@ enum OrderCommands {
     Scale(hyperliquid_cli::commands::orders::ScaleArgs),
     /// Create a batch of limit orders from a JSON file
     BatchCreate(hyperliquid_cli::commands::orders::BatchCreateArgs),
-    /// Create position-attached TP/SL orders
+    #[command(
+        about = "Create position-attached TP/SL orders",
+        long_about = "Create position-attached take-profit and/or stop-loss orders.\n\n\
+                      Triggers accept an absolute price, a percent offset (`+10%`, `-5%`), or `entry`.\n\n\
+                      Retry: check_open_orders — a second tpsl can duplicate working triggers.\n\n\
+                      Examples:\n  \
+                      hyperliquid --format json --dry-run orders tpsl --coin ETH --take-profit +10% --stop-loss -5%\n  \
+                      hyperliquid --format json --dry-run orders tpsl --coin ETH --stop-loss entry\n  \
+                      hyperliquid --format json -y orders tpsl --coin ETH --take-profit +10% --stop-loss -5%"
+    )]
     Tpsl(hyperliquid_cli::commands::orders::TpslArgs),
     /// Cancel an order by ID
     Cancel(hyperliquid_cli::commands::orders::CancelArgs),
@@ -504,6 +567,38 @@ enum OrderCommands {
     TwapCancel(hyperliquid_cli::commands::orders::TwapCancelArgs),
     /// Schedule cancel (dead man's switch)
     ScheduleCancel(hyperliquid_cli::commands::orders::ScheduleCancelArgs),
+    #[command(
+        about = "Chase mid with ALO requotes",
+        long_about = "Bounded ALO requote loop that chases mid until fill, timeout, or max chase distance.\n\n\
+                      Agent/non-TTY mode requires --timeout. Retry: check_open_orders — not idempotent.\n\n\
+                      Examples:\n  \
+                      hyperliquid --format json --dry-run orders chase --coin ETH --side buy --size 0.5 --timeout 60s\n  \
+                      hyperliquid --format json -y orders chase --coin ETH --side buy --size 0.5 --timeout 60s"
+    )]
+    Chase(hyperliquid_cli::commands::orders::ChaseArgs),
+    #[command(
+        about = "Entry plus linked TP/SL",
+        long_about = "Place an entry order, then arm position TP/SL. Limit entries wait for fill up to --entry-timeout.\n\n\
+                      Retry: check_open_orders — not idempotent. On limit-entry timeout the remaining entry is cancelled and any filled portion is protected.\n\n\
+                      Examples:\n  \
+                      hyperliquid --format json --dry-run orders bracket --coin ETH --side buy --size 0.1 --take-profit +10% --stop-loss -5%\n  \
+                      hyperliquid --format json --dry-run orders bracket --coin ETH --side buy --entry limit --price 3000 --size 0.1 --take-profit +10% --stop-loss -5%\n  \
+                      hyperliquid --format json -y orders bracket --coin ETH --side buy --size 0.1 --take-profit +10% --stop-loss -5%"
+    )]
+    Bracket(hyperliquid_cli::commands::orders::BracketArgs),
+}
+
+#[derive(Subcommand, Debug)]
+enum WatchCommands {
+    #[command(
+        about = "Watch an address for liquidation and risk alerts",
+        long_about = "Read-only liquidation and risk watcher. Emits JSON-line alerts and never places orders.\n\n\
+                      Retry: safe. Agent/non-TTY mode requires --max-events or --idle-timeout-ms.\n\n\
+                      Examples:\n  \
+                      hyperliquid --format json watch risk --user 0x0000000000000000000000000000000000000001 --max-events 20\n  \
+                      hyperliquid --format json watch risk --user 0x0000000000000000000000000000000000000001 --idle-timeout-ms 8000"
+    )]
+    Risk(hyperliquid_cli::commands::watch_risk::WatchRiskArgs),
 }
 
 #[derive(Subcommand, Debug)]

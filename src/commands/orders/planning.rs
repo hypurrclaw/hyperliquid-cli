@@ -305,24 +305,45 @@ pub(crate) async fn prepare_order(
             )
         }
         CreateOrderType::Market => {
-            let amount = require_decimal(args.amount, "--amount", "market orders")?;
             let mid = market_mid_price(client, &mid_lookup).await?;
             let price = market_limit_price(mid, args.side, args.max_slippage_bps, price_tick)?;
-            let size = (amount / mid).round_dp(sz_decimals);
-            if size <= Decimal::ZERO {
-                return Err(CliError::Configuration(format!(
-                    "amount is too small for {coin}; derived size rounds to zero"
-                )));
-            }
+            let warning = Some(format!(
+                "Slippage warning: market order uses a {} bps protective price around mid {}",
+                args.max_slippage_bps, mid
+            ));
+            let (size, amount) = match (args.size, args.amount) {
+                (Some(size), None) => {
+                    let size = size.round_dp(sz_decimals);
+                    if size <= Decimal::ZERO {
+                        return Err(CliError::Configuration(format!(
+                            "size is too small for {coin}; rounds to zero"
+                        )));
+                    }
+                    (size, None)
+                }
+                (None, Some(amount)) => {
+                    let size = (amount / mid).round_dp(sz_decimals);
+                    if size <= Decimal::ZERO {
+                        return Err(CliError::Configuration(format!(
+                            "amount is too small for {coin}; derived size rounds to zero"
+                        )));
+                    }
+                    (size, Some(amount))
+                }
+                _ => {
+                    return Err(CliError::Configuration(
+                        "orders create requires --amount or --size for market orders.\n  \
+                         hyperliquid --format json --dry-run buy --coin BTC --size 0.001"
+                            .to_string(),
+                    ));
+                }
+            };
             (
                 price,
                 None,
                 size,
-                Some(amount),
-                Some(format!(
-                    "Slippage warning: market order uses a {} bps protective price around mid {}",
-                    args.max_slippage_bps, mid
-                )),
+                amount,
+                warning,
                 OrderTypePlacement::Limit {
                     tif: TimeInForce::FrontendMarket,
                 },
@@ -533,17 +554,45 @@ pub(crate) async fn prepare_position_tpsl_batch(
 ) -> Result<PreparedTpslBatch, CliError> {
     validate_tpsl_args(args)?;
     let resolved = resolve_tpsl_perp(resolver, args.dex.as_deref(), &args.coin)?;
-    let (side, size) = match (args.side, args.size) {
-        (Some(side), Some(size)) => (side, size),
+    let (side, size, entry) = match (args.side, args.size) {
+        (Some(side), Some(size)) => {
+            let entry =
+                if trigger_specs_need_entry(args.take_profit.as_ref(), args.stop_loss.as_ref()) {
+                    let position = lookup_position_for_tpsl(
+                        client,
+                        user,
+                        resolved.dex.clone(),
+                        &resolved.name,
+                    )
+                    .await
+                    .map_err(|_| {
+                        CliError::Unsupported(format!(
+                            "percent and entry TP/SL require an open {} position",
+                            resolved.name
+                        ))
+                    })?;
+                    position.position.entry_px
+                } else {
+                    None
+                };
+            (side, size, entry)
+        }
         (None, None) => {
             let position =
                 lookup_position_for_tpsl(client, user, resolved.dex.clone(), &resolved.name)
                     .await?;
-            position_close_side_and_size(&position)?
+            let (side, size) = position_close_side_and_size(&position)?;
+            (side, size, position.position.entry_px)
         }
         _ => unreachable!("validate_tpsl_args rejects partial side/size"),
     };
-    validate_tpsl_price_ordering(side, args.take_profit, args.stop_loss, "orders tpsl")?;
+    let (take_profit, stop_loss) = resolve_trigger_prices(
+        args.take_profit.as_ref(),
+        args.stop_loss.as_ref(),
+        entry,
+        side.opposite(),
+    )?;
+    validate_tpsl_price_ordering(side, take_profit, stop_loss, "orders tpsl")?;
 
     let parsed_cloid = args.cloid.as_deref().map(parse_cloid).transpose()?;
 
@@ -554,10 +603,58 @@ pub(crate) async fn prepare_position_tpsl_batch(
         resolved.collateral,
         side,
         size,
-        args.take_profit,
-        args.stop_loss,
+        take_profit,
+        stop_loss,
         parsed_cloid,
     ))
+}
+
+fn trigger_specs_need_entry(
+    take_profit: Option<&TriggerPriceSpec>,
+    stop_loss: Option<&TriggerPriceSpec>,
+) -> bool {
+    [take_profit, stop_loss]
+        .into_iter()
+        .flatten()
+        .any(|spec| matches!(spec, TriggerPriceSpec::Percent(_) | TriggerPriceSpec::Entry))
+}
+
+pub(crate) fn resolve_trigger_prices(
+    take_profit: Option<&TriggerPriceSpec>,
+    stop_loss: Option<&TriggerPriceSpec>,
+    entry: Option<Decimal>,
+    position_side: OrderSide,
+) -> Result<(Option<Decimal>, Option<Decimal>), CliError> {
+    if trigger_specs_need_entry(take_profit, stop_loss) && entry.is_none() {
+        return Err(CliError::Unsupported(
+            "percent and entry TP/SL require an open position with an entry price".to_string(),
+        ));
+    }
+    let entry = entry.unwrap_or(Decimal::ONE);
+    Ok((
+        take_profit
+            .map(|spec| spec.resolve(entry, position_side))
+            .transpose()?,
+        stop_loss
+            .map(|spec| spec.resolve(entry, position_side))
+            .transpose()?,
+    ))
+}
+
+fn absolute_trigger_prices(
+    take_profit: Option<&TriggerPriceSpec>,
+    stop_loss: Option<&TriggerPriceSpec>,
+) -> (Option<Decimal>, Option<Decimal>) {
+    (
+        match take_profit {
+            Some(TriggerPriceSpec::Absolute(price)) => Some(*price),
+            _ => None,
+        },
+        match stop_loss {
+            Some(TriggerPriceSpec::Absolute(price)) => Some(*price),
+            _ => None,
+        },
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1314,15 +1411,17 @@ pub fn tpsl_dry_run_preview(
 ) -> Result<serde_json::Value, CliError> {
     validate_tpsl_args(args)?;
     let resolved = resolve_tpsl_perp(resolver, args.dex.as_deref(), &args.coin)?;
+    let (absolute_tp, absolute_sl) =
+        absolute_trigger_prices(args.take_profit.as_ref(), args.stop_loss.as_ref());
     let inferred_side = args
         .side
-        .or_else(|| infer_close_side_from_tpsl_prices(args.take_profit, args.stop_loss));
+        .or_else(|| infer_close_side_from_tpsl_prices(absolute_tp, absolute_sl));
     let mut preview = serde_json::json!({
         "coin": args.coin,
         "dex": args.dex,
         "on_behalf_of": args.on_behalf_of,
-        "take_profit": args.take_profit.map(|value| value.to_string()),
-        "stop_loss": args.stop_loss.map(|value| value.to_string()),
+        "take_profit": args.take_profit.as_ref().map(TriggerPriceSpec::display),
+        "stop_loss": args.stop_loss.as_ref().map(TriggerPriceSpec::display),
         "grouping": args.grouping.to_string(),
         "grouping_wire": args.grouping.wire_value(),
         "resolved_asset": resolved.coin,
@@ -1335,28 +1434,43 @@ pub fn tpsl_dry_run_preview(
         args.margin_mode.unwrap_or(MarginModeArg::Cross),
     );
 
-    if let (Some(side), Some(size)) = (args.side, args.size) {
-        validate_tpsl_price_ordering(side, args.take_profit, args.stop_loss, "orders tpsl")?;
-        let parsed_cloid = args.cloid.as_deref().map(parse_cloid).transpose()?;
-        let prepared = build_position_tpsl_batch(
-            TpslGroupingArg::PositionTpsl,
-            resolved.coin,
-            resolved.index,
-            resolved.collateral,
-            side,
-            size,
-            args.take_profit,
-            args.stop_loss,
-            parsed_cloid,
+    if trigger_specs_need_entry(args.take_profit.as_ref(), args.stop_loss.as_ref())
+        && (args.side.is_none() || args.size.is_none())
+    {
+        preview.as_object_mut().expect("preview object").insert(
+            "resolution".to_string(),
+            serde_json::json!("percent_or_entry_requires_live_position"),
         );
-        append_tpsl_preview(&mut preview, &prepared)?;
+    }
+    if let (Some(side), Some(size)) = (args.side, args.size) {
+        if let Ok((take_profit, stop_loss)) = resolve_trigger_prices(
+            args.take_profit.as_ref(),
+            args.stop_loss.as_ref(),
+            None,
+            side.opposite(),
+        ) {
+            validate_tpsl_price_ordering(side, take_profit, stop_loss, "orders tpsl")?;
+            let parsed_cloid = args.cloid.as_deref().map(parse_cloid).transpose()?;
+            let prepared = build_position_tpsl_batch(
+                TpslGroupingArg::PositionTpsl,
+                resolved.coin,
+                resolved.index,
+                resolved.collateral,
+                side,
+                size,
+                take_profit,
+                stop_loss,
+                parsed_cloid,
+            );
+            append_tpsl_preview(&mut preview, &prepared)?;
+        }
     } else {
         append_position_sized_tpsl_preview(
             &mut preview,
             resolved.index,
             inferred_side,
-            args.take_profit,
-            args.stop_loss,
+            absolute_tp,
+            absolute_sl,
         );
     }
 

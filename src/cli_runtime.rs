@@ -109,7 +109,8 @@ async fn run_command(cli: &Cli, registry_path: Option<&[String]>) -> Result<(), 
         }
         Some(Commands::Asset {
             subcommand: AssetCommands::Search(args),
-        }) => {
+        })
+        | Some(Commands::Search(args)) => {
             let command_context = cli_command_context(&context, cli, None, payload.is_some());
             hyperliquid_cli::commands::asset::search_with_context(&command_context, args).await
         }
@@ -237,6 +238,62 @@ async fn run_command(cli: &Cli, registry_path: Option<&[String]>) -> Result<(), 
         Some(Commands::Orders {
             subcommand: OrderCommands::Create(args),
         }) => create_order(&context, args, cli.format, cli.dry_run, payload.as_ref()).await,
+        Some(Commands::Buy(args)) => {
+            let create_args = args
+                .clone()
+                .into_create(hyperliquid_cli::commands::orders::OrderSide::Buy);
+            create_order(
+                &context,
+                &create_args,
+                cli.format,
+                cli.dry_run,
+                payload.as_ref(),
+            )
+            .await
+        }
+        Some(Commands::Sell(args)) => {
+            let create_args = args
+                .clone()
+                .into_create(hyperliquid_cli::commands::orders::OrderSide::Sell);
+            create_order(
+                &context,
+                &create_args,
+                cli.format,
+                cli.dry_run,
+                payload.as_ref(),
+            )
+            .await
+        }
+        Some(Commands::OutcomeBuy(args)) => {
+            ensure_outcome_coin(&args.inner.coin)?;
+            let create_args = args
+                .inner
+                .clone()
+                .into_create(hyperliquid_cli::commands::orders::OrderSide::Buy);
+            create_order(
+                &context,
+                &create_args,
+                cli.format,
+                cli.dry_run,
+                payload.as_ref(),
+            )
+            .await
+        }
+        Some(Commands::OutcomeSell(args)) => {
+            ensure_outcome_coin(&args.inner.coin)?;
+            let create_args = args
+                .inner
+                .clone()
+                .into_create(hyperliquid_cli::commands::orders::OrderSide::Sell);
+            create_order(
+                &context,
+                &create_args,
+                cli.format,
+                cli.dry_run,
+                payload.as_ref(),
+            )
+            .await
+        }
         Some(Commands::Orders {
             subcommand: OrderCommands::Scale(args),
         }) => scale_orders(&context, args, cli.format, cli.dry_run, payload.as_ref()).await,
@@ -279,6 +336,15 @@ async fn run_command(cli: &Cli, registry_path: Option<&[String]>) -> Result<(), 
         Some(Commands::Orders {
             subcommand: OrderCommands::ScheduleCancel(args),
         }) => schedule_cancel(&context, args, cli.format, cli.dry_run, payload.as_ref()).await,
+        Some(Commands::Orders {
+            subcommand: OrderCommands::Chase(args),
+        }) => chase_order(&context, args, cli.format, cli.dry_run, payload.as_ref()).await,
+        Some(Commands::Orders {
+            subcommand: OrderCommands::Bracket(args),
+        }) => bracket_order(&context, args, cli.format, cli.dry_run, payload.as_ref()).await,
+        Some(Commands::Watch {
+            subcommand: WatchCommands::Risk(args),
+        }) => watch_risk_command(&context, args, cli.format).await,
         Some(Commands::Positions {
             subcommand: PositionCommands::List { watch },
         }) => {
@@ -732,6 +798,12 @@ fn prompt_required_for_invocation(cli: &Cli, command: &CommandContract) -> bool 
                 | "orders tpsl"
                 | "orders twap-create"
                 | "orders schedule-cancel"
+                | "orders chase"
+                | "orders bracket"
+                | "buy"
+                | "sell"
+                | "outcome-buy"
+                | "outcome-sell"
         )
     {
         return false;
@@ -789,8 +861,12 @@ fn confirmation_bypassed(command: &Option<Commands>) -> bool {
             OrderCommands::CancelAll(args) => args.yes,
             OrderCommands::TwapCreate(args) => args.yes,
             OrderCommands::ScheduleCancel(args) => args.yes,
+            OrderCommands::Chase(args) => args.yes,
+            OrderCommands::Bracket(args) => args.yes,
             _ => false,
         },
+        Some(Commands::Buy(args) | Commands::Sell(args)) => args.yes,
+        Some(Commands::OutcomeBuy(args) | Commands::OutcomeSell(args)) => args.inner.yes,
         Some(Commands::Transfer { subcommand }) => match subcommand {
             TransferCommands::SpotToPerp(args) | TransferCommands::PerpToSpot(args) => args.yes,
             TransferCommands::Send(args) => args.yes,
@@ -858,6 +934,25 @@ fn validate_cli_inputs(cli: &Cli) -> Result<(), errors::CliError> {
                 validate_asset_input("asset search query", &args.query)?;
             }
         },
+        Some(Commands::Search(args)) => {
+            validate_asset_input("asset search query", &args.query)?;
+        }
+        Some(Commands::Buy(args) | Commands::Sell(args)) => {
+            validate_asset_input("coin", &args.coin)?;
+            if let Some(dex) = args.dex.as_deref() {
+                validate_resource_id("dex", dex)?;
+            }
+        }
+        Some(Commands::OutcomeBuy(args) | Commands::OutcomeSell(args)) => {
+            validate_asset_input("coin", &args.inner.coin)?;
+        }
+        Some(Commands::Watch {
+            subcommand: WatchCommands::Risk(args),
+        }) => {
+            if let Some(user) = args.user.as_deref() {
+                validate_resource_id("user", user)?;
+            }
+        }
         Some(Commands::Feedback(args)) => {
             if let Some(path) = args.scenario_file.as_deref()
                 && path != "-"
@@ -1061,6 +1156,12 @@ fn validate_cli_inputs(cli: &Cli) -> Result<(), errors::CliError> {
                 if let Some(on_behalf_of) = args.on_behalf_of.as_deref() {
                     validate_resource_id("on-behalf-of selector", on_behalf_of)?;
                 }
+            }
+            OrderCommands::Chase(args) => {
+                validate_asset_input("coin", &args.coin)?;
+            }
+            OrderCommands::Bracket(args) => {
+                validate_asset_input("coin", &args.coin)?;
             }
             OrderCommands::Status(args) => {
                 validate_resource_id("account selector", &args.user)?;
@@ -2495,13 +2596,27 @@ async fn create_order(
     if dry_run {
         let plan = hyperliquid_cli::commands::orders::create_dry_run_plan(&client, &resolver, args)
             .await?;
+        let command = plan.command();
+        let would_execute = plan.would_execute();
         let (signer, acting_as, vault_address_string) =
             dry_run_vault_signing_addresses(context, vault_address_string);
+        let mut details = plan.into_args();
+        if let Ok(resolved) = context.resolve_signer()
+            && let Some(object) = details.as_object_mut()
+        {
+            let user = vault_address.unwrap_or_else(|| resolved.query_address());
+            if let Some(helper) =
+                maybe_hip3_dry_run_side_effect(&client, &context.api_base_url(), user, args, object)
+                    .await?
+            {
+                object.insert("side_effects".to_string(), serde_json::json!([helper]));
+            }
+        }
         return print_dry_run(
-            plan.command(),
+            command,
             dry_run_signed_details(
-                plan.would_execute(),
-                plan.into_args(),
+                would_execute,
+                details,
                 payload,
                 signer,
                 acting_as,
@@ -2547,6 +2662,7 @@ async fn create_order(
         args,
         vault_address,
         format,
+        true,
     )
     .await
 }
@@ -2725,6 +2841,7 @@ async fn create_tpsl(
         args,
         vault_address,
         format,
+        true,
     )
     .await
 }
@@ -3350,6 +3467,7 @@ async fn transfer_send_asset(
         &resolved.selected_signer(),
         args,
         format,
+        true,
     )
     .await
 }
@@ -4103,4 +4221,154 @@ fn qualify_dex_asset(dex: Option<&str>, coin: &str) -> String {
         Some(dex) if !coin.contains(':') => format!("{dex}:{coin}"),
         _ => coin.to_string(),
     }
+}
+
+fn ensure_outcome_coin(coin: &str) -> Result<(), errors::CliError> {
+    hyperliquid_cli::commands::outcomes::parse_outcome_notation(coin)?;
+    Ok(())
+}
+
+async fn maybe_hip3_dry_run_side_effect(
+    client: &HttpClient,
+    api_base_url: &str,
+    user: hypersdk::Address,
+    args: &hyperliquid_cli::commands::orders::CreateArgs,
+    preview: &serde_json::Map<String, serde_json::Value>,
+) -> Result<Option<serde_json::Value>, anyhow::Error> {
+    let Some(dex) =
+        hyperliquid_cli::commands::orders::hip3_dex_from_coin(&args.coin, args.dex.as_deref())
+    else {
+        return Ok(None);
+    };
+    let notional = preview_notional(preview).unwrap_or(hypersdk::Decimal::ZERO);
+    let plan = hyperliquid_cli::commands::orders::plan_hip3_margin_transfer(
+        client,
+        api_base_url,
+        user,
+        Some(dex.as_str()),
+        notional,
+    )
+    .await?;
+    Ok(plan.map(|plan| plan.to_json()))
+}
+
+fn preview_notional(
+    preview: &serde_json::Map<String, serde_json::Value>,
+) -> Option<hypersdk::Decimal> {
+    let size = preview
+        .get("size")?
+        .as_str()?
+        .parse::<hypersdk::Decimal>()
+        .ok()?;
+    let price = preview
+        .get("limit_px")
+        .or_else(|| preview.get("price"))
+        .and_then(serde_json::Value::as_str)?
+        .parse::<hypersdk::Decimal>()
+        .ok()?;
+    Some(size * price)
+}
+
+async fn chase_order(
+    context: &AppContext,
+    args: &hyperliquid_cli::commands::orders::ChaseArgs,
+    format: output::OutputFormat,
+    dry_run: bool,
+    payload: Option<&serde_json::Value>,
+) -> Result<(), anyhow::Error> {
+    hyperliquid_cli::commands::orders::chase_dry_run_plan(args, None)?;
+    let client = context.http_client();
+    let resolver = load_trading_resolver(context).await?;
+    let vault_address = resolve_optional_acting_account_target(args.on_behalf_of.as_deref())?;
+    let vault_address_string = vault_address.map(|address| address.to_string());
+    if dry_run {
+        let coin_key = qualify_dex_asset(args.dex.as_deref(), &args.coin);
+        let mid = client
+            .all_mids(None)
+            .await
+            .ok()
+            .and_then(|mids| mids.get(&coin_key).copied());
+        let plan = hyperliquid_cli::commands::orders::chase_dry_run_plan(args, mid)?;
+        let (signer, acting_as, vault_address_string) =
+            dry_run_vault_signing_addresses(context, vault_address_string);
+        return print_dry_run(
+            "orders chase",
+            dry_run_signed_details(
+                "chase",
+                plan,
+                payload,
+                signer,
+                acting_as,
+                vault_address_string,
+            ),
+            format,
+        );
+    }
+    let resolved_signer = context.resolve_signer()?;
+    let signer = resolved_signer.selected_signer();
+    let api_base_url = context.api_base_url();
+    hyperliquid_cli::commands::orders::chase(
+        order_execution_context(context, &api_base_url, &client, &resolver, &signer),
+        args,
+        vault_address,
+        format,
+    )
+    .await
+}
+
+async fn bracket_order(
+    context: &AppContext,
+    args: &hyperliquid_cli::commands::orders::BracketArgs,
+    format: output::OutputFormat,
+    dry_run: bool,
+    payload: Option<&serde_json::Value>,
+) -> Result<(), anyhow::Error> {
+    hyperliquid_cli::commands::orders::validate_bracket_args(args)?;
+    let client = context.http_client();
+    let resolver = load_trading_resolver(context).await?;
+    let vault_address = resolve_optional_acting_account_target(args.on_behalf_of.as_deref())?;
+    let vault_address_string = vault_address.map(|address| address.to_string());
+    if dry_run {
+        let plan =
+            hyperliquid_cli::commands::orders::bracket_dry_run_plan(&client, &resolver, args)
+                .await?;
+        let (signer, acting_as, vault_address_string) =
+            dry_run_vault_signing_addresses(context, vault_address_string);
+        return print_dry_run(
+            "orders bracket",
+            dry_run_signed_details(
+                "bracket",
+                plan,
+                payload,
+                signer,
+                acting_as,
+                vault_address_string,
+            ),
+            format,
+        );
+    }
+    let resolved_signer = context.resolve_signer()?;
+    let signer = resolved_signer.selected_signer();
+    let api_base_url = context.api_base_url();
+    hyperliquid_cli::commands::orders::bracket(
+        order_execution_context(context, &api_base_url, &client, &resolver, &signer),
+        args,
+        vault_address,
+        format,
+    )
+    .await
+}
+
+async fn watch_risk_command(
+    context: &AppContext,
+    args: &hyperliquid_cli::commands::watch_risk::WatchRiskArgs,
+    format: output::OutputFormat,
+) -> Result<(), anyhow::Error> {
+    let client = context.http_client();
+    let user = if let Some(raw) = args.user.as_deref() {
+        hyperliquid_cli::commands::watch_risk::parse_watch_user(raw)?
+    } else {
+        context.resolve_signer()?.query_address()
+    };
+    hyperliquid_cli::commands::watch_risk::watch_risk(&client, user, args, format).await
 }

@@ -112,13 +112,20 @@ Use schema when you are unsure about arguments, risk, dry-run support, or output
 
 ```bash
 hyperliquid --format json schema orders create
+hyperliquid --format json schema search
+hyperliquid --format json schema orders chase
+hyperliquid --format json schema watch risk
 hyperliquid --format json schema transfer send-asset
 hyperliquid --format json schema staking delegate
 ```
 
-Use `--help` for human-readable argument details:
+Use `--help` for human-readable argument details. Every trading verb includes an **Examples** block with a `--dry-run` line you can copy:
 
 ```bash
+hyperliquid buy --help
+hyperliquid search --help
+hyperliquid orders chase --help
+hyperliquid orders bracket --help
 hyperliquid orders create --help
 hyperliquid transfer send-asset --help
 ```
@@ -181,6 +188,8 @@ Market overview:
 ```bash
 hyperliquid --format json status
 hyperliquid --format json mids
+hyperliquid --format json search GOLD --select venue,coin
+hyperliquid --format json search ETH --type perp
 hyperliquid --format json perps list --max-results 20
 hyperliquid --format json spot list --max-results 20
 hyperliquid --format json book BTC
@@ -223,12 +232,59 @@ hyperliquid --format json --dry-run orders create \
 
 ### Market order dry-run
 
-Market orders use quote/collateral `--amount`, not base `--size`:
+Market orders accept quote `--amount` or base `--size`. `buy` / `sell` default to market when `--price` is omitted:
 
 ```bash
+hyperliquid --format json --dry-run buy --coin BTC --size 0.001
+hyperliquid --format json --dry-run orders create \
+  --coin BTC --side buy --type market --size 0.001
 hyperliquid --format json --dry-run orders create \
   --coin BTC --side buy --type market --amount 20 --max-slippage-bps 500
 ```
+
+### Protect and chase
+
+```bash
+hyperliquid --format json --dry-run orders tpsl \
+  --coin ETH --take-profit +10% --stop-loss -5%
+hyperliquid --format json --dry-run orders chase \
+  --coin ETH --side buy --size 0.5 --timeout 60s
+hyperliquid --format json --dry-run orders bracket \
+  --coin ETH --side buy --size 0.1 --take-profit +10% --stop-loss -5%
+hyperliquid --format json watch risk --user USER --max-events 20
+```
+
+`watch risk` is read-only. Chase and bracket are prompt-gated on mainnet; agent mode requires `--timeout` for chase and `--max-events` or `--idle-timeout-ms` for watch.
+
+### Recover from a bad invocation
+
+Usage errors exit 2. The JSON `error` string includes a copy-paste next invocation — rerun that line, usually with `--dry-run` first:
+
+```bash
+HYPERLIQUID_AGENT=1 hyperliquid --format json --dry-run orders chase --coin ETH --side buy --size 0.5
+# error includes:
+#   hyperliquid --format json --dry-run orders chase --coin ETH --side buy --size 0.5 --timeout 60s
+```
+
+### Discover then preview
+
+```bash
+hyperliquid --format json search ETH --type perp --select coin
+hyperliquid --format json --dry-run buy --coin ETH --size 0.001
+```
+
+Do not invent a second output language. Use `--select` / `--results-only` to project fields, then pass the chosen `coin` into `buy --dry-run`.
+
+### Retry safety
+
+| Command | Retry |
+|---|---|
+| `search` | safe |
+| `watch risk` | safe |
+| `buy` / `sell` / `outcome-buy` / `outcome-sell` | **not** idempotent — check `orders open` / `positions list` first |
+| `orders tpsl` / `orders chase` / `orders bracket` | `check_open_orders` — a second run can duplicate working orders |
+
+Do not retry `buy`, chase, or bracket blindly.
 
 Check the dry-run response fields:
 

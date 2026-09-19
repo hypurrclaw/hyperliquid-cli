@@ -227,6 +227,7 @@ Canonical top-level aliases accepted by the CLI:
 | `spot get <PAIR>` | Show one spot pair, for example `PURR/USDC`. |
 | `outcomes list [--limit <N>]` | List active outcome market sides from `outcomeMeta`. |
 | `outcomes get #<ENCODING>` / `outcomes get +<ENCODING>` | Show outcome side metadata and derived asset ID. |
+| `search <QUERY> [--type perp\|hip3\|spot\|outcome\|all]` | Search perps, HIP-3, spot, and outcomes in one list. Alias of `asset search`. |
 | `book <COIN> [-w] [--max-ticks <TICKS>]` | Show L2 order book snapshot or watch updates. |
 | `mids [-w] [--max-ticks <TICKS>]` | Show all mid prices. |
 | `candles <COIN> [--interval <INTERVAL>] [--limit <N>] [-w] [--max-ticks <TICKS>]` | Show candle history. |
@@ -286,7 +287,13 @@ Signer and acting-account flags intentionally share the same selector grammar wh
 | `orders scale --coin <COIN> --side buy\|sell --start-price <PX> --end-price <PX> --total-size <SIZE> --orders <N>` | Create an evenly spaced batch of limit orders. |
 | `orders batch-create --orders-file <PATH>` | Create a batch of limit orders from JSON. |
 | `orders create --coin <COIN> --side buy\|sell [--take-profit <PX>] [--stop-loss <PX>] [--grouping normal-tpsl] ...` | Create a parent order with fixed-size TP/SL children. |
-| `orders tpsl --coin <COIN> (--take-profit <PX>\|--stop-loss <PX>) [--grouping position-tpsl] [--side buy\|sell] [--size <SIZE>] [--margin-mode cross\|isolated] [--on-behalf-of <ACCOUNT_SELECTOR>]` | Create TP/SL orders attached to the current position. `--on-behalf-of` targets the acting subaccount/vault position. |
+| `buy --coin <COIN> [--size <SIZE>\|--amount <USDC>] [--price <PX>]` | Market buy alias for `orders create --side buy`. Limit if `--price` is set. |
+| `sell --coin <COIN> [--size <SIZE>\|--amount <USDC>] [--price <PX>]` | Market sell alias for `orders create --side sell`. Limit if `--price` is set. |
+| `outcome-buy --coin <#N\|+N> --price <PX> --size <SIZE>` | Buy a HIP-4 outcome token. |
+| `outcome-sell --coin <#N\|+N> --price <PX> --size <SIZE>` | Sell a HIP-4 outcome token. |
+| `orders tpsl --coin <COIN> (--take-profit <PX\|+N%\|entry>\|--stop-loss <PX\|-N%\|entry>) [--grouping position-tpsl] [--side buy\|sell] [--size <SIZE>] [--margin-mode cross\|isolated] [--on-behalf-of <ACCOUNT_SELECTOR>]` | Create TP/SL orders attached to the current position. Percent and `entry` resolve against the position entry; `+N%` always moves in the position's favor (below entry for shorts). `--on-behalf-of` targets the acting subaccount/vault position. |
+| `orders chase --coin <COIN> --side buy\|sell --size <SIZE> [--offset <BPS>] [--timeout <DURATION>] [--max-chase <BPS>] [-y]` | Bounded ALO requote loop that chases mid. Agent mode requires `--timeout`. |
+| `orders bracket --coin <COIN> --side buy\|sell --take-profit <PX\|+N%> --stop-loss <PX\|-N%> [--size <SIZE>\|--amount <USDC>] [--entry market\|limit] [-y]` | Place entry then arm TP/SL. Percent triggers resolve in the position's favor (`+N%` toward profit for both longs and shorts). Limit entries that do not fill in time are cancelled; any filled portion is protected (`entry_cancelled_protected` / `entry_cancelled`, exit 15). |
 | `orders cancel (ORDER_ID\|--cloid <CLOID>) [--on-behalf-of <ACCOUNT_SELECTOR>]` | Cancel by order ID or client order ID. `--on-behalf-of` manages an order for the acting subaccount/vault. |
 | `orders cancel-all [--coin <COIN>] [--dex <DEX>] [--on-behalf-of <ACCOUNT_SELECTOR>] [-y]` | Cancel all open orders, optionally filtered by coin or DEX. |
 | `orders modify (ORDER_ID\|--cloid <CLOID>) [--price <PRICE>] [--trigger-price <PRICE>] [--size <SIZE>] [--on-behalf-of <ACCOUNT_SELECTOR>]` | Modify an existing order. |
@@ -345,6 +352,7 @@ Outcome market notation (`#N` spot coin and `+N` token name) is available for di
 | `feedback (--scenario-json <JSON>\|--scenario-file <PATH\|->) [--contact <CONTACT>] [--tags <TAG>] [--url <URL>]` | Send structured CLI feedback as a scenario JSON object to the configured feedback endpoint; include `agent_address`, `signer_address`, or `wallet_address` in the scenario for rate-limit attribution, and use `--url` to override defaults. |
 | `schema [COMMAND...]` | Show machine-readable command schemas for agents. |
 | `subscribe trades --asset <ASSET>` / `subscribe orderbook --asset <ASSET>` / `subscribe candles --asset <ASSET> [--interval <INTERVAL>]` / `subscribe all-mids` / `subscribe order-updates` / `subscribe fills` `[--max-events <N>] [--idle-timeout-ms <MS>]` | Stream WebSocket events. |
+| `watch risk [--user <ADDRESS>] [--max-events <N>] [--idle-timeout-ms <MS>]` | Read-only liquidation and risk alerts. Never places orders. Agent mode requires a bound. |
 | `update` | Update this binary from the latest GitHub release on Linux/macOS. Windows users should rerun `install.sh` to install the latest `.zip` release. Use global `--dry-run` to preview. |
 
 `vaults` is accepted as an alias for `vault`.

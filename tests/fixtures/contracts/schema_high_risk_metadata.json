@@ -3,6 +3,50 @@
   "commands": [
     {
       "auth_required": true,
+      "command": "hyperliquid buy",
+      "confirmation": "prompt",
+      "dangerous": true,
+      "dry_run": "optional",
+      "lifecycle": "live_mutating",
+      "ows_signer": "experimental_feature_gated",
+      "raw_payload": "dry_run_only",
+      "risk": "funds_movement"
+    },
+    {
+      "auth_required": true,
+      "command": "hyperliquid sell",
+      "confirmation": "prompt",
+      "dangerous": true,
+      "dry_run": "optional",
+      "lifecycle": "live_mutating",
+      "ows_signer": "experimental_feature_gated",
+      "raw_payload": "dry_run_only",
+      "risk": "funds_movement"
+    },
+    {
+      "auth_required": true,
+      "command": "hyperliquid outcome-buy",
+      "confirmation": "prompt",
+      "dangerous": true,
+      "dry_run": "optional",
+      "lifecycle": "live_mutating",
+      "ows_signer": "experimental_feature_gated",
+      "raw_payload": "dry_run_only",
+      "risk": "funds_movement"
+    },
+    {
+      "auth_required": true,
+      "command": "hyperliquid outcome-sell",
+      "confirmation": "prompt",
+      "dangerous": true,
+      "dry_run": "optional",
+      "lifecycle": "live_mutating",
+      "ows_signer": "experimental_feature_gated",
+      "raw_payload": "dry_run_only",
+      "risk": "funds_movement"
+    },
+    {
+      "auth_required": true,
       "command": "hyperliquid builder approve",
       "confirmation": "prompt",
       "dangerous": true,
@@ -389,6 +433,28 @@
     {
       "auth_required": true,
       "command": "hyperliquid orders schedule-cancel",
+      "confirmation": "prompt",
+      "dangerous": true,
+      "dry_run": "optional",
+      "lifecycle": "live_mutating",
+      "ows_signer": "experimental_feature_gated",
+      "raw_payload": "dry_run_only",
+      "risk": "funds_movement"
+    },
+    {
+      "auth_required": true,
+      "command": "hyperliquid orders chase",
+      "confirmation": "prompt",
+      "dangerous": true,
+      "dry_run": "optional",
+      "lifecycle": "live_mutating",
+      "ows_signer": "experimental_feature_gated",
+      "raw_payload": "dry_run_only",
+      "risk": "funds_movement"
+    },
+    {
+      "auth_required": true,
+      "command": "hyperliquid orders bracket",
       "confirmation": "prompt",
       "dangerous": true,
       "dry_run": "optional",

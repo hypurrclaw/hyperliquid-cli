@@ -35,10 +35,19 @@ const MAX_BATCH_ORDER_COUNT: usize = 500;
 const BPS_DENOMINATOR: i64 = 10_000;
 
 mod args;
+mod bracket;
+mod chase;
+mod hip3;
 mod planning;
 mod queries;
 mod rendering;
 mod validation;
+
+pub use bracket::{bracket, bracket_dry_run_plan, validate_bracket_args};
+pub use chase::{chase, chase_dry_run_plan};
+pub use hip3::{
+    Hip3MarginPlan, execute_hip3_margin_transfer, hip3_dex_from_coin, plan_hip3_margin_transfer,
+};
 
 pub use args::*;
 use planning::{
@@ -200,6 +209,7 @@ impl OrderIdentifier {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct OrderExecutionContext<'a> {
     pub submission: OrderSubmissionContext<'a>,
     pub client: &'a HttpClient,
@@ -220,21 +230,30 @@ pub async fn create(
     args: &CreateArgs,
     vault_address: Option<Address>,
     format: OutputFormat,
+    emit_output: bool,
 ) -> Result<(), anyhow::Error> {
     let start = Instant::now();
     let plan = prepare_create_order_plan(context.client, context.resolver, args).await?;
+    let user = vault_address.unwrap_or_else(|| context.submission.signer.query_address());
     match plan.submission {
         CreateOrderSubmission::NormalTpsl(prepared) => {
-            if context.submission.require_mainnet_confirmation
-                && !args.yes
-                && !confirm_mainnet_tpsl_batch(&prepared, format)?
-            {
-                return Err(CliError::Configuration(
-                    "Mainnet TP/SL confirmation required; order placement cancelled. Rerun with --yes for deliberate automation."
-                        .to_string(),
-                )
-                .into());
+            let (notional, coin) = prepared
+                .legs
+                .first()
+                .map(|leg| (leg.size * leg.price, leg.coin.clone()))
+                .unwrap_or_default();
+            let helper = plan_hip3_helper(context, user, &coin, notional).await?;
+            if context.submission.require_mainnet_confirmation && !args.yes {
+                warn_hip3_margin_helper(&helper, format)?;
+                if !confirm_mainnet_tpsl_batch(&prepared, format)? {
+                    return Err(CliError::Configuration(
+                        "Mainnet TP/SL confirmation required; order placement cancelled. Rerun with --yes for deliberate automation."
+                            .to_string(),
+                    )
+                    .into());
+                }
             }
+            execute_hip3_helper(context, user, &helper).await?;
 
             let statuses = place_tpsl_batch(
                 context.submission.api_base_url,
@@ -245,58 +264,150 @@ pub async fn create(
             )
             .await?;
             let rows = tpsl_confirmation_rows(&prepared, statuses)?;
-            output::print_data(
+            emit_order_output(
                 &TpslOrderConfirmationOutput { rows },
                 format,
                 start.elapsed(),
+                emit_output,
             );
             Ok(())
         }
         CreateOrderSubmission::Single(prepared) => {
-            if context.submission.require_mainnet_confirmation
-                && !args.yes
-                && !confirm_mainnet_order(&prepared, format)?
-            {
-                return Err(CliError::Configuration(
-                    "Mainnet order confirmation required; order placement cancelled. Rerun with --yes for deliberate automation."
-                        .to_string(),
-                )
-                .into());
-            }
-
-            let batch = BatchOrder {
-                orders: vec![prepared.request.clone()],
-                grouping: OrderGrouping::Na,
-            };
-            let statuses = if let Some(builder) = prepared.builder.clone() {
-                place_builder_order_batch_raw(
-                    context.submission.api_base_url,
-                    context.submission.chain,
-                    context.submission.signer,
-                    batch,
-                    builder,
-                    vault_address,
-                )
-                .await?
-            } else {
-                place_order_batch_raw(
-                    context.submission.api_base_url,
-                    context.submission.chain,
-                    context.submission.signer,
-                    batch,
-                    vault_address,
-                )
-                .await?
-            };
-
+            let statuses =
+                place_prepared_single(context, prepared.clone(), args, vault_address, format)
+                    .await?;
             let rows = statuses
                 .into_iter()
                 .map(|status| OrderConfirmation::from_status(&prepared, status))
                 .collect::<Result<Vec<_>, _>>()?;
-            output::print_data(&OrderConfirmationOutput { rows }, format, start.elapsed());
+            emit_order_output(
+                &OrderConfirmationOutput { rows },
+                format,
+                start.elapsed(),
+                emit_output,
+            );
             Ok(())
         }
     }
+}
+
+/// Plan the HIP-3 margin helper transfer for a prepared order, if one is needed.
+async fn plan_hip3_helper(
+    context: OrderExecutionContext<'_>,
+    user: Address,
+    coin: &str,
+    notional: Decimal,
+) -> Result<Option<Hip3MarginPlan>, CliError> {
+    let Some(dex) = hip3_dex_from_coin(coin, None) else {
+        return Ok(None);
+    };
+    plan_hip3_margin_transfer(
+        context.client,
+        context.submission.api_base_url,
+        user,
+        Some(dex.as_str()),
+        notional,
+    )
+    .await
+}
+
+/// Disclose a planned HIP-3 margin helper transfer before order confirmation.
+fn warn_hip3_margin_helper(
+    helper: &Option<Hip3MarginPlan>,
+    format: OutputFormat,
+) -> Result<(), CliError> {
+    if let Some(plan) = helper {
+        let mut stderr = io::stderr();
+        writeln!(
+            stderr,
+            "{}",
+            warning_prompt(
+                &format!(
+                    "This order requires a helper transfer of {} USDC from perp to dex:{} before placement.",
+                    plan.amount, plan.dest_dex
+                ),
+                format
+            )
+        )
+        .map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
+    }
+    Ok(())
+}
+
+/// Execute a planned HIP-3 margin helper transfer after confirmation.
+async fn execute_hip3_helper(
+    context: OrderExecutionContext<'_>,
+    user: Address,
+    helper: &Option<Hip3MarginPlan>,
+) -> Result<(), anyhow::Error> {
+    if let Some(plan) = helper {
+        execute_hip3_margin_transfer(
+            context.submission.api_base_url,
+            context.submission.chain,
+            context.client,
+            context.submission.signer,
+            user,
+            plan,
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+/// Submit a single prepared order, running the HIP-3 margin helper after
+/// confirmation and before placement. Returns the exchange order statuses.
+async fn place_prepared_single(
+    context: OrderExecutionContext<'_>,
+    prepared: PreparedOrder,
+    args: &CreateArgs,
+    vault_address: Option<Address>,
+    format: OutputFormat,
+) -> Result<Vec<OrderResponseStatus>, anyhow::Error> {
+    let user = vault_address.unwrap_or_else(|| context.submission.signer.query_address());
+    let helper = plan_hip3_helper(
+        context,
+        user,
+        &prepared.coin,
+        prepared.size * prepared.price,
+    )
+    .await?;
+    if context.submission.require_mainnet_confirmation && !args.yes {
+        warn_hip3_margin_helper(&helper, format)?;
+        if !confirm_mainnet_order(&prepared, format)? {
+            return Err(CliError::Configuration(
+                "Mainnet order confirmation required; order placement cancelled. Rerun with --yes for deliberate automation."
+                    .to_string(),
+            )
+            .into());
+        }
+    }
+    execute_hip3_helper(context, user, &helper).await?;
+
+    let batch = BatchOrder {
+        orders: vec![prepared.request.clone()],
+        grouping: OrderGrouping::Na,
+    };
+    let statuses = if let Some(builder) = prepared.builder.clone() {
+        place_builder_order_batch_raw(
+            context.submission.api_base_url,
+            context.submission.chain,
+            context.submission.signer,
+            batch,
+            builder,
+            vault_address,
+        )
+        .await?
+    } else {
+        place_order_batch_raw(
+            context.submission.api_base_url,
+            context.submission.chain,
+            context.submission.signer,
+            batch,
+            vault_address,
+        )
+        .await?
+    };
+    Ok(statuses)
 }
 
 /// Place a generated scale order batch.
@@ -388,6 +499,7 @@ pub async fn tpsl(
     args: &TpslArgs,
     vault_address: Option<Address>,
     format: OutputFormat,
+    emit_output: bool,
 ) -> Result<(), anyhow::Error> {
     let start = Instant::now();
     let user = vault_address.unwrap_or_else(|| context.submission.signer.query_address());
@@ -413,12 +525,24 @@ pub async fn tpsl(
     )
     .await?;
     let rows = tpsl_confirmation_rows(&prepared, statuses)?;
-    output::print_data(
+    emit_order_output(
         &TpslOrderConfirmationOutput { rows },
         format,
         start.elapsed(),
+        emit_output,
     );
     Ok(())
+}
+
+fn emit_order_output(
+    data: &dyn TableData,
+    format: OutputFormat,
+    duration: Duration,
+    emit_output: bool,
+) {
+    if emit_output {
+        output::print_data(data, format, duration);
+    }
 }
 
 /// Cancel a single open order by exchange OID or client order ID.
@@ -1338,6 +1462,13 @@ fn parse_twap_create_response(response: serde_json::Value) -> Result<u64, CliErr
         })
 }
 
+/// Unique client order ID for internally generated orders (chase quotes,
+/// bracket entries): nonce-derived high bits plus a per-run sequence.
+fn generated_cloid(seq: u64) -> Result<Cloid, CliError> {
+    let raw = format!("0x{:016x}{:016x}", actions::nonce_now(), seq);
+    parse_cloid(&raw)
+}
+
 fn parse_twap_cancel_response(response: serde_json::Value) -> Result<(), CliError> {
     let status = response.pointer("/data/status").ok_or_else(|| {
         CliError::Internal(anyhow::anyhow!(
@@ -2171,7 +2302,7 @@ mod tests {
         let mut args = TpslArgs {
             coin: "BTC".to_string(),
             dex: None,
-            take_profit: Some(Decimal::from(55_000)),
+            take_profit: Some(TriggerPriceSpec::Absolute(Decimal::from(55_000))),
             stop_loss: None,
             grouping: PositionTpslGroupingArg::PositionTpsl,
             side: Some(OrderSide::Sell),

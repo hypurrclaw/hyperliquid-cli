@@ -500,7 +500,7 @@ fn orders_create_market_rejects_price_and_size_flags() {
         .assert()
         .code(2)
         .stderr(predicate::str::contains("--type market"))
-        .stderr(predicate::str::contains("remove --price and --size"))
+        .stderr(predicate::str::contains("remove --price"))
         .stderr(predicate::str::contains("--amount"));
 }
 
@@ -555,7 +555,7 @@ fn orders_create_market_with_zero_price_and_size_reports_incompatible_flags_firs
         .assert()
         .code(2)
         .stderr(predicate::str::contains("--type market"))
-        .stderr(predicate::str::contains("remove --price and --size"))
+        .stderr(predicate::str::contains("remove --price"))
         .stderr(predicate::str::contains("price must be positive").not())
         .stderr(predicate::str::contains("size must be greater than zero").not());
 }
@@ -2228,4 +2228,78 @@ async fn orders_create_stop_loss_and_take_profit_orders_succeed() {
         .success()
         .stdout(predicate::str::contains("take-profit"))
         .stdout(predicate::str::contains("12347"));
+}
+
+#[tokio::test]
+async fn buy_size_dry_run_matches_market_create_size() {
+    let env = IsolatedHome::new();
+    let server = mock_order_server_without_exchange().await;
+    let shared = [
+        "--format",
+        "json",
+        "--dry-run",
+        "--testnet",
+        "--coin",
+        "BTC",
+        "--size",
+        "0.001",
+    ];
+
+    let buy = env
+        .command()
+        .env(API_OVERRIDE_ENV, server.uri())
+        .args(["buy"])
+        .args(shared)
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let create = env
+        .command()
+        .env(API_OVERRIDE_ENV, server.uri())
+        .args(["orders", "create", "--side", "buy", "--type", "market"])
+        .args(shared)
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let buy_json: Value = serde_json::from_slice(&buy).unwrap();
+    let create_json: Value = serde_json::from_slice(&create).unwrap();
+    assert_eq!(buy_json["would_execute"], create_json["would_execute"]);
+    assert_eq!(buy_json["args"]["side"], "buy");
+    assert_eq!(buy_json["args"]["type"], "market");
+    assert_eq!(buy_json["args"]["size"], create_json["args"]["size"]);
+    assert_eq!(
+        buy_json["args"]["asset_id"],
+        create_json["args"]["asset_id"]
+    );
+    assert_eq!(
+        buy_json["args"]["resolved_asset"],
+        create_json["args"]["resolved_asset"]
+    );
+}
+
+#[test]
+fn buy_missing_size_or_amount_includes_example_invocation() {
+    IsolatedHome::new()
+        .command()
+        .env("HYPERLIQUID_AGENT", "1")
+        .args([
+            "--format",
+            "json",
+            "--dry-run",
+            "--testnet",
+            "buy",
+            "--coin",
+            "BTC",
+        ])
+        .assert()
+        .code(2)
+        .stdout(predicate::str::contains("--size").or(predicate::str::contains("--amount")))
+        .stdout(predicate::str::contains(
+            "hyperliquid --format json --dry-run buy --coin BTC --size 0.001",
+        ));
 }
