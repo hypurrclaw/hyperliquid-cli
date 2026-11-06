@@ -120,10 +120,28 @@ impl CommandContract {
         self.command_path.join(" ")
     }
 
+    /// Name of the boolean flag that answers this command's confirmation prompt,
+    /// derived from the catalog args: `Some("yes")` for every command with a `yes` arg.
+    pub fn confirmation_bypass_arg(&self) -> Option<&'static str> {
+        self.inputs
+            .iter()
+            .any(|input| input.id == "yes")
+            .then_some("yes")
+    }
+
+    /// Catalog input for an arg id.
+    pub fn input(&self, id: &str) -> Option<&InputContract> {
+        self.inputs.iter().find(|input| input.id == id)
+    }
+
+    /// Catalog description for an arg id, when it has one.
+    pub fn arg_description(&self, id: &str) -> Option<&str> {
+        self.input(id)
+            .and_then(|input| input.description.as_deref())
+    }
+
     pub fn metadata_json(&self) -> Value {
-        let command_key = self.command_key();
-        let yes_support =
-            self.inputs.iter().any(|input| input.id == "yes") && command_key != "wallet export";
+        let yes_support = self.confirmation_bypass_arg();
         let has_snapshot_watch = self.inputs.iter().any(|input| input.id == "watch")
             && self.inputs.iter().any(|input| input.id == "max_ticks");
         let stream_bounds = if self.output_contract == OutputContract::BoundedNdjsonStream {
@@ -153,8 +171,8 @@ impl CommandContract {
             "raw_payload": self.raw_payload,
             "confirmation": self.confirmation,
             "confirmation_bypass": {
-                "supported": yes_support,
-                "arg": if yes_support { Some("yes") } else { None },
+                "supported": yes_support.is_some(),
+                "arg": yes_support,
             },
             "ows_signer": self.ows_signer,
             "transport": self.transport,

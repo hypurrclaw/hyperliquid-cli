@@ -134,7 +134,8 @@
           "long": "watch",
           "arg_type": "boolean",
           "description": "Watch live snapshots. Use max_ticks to bound automation calls.",
-          "input_kind": "boolean"
+          "input_kind": "boolean",
+          "short": "w"
         },
         {
           "id": "max_ticks",
@@ -162,7 +163,8 @@
           "long": "watch",
           "arg_type": "boolean",
           "description": "Watch live snapshots. Use max_ticks to bound automation calls.",
-          "input_kind": "boolean"
+          "input_kind": "boolean",
+          "short": "w"
         },
         {
           "id": "max_ticks",
@@ -210,7 +212,8 @@
           "long": "watch",
           "arg_type": "boolean",
           "description": "Watch live snapshots. Use max_ticks to bound automation calls.",
-          "input_kind": "boolean"
+          "input_kind": "boolean",
+          "short": "w"
         },
         {
           "id": "max_ticks",
@@ -382,7 +385,7 @@
       "group": "trade",
       "auth_required": true,
       "dangerous": true,
-      "description": "Market buy alias for orders create --side buy. Limit if --price is set. Accepts --size or --amount. Dry-run first. Retry: check_open_orders — not idempotent.",
+      "description": "Market buy alias for orders create --side buy. Limit if --price is set. Accepts --size or --amount. Dry-run first. Retry: check_open_orders — not idempotent. Mainnet orders prompt for confirmation unless --yes is passed; --testnet orders run without a prompt.",
       "args": [
         {
           "id": "coin",
@@ -416,11 +419,81 @@
           "input_kind": "amount"
         },
         {
+          "id": "order_type",
+          "long": "type",
+          "enum_values": [
+            "limit",
+            "market",
+            "stop-loss",
+            "take-profit",
+            "stop-limit",
+            "take-limit"
+          ],
+          "description": "Order type. Defaults to limit when --price is set, otherwise market."
+        },
+        {
+          "id": "tif",
+          "long": "tif",
+          "default": "gtc",
+          "enum_values": [
+            "gtc",
+            "ioc",
+            "alo"
+          ],
+          "description": "Time in force: gtc, ioc, or alo."
+        },
+        {
+          "id": "reduce_only",
+          "long": "reduce-only",
+          "arg_type": "boolean",
+          "description": "Only reduce an existing perpetual position; spot markets are not supported.",
+          "input_kind": "boolean"
+        },
+        {
+          "id": "max_slippage_bps",
+          "long": "max-slippage-bps",
+          "arg_type": "integer",
+          "default": "500",
+          "description": "Maximum slippage bound in basis points for market orders. Default 500; allowed range 1-1000."
+        },
+        {
+          "id": "on_behalf_of",
+          "long": "on-behalf-of",
+          "description": "Acting-account selector for vaultAddress: subaccount/vault address, wallet name, or wallet id.",
+          "input_kind": "acting_account_selector"
+        },
+        {
+          "id": "margin_mode",
+          "long": "margin-mode",
+          "enum_values": [
+            "cross",
+            "isolated"
+          ],
+          "description": "Margin mode intent for perpetual orders. Defaults to cross."
+        },
+        {
+          "id": "builder",
+          "long": "builder",
+          "description": "Builder address to receive the additional order fee. Requires --builder-fee-rate.",
+          "input_kind": "protocol_object_address"
+        },
+        {
+          "id": "builder_fee_rate",
+          "long": "builder-fee-rate",
+          "description": "Builder fee rate percent string, e.g. 0.001%. Requires --builder."
+        },
+        {
+          "id": "cloid",
+          "long": "cloid",
+          "description": "0x-prefixed 16-byte client order id.",
+          "input_kind": "identifier"
+        },
+        {
           "id": "yes",
           "long": "yes",
           "short": "y",
           "arg_type": "boolean",
-          "description": "Skip confirmation prompt for deliberate automation.",
+          "description": "Skip the mainnet confirmation prompt for deliberate automation. Testnet orders never prompt.",
           "input_kind": "boolean"
         }
       ],
@@ -436,7 +509,7 @@
       "group": "trade",
       "auth_required": true,
       "dangerous": true,
-      "description": "Market sell alias for orders create --side sell. Limit if --price is set. Accepts --size or --amount. Dry-run first. Retry: check_open_orders — not idempotent.",
+      "description": "Market sell alias for orders create --side sell. Limit if --price is set. Accepts --size or --amount. Dry-run first. Retry: check_open_orders — not idempotent. Mainnet orders prompt for confirmation unless --yes is passed; --testnet orders run without a prompt.",
       "args": [
         {
           "id": "coin",
@@ -470,11 +543,81 @@
           "input_kind": "amount"
         },
         {
+          "id": "order_type",
+          "long": "type",
+          "enum_values": [
+            "limit",
+            "market",
+            "stop-loss",
+            "take-profit",
+            "stop-limit",
+            "take-limit"
+          ],
+          "description": "Order type. Defaults to limit when --price is set, otherwise market."
+        },
+        {
+          "id": "tif",
+          "long": "tif",
+          "default": "gtc",
+          "enum_values": [
+            "gtc",
+            "ioc",
+            "alo"
+          ],
+          "description": "Time in force: gtc, ioc, or alo."
+        },
+        {
+          "id": "reduce_only",
+          "long": "reduce-only",
+          "arg_type": "boolean",
+          "description": "Only reduce an existing perpetual position; spot markets are not supported.",
+          "input_kind": "boolean"
+        },
+        {
+          "id": "max_slippage_bps",
+          "long": "max-slippage-bps",
+          "arg_type": "integer",
+          "default": "500",
+          "description": "Maximum slippage bound in basis points for market orders. Default 500; allowed range 1-1000."
+        },
+        {
+          "id": "on_behalf_of",
+          "long": "on-behalf-of",
+          "description": "Acting-account selector for vaultAddress: subaccount/vault address, wallet name, or wallet id.",
+          "input_kind": "acting_account_selector"
+        },
+        {
+          "id": "margin_mode",
+          "long": "margin-mode",
+          "enum_values": [
+            "cross",
+            "isolated"
+          ],
+          "description": "Margin mode intent for perpetual orders. Defaults to cross."
+        },
+        {
+          "id": "builder",
+          "long": "builder",
+          "description": "Builder address to receive the additional order fee. Requires --builder-fee-rate.",
+          "input_kind": "protocol_object_address"
+        },
+        {
+          "id": "builder_fee_rate",
+          "long": "builder-fee-rate",
+          "description": "Builder fee rate percent string, e.g. 0.001%. Requires --builder."
+        },
+        {
+          "id": "cloid",
+          "long": "cloid",
+          "description": "0x-prefixed 16-byte client order id.",
+          "input_kind": "identifier"
+        },
+        {
           "id": "yes",
           "long": "yes",
           "short": "y",
           "arg_type": "boolean",
-          "description": "Skip confirmation prompt for deliberate automation.",
+          "description": "Skip the mainnet confirmation prompt for deliberate automation. Testnet orders never prompt.",
           "input_kind": "boolean"
         }
       ],
@@ -490,7 +633,7 @@
       "group": "trade",
       "auth_required": true,
       "dangerous": true,
-      "description": "Buy a HIP-4 outcome token. Coin must be #N or +N notation. Dry-run first. Retry: check_open_orders — not idempotent.",
+      "description": "Buy a HIP-4 outcome token. Coin must be #N or +N notation. Dry-run first. Retry: check_open_orders — not idempotent. Mainnet orders prompt for confirmation unless --yes is passed; --testnet orders run without a prompt.",
       "args": [
         {
           "id": "coin",
@@ -512,11 +655,93 @@
           "input_kind": "amount"
         },
         {
+          "id": "dex",
+          "long": "dex",
+          "description": "HIP-3 DEX name.",
+          "input_kind": "venue_selector"
+        },
+        {
+          "id": "amount",
+          "long": "amount",
+          "description": "Quote-sized amount. Alternative to --size for market orders.",
+          "input_kind": "amount"
+        },
+        {
+          "id": "order_type",
+          "long": "type",
+          "enum_values": [
+            "limit",
+            "market",
+            "stop-loss",
+            "take-profit",
+            "stop-limit",
+            "take-limit"
+          ],
+          "description": "Order type. Defaults to limit when --price is set, otherwise market."
+        },
+        {
+          "id": "tif",
+          "long": "tif",
+          "default": "gtc",
+          "enum_values": [
+            "gtc",
+            "ioc",
+            "alo"
+          ],
+          "description": "Time in force: gtc, ioc, or alo."
+        },
+        {
+          "id": "reduce_only",
+          "long": "reduce-only",
+          "arg_type": "boolean",
+          "description": "Only reduce an existing perpetual position; spot markets are not supported.",
+          "input_kind": "boolean"
+        },
+        {
+          "id": "max_slippage_bps",
+          "long": "max-slippage-bps",
+          "arg_type": "integer",
+          "default": "500",
+          "description": "Maximum slippage bound in basis points for market orders. Default 500; allowed range 1-1000."
+        },
+        {
+          "id": "on_behalf_of",
+          "long": "on-behalf-of",
+          "description": "Acting-account selector for vaultAddress: subaccount/vault address, wallet name, or wallet id.",
+          "input_kind": "acting_account_selector"
+        },
+        {
+          "id": "margin_mode",
+          "long": "margin-mode",
+          "enum_values": [
+            "cross",
+            "isolated"
+          ],
+          "description": "Margin mode intent for perpetual orders. Defaults to cross."
+        },
+        {
+          "id": "builder",
+          "long": "builder",
+          "description": "Builder address to receive the additional order fee. Requires --builder-fee-rate.",
+          "input_kind": "protocol_object_address"
+        },
+        {
+          "id": "builder_fee_rate",
+          "long": "builder-fee-rate",
+          "description": "Builder fee rate percent string, e.g. 0.001%. Requires --builder."
+        },
+        {
+          "id": "cloid",
+          "long": "cloid",
+          "description": "0x-prefixed 16-byte client order id.",
+          "input_kind": "identifier"
+        },
+        {
           "id": "yes",
           "long": "yes",
           "short": "y",
           "arg_type": "boolean",
-          "description": "Skip confirmation prompt for deliberate automation.",
+          "description": "Skip the mainnet confirmation prompt for deliberate automation. Testnet orders never prompt.",
           "input_kind": "boolean"
         }
       ],
@@ -532,7 +757,7 @@
       "group": "trade",
       "auth_required": true,
       "dangerous": true,
-      "description": "Sell a HIP-4 outcome token. Coin must be #N or +N notation. Dry-run first. Retry: check_open_orders — not idempotent.",
+      "description": "Sell a HIP-4 outcome token. Coin must be #N or +N notation. Dry-run first. Retry: check_open_orders — not idempotent. Mainnet orders prompt for confirmation unless --yes is passed; --testnet orders run without a prompt.",
       "args": [
         {
           "id": "coin",
@@ -554,11 +779,93 @@
           "input_kind": "amount"
         },
         {
+          "id": "dex",
+          "long": "dex",
+          "description": "HIP-3 DEX name.",
+          "input_kind": "venue_selector"
+        },
+        {
+          "id": "amount",
+          "long": "amount",
+          "description": "Quote-sized amount. Alternative to --size for market orders.",
+          "input_kind": "amount"
+        },
+        {
+          "id": "order_type",
+          "long": "type",
+          "enum_values": [
+            "limit",
+            "market",
+            "stop-loss",
+            "take-profit",
+            "stop-limit",
+            "take-limit"
+          ],
+          "description": "Order type. Defaults to limit when --price is set, otherwise market."
+        },
+        {
+          "id": "tif",
+          "long": "tif",
+          "default": "gtc",
+          "enum_values": [
+            "gtc",
+            "ioc",
+            "alo"
+          ],
+          "description": "Time in force: gtc, ioc, or alo."
+        },
+        {
+          "id": "reduce_only",
+          "long": "reduce-only",
+          "arg_type": "boolean",
+          "description": "Only reduce an existing perpetual position; spot markets are not supported.",
+          "input_kind": "boolean"
+        },
+        {
+          "id": "max_slippage_bps",
+          "long": "max-slippage-bps",
+          "arg_type": "integer",
+          "default": "500",
+          "description": "Maximum slippage bound in basis points for market orders. Default 500; allowed range 1-1000."
+        },
+        {
+          "id": "on_behalf_of",
+          "long": "on-behalf-of",
+          "description": "Acting-account selector for vaultAddress: subaccount/vault address, wallet name, or wallet id.",
+          "input_kind": "acting_account_selector"
+        },
+        {
+          "id": "margin_mode",
+          "long": "margin-mode",
+          "enum_values": [
+            "cross",
+            "isolated"
+          ],
+          "description": "Margin mode intent for perpetual orders. Defaults to cross."
+        },
+        {
+          "id": "builder",
+          "long": "builder",
+          "description": "Builder address to receive the additional order fee. Requires --builder-fee-rate.",
+          "input_kind": "protocol_object_address"
+        },
+        {
+          "id": "builder_fee_rate",
+          "long": "builder-fee-rate",
+          "description": "Builder fee rate percent string, e.g. 0.001%. Requires --builder."
+        },
+        {
+          "id": "cloid",
+          "long": "cloid",
+          "description": "0x-prefixed 16-byte client order id.",
+          "input_kind": "identifier"
+        },
+        {
           "id": "yes",
           "long": "yes",
           "short": "y",
           "arg_type": "boolean",
-          "description": "Skip confirmation prompt for deliberate automation.",
+          "description": "Skip the mainnet confirmation prompt for deliberate automation. Testnet orders never prompt.",
           "input_kind": "boolean"
         }
       ],
@@ -618,6 +925,13 @@
             "position_lifecycle"
           ],
           "description": "Only evaluate these risk rules."
+        },
+        {
+          "id": "interval",
+          "long": "interval",
+          "default": "15s",
+          "description": "Polling interval between risk checks, for example 15s or 500ms. Default 15s.",
+          "input_kind": "duration"
         },
         {
           "id": "max_events",
@@ -1348,7 +1662,7 @@
       "group": "wallet",
       "auth_required": false,
       "dangerous": true,
-      "description": "Remove a signing wallet.",
+      "description": "Delete a wallet's encrypted key from the vault. This cannot be undone.",
       "args": [
         {
           "id": "selector",
@@ -1560,7 +1874,7 @@
       "group": "wallet",
       "auth_required": false,
       "dangerous": true,
-      "description": "Remove wallet configuration and wallets from local OWS state.",
+      "description": "Delete the config file, clearing default wallet, network, and builder and referral defaults. Wallets stay in the vault.",
       "args": [
         {
           "id": "yes",
@@ -1649,7 +1963,7 @@
       "group": "wallet",
       "auth_required": false,
       "dangerous": true,
-      "description": "Delete a wallet by name or id.",
+      "description": "Delete a wallet's encrypted key from the vault. This cannot be undone.",
       "args": [
         {
           "id": "selector",
@@ -1714,7 +2028,8 @@
           "long": "watch",
           "arg_type": "boolean",
           "description": "Watch live snapshots. Use max_ticks to bound automation calls.",
-          "input_kind": "boolean"
+          "input_kind": "boolean",
+          "short": "w"
         },
         {
           "id": "max_ticks",
@@ -1799,7 +2114,8 @@
           "long": "watch",
           "arg_type": "boolean",
           "description": "Watch live snapshots. Use max_ticks to bound automation calls.",
-          "input_kind": "boolean"
+          "input_kind": "boolean",
+          "short": "w"
         },
         {
           "id": "max_ticks",
@@ -2105,7 +2421,7 @@
       "group": "market",
       "auth_required": true,
       "dangerous": true,
-      "description": "Supply a borrow/lend reserve token through the verified wallet-signed exchange borrowLend action. Use --dry-run to inspect the action before submission.",
+      "description": "Supply a borrow/lend reserve token with a wallet-signed borrowLend exchange action. Runs live without a confirmation prompt; --dry-run previews the action without submitting.",
       "args": [
         {
           "id": "token",
@@ -2120,6 +2436,11 @@
           "required": true,
           "description": "Human-readable token amount to supply.",
           "input_kind": "amount"
+        },
+        {
+          "id": "max",
+          "long": "max",
+          "description": "Not supported for supply: the command rejects --max and requires --amount. Only withdraw accepts --max."
         }
       ],
       "lifecycle": "live_mutating",
@@ -2134,7 +2455,7 @@
       "group": "market",
       "auth_required": true,
       "dangerous": true,
-      "description": "Withdraw from a borrow/lend reserve through the verified wallet-signed exchange borrowLend action. Use --dry-run to inspect the action before submission.",
+      "description": "Withdraw from a borrow/lend reserve with a wallet-signed borrowLend exchange action. Runs live without a confirmation prompt; --dry-run previews the action without submitting.",
       "args": [
         {
           "id": "token",
@@ -2195,7 +2516,7 @@
       "group": "trade",
       "auth_required": true,
       "dangerous": true,
-      "description": "Create a live limit, market, stop-loss, take-profit, stop-limit, take-limit, or verified outcome limit order. Supports optional per-order builder fee params.",
+      "description": "Create a live limit, market, stop-loss, take-profit, stop-limit, take-limit, or verified outcome limit order. Supports optional per-order builder fee params. Mainnet orders prompt for confirmation unless --yes is passed; --testnet orders run without a prompt.",
       "args": [
         {
           "id": "coin",
@@ -2340,7 +2661,7 @@
           "long": "yes",
           "short": "y",
           "arg_type": "boolean",
-          "description": "Skip confirmation prompt for deliberate automation.",
+          "description": "Skip the mainnet confirmation prompt for deliberate automation. Testnet orders never prompt.",
           "input_kind": "boolean"
         }
       ],
@@ -2356,7 +2677,7 @@
       "group": "trade",
       "auth_required": true,
       "dangerous": true,
-      "description": "Create a deterministic batch of evenly spaced limit orders.",
+      "description": "Create a deterministic batch of evenly spaced limit orders. Mainnet orders prompt for confirmation unless --yes is passed; --testnet orders run without a prompt.",
       "args": [
         {
           "id": "coin",
@@ -2445,7 +2766,7 @@
           "long": "yes",
           "short": "y",
           "arg_type": "boolean",
-          "description": "Skip confirmation prompt for deliberate automation.",
+          "description": "Skip the mainnet confirmation prompt for deliberate automation. Testnet orders never prompt.",
           "input_kind": "boolean"
         }
       ],
@@ -2461,7 +2782,7 @@
       "group": "trade",
       "auth_required": true,
       "dangerous": true,
-      "description": "Create a batch of limit orders from a JSON order-leg file.",
+      "description": "Create a batch of limit orders from a JSON order-leg file. Mainnet orders prompt for confirmation unless --yes is passed; --testnet orders run without a prompt.",
       "args": [
         {
           "id": "orders_file",
@@ -2481,7 +2802,7 @@
           "long": "yes",
           "short": "y",
           "arg_type": "boolean",
-          "description": "Skip confirmation prompt for deliberate automation.",
+          "description": "Skip the mainnet confirmation prompt for deliberate automation. Testnet orders never prompt.",
           "input_kind": "boolean"
         }
       ],
@@ -2497,7 +2818,7 @@
       "group": "trade",
       "auth_required": true,
       "dangerous": true,
-      "description": "Create position-attached take-profit and/or stop-loss orders. Dry-run first. Retry: check_open_orders — a second tpsl can duplicate working triggers.",
+      "description": "Create position-attached take-profit and/or stop-loss orders. Dry-run first. Retry: check_open_orders — a second tpsl can duplicate working triggers. Mainnet orders prompt for confirmation unless --yes is passed; --testnet orders run without a prompt.",
       "args": [
         {
           "id": "coin",
@@ -2564,11 +2885,17 @@
           "description": "Margin mode intent for perpetual TP/SL orders. Defaults to cross."
         },
         {
+          "id": "cloid",
+          "long": "cloid",
+          "description": "0x-prefixed 16-byte client order id.",
+          "input_kind": "identifier"
+        },
+        {
           "id": "yes",
           "long": "yes",
           "short": "y",
           "arg_type": "boolean",
-          "description": "Skip confirmation prompt for deliberate automation.",
+          "description": "Skip the mainnet confirmation prompt for deliberate automation. Testnet orders never prompt.",
           "input_kind": "boolean"
         }
       ],
@@ -2718,7 +3045,7 @@
       "group": "trade",
       "auth_required": true,
       "dangerous": true,
-      "description": "Create a TWAP order.",
+      "description": "Create a TWAP order. Mainnet orders prompt for confirmation unless --yes is passed; --testnet orders run without a prompt.",
       "args": [
         {
           "id": "coin",
@@ -2778,7 +3105,7 @@
           "long": "yes",
           "short": "y",
           "arg_type": "boolean",
-          "description": "Skip confirmation prompt for deliberate automation.",
+          "description": "Skip the mainnet confirmation prompt for deliberate automation. Testnet orders never prompt.",
           "input_kind": "boolean"
         }
       ],
@@ -2901,7 +3228,7 @@
       "group": "trade",
       "auth_required": true,
       "dangerous": true,
-      "description": "Configure a dead man's switch.",
+      "description": "Configure a dead man's switch. Mainnet orders prompt for confirmation unless --yes is passed; --testnet orders run without a prompt.",
       "args": [
         {
           "id": "in_duration",
@@ -2928,7 +3255,7 @@
           "long": "yes",
           "short": "y",
           "arg_type": "boolean",
-          "description": "Skip confirmation prompt for deliberate automation.",
+          "description": "Skip the mainnet confirmation prompt for deliberate automation. Testnet orders never prompt.",
           "input_kind": "boolean"
         }
       ],
@@ -2944,7 +3271,7 @@
       "group": "trade",
       "auth_required": true,
       "dangerous": true,
-      "description": "Bounded ALO requote loop that chases mid by a basis-point offset until fill, timeout, or max chase distance. Dry-run first. Retry: check_open_orders — not idempotent. Agent mode requires --timeout.",
+      "description": "Bounded ALO requote loop that chases mid by a basis-point offset until fill, timeout, or max chase distance. Dry-run first. Retry: check_open_orders — not idempotent. Agent mode requires --timeout. Mainnet orders prompt for confirmation unless --yes is passed; --testnet orders run without a prompt.",
       "args": [
         {
           "id": "coin",
@@ -3004,11 +3331,24 @@
           "description": "Cancel and stop if mid travels this many basis points from the first mid."
         },
         {
+          "id": "reduce_only",
+          "long": "reduce-only",
+          "arg_type": "boolean",
+          "description": "Only reduce an existing perpetual position; spot markets are not supported.",
+          "input_kind": "boolean"
+        },
+        {
+          "id": "on_behalf_of",
+          "long": "on-behalf-of",
+          "description": "Acting-account selector for vaultAddress: subaccount/vault address, wallet name, or wallet id.",
+          "input_kind": "acting_account_selector"
+        },
+        {
           "id": "yes",
           "long": "yes",
           "short": "y",
           "arg_type": "boolean",
-          "description": "Skip confirmation prompt for deliberate automation.",
+          "description": "Skip the mainnet confirmation prompt for deliberate automation. Testnet orders never prompt.",
           "input_kind": "boolean"
         }
       ],
@@ -3024,7 +3364,7 @@
       "group": "trade",
       "auth_required": true,
       "dangerous": true,
-      "description": "Place an entry order, then arm position TP/SL. Limit entries wait for fill up to --entry-timeout. Dry-run first. Retry: check_open_orders — not idempotent. Emits one result object.",
+      "description": "Place an entry order, then arm position TP/SL. Limit entries wait for fill up to --entry-timeout. Dry-run first. Retry: check_open_orders — not idempotent. Emits one result object. Mainnet orders prompt for confirmation unless --yes is passed; --testnet orders run without a prompt.",
       "args": [
         {
           "id": "coin",
@@ -3093,11 +3433,30 @@
           "input_kind": "duration"
         },
         {
+          "id": "dex",
+          "long": "dex",
+          "description": "HIP-3 DEX name.",
+          "input_kind": "venue_selector"
+        },
+        {
+          "id": "max_slippage_bps",
+          "long": "max-slippage-bps",
+          "arg_type": "integer",
+          "default": "500",
+          "description": "Maximum slippage bound in basis points for market orders. Default 500; allowed range 1-1000."
+        },
+        {
+          "id": "on_behalf_of",
+          "long": "on-behalf-of",
+          "description": "Acting-account selector for vaultAddress: subaccount/vault address, wallet name, or wallet id.",
+          "input_kind": "acting_account_selector"
+        },
+        {
           "id": "yes",
           "long": "yes",
           "short": "y",
           "arg_type": "boolean",
-          "description": "Skip confirmation prompt for deliberate automation.",
+          "description": "Skip the mainnet confirmation prompt for deliberate automation. Testnet orders never prompt.",
           "input_kind": "boolean"
         }
       ],

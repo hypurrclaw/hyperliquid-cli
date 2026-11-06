@@ -92,17 +92,18 @@ fn snapshot_watch_schema_exposes_conditional_stream_bounds() {
 }
 
 #[test]
-fn secret_stdout_schema_does_not_advertise_yes_as_machine_bypass() {
+fn wallet_export_schema_advertises_yes_as_confirmation_bypass() {
     let schemas = schema_all();
     let schema = schemas
         .iter()
         .find(|schema| schema["command_path"] == json!(["wallet", "export"]))
         .unwrap();
 
-    assert_eq!(schema["confirmation_bypass"]["supported"], false);
+    assert_eq!(schema["confirmation_bypass"]["supported"], true);
+    assert_eq!(schema["confirmation_bypass"]["arg"], "yes");
     assert_eq!(
         schema["json_schema"]["x-hyperliquid"]["confirmation_bypass"]["supported"],
-        false
+        true
     );
 }
 
