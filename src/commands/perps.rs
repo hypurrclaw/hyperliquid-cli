@@ -109,6 +109,10 @@ impl TableData for PerpMarketsOutput {
     fn to_json_value(&self) -> serde_json::Value {
         serde_json::to_value(&self.markets).unwrap_or_else(|_| serde_json::json!([]))
     }
+
+    fn empty_message(&self) -> Option<&str> {
+        Some("No perpetual markets.")
+    }
 }
 
 /// Output wrapper for a single perpetual market.

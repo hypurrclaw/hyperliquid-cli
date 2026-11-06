@@ -428,6 +428,7 @@ async fn orders_cancel_all_pretty_prompt_uses_yellow_warning() {
     env.command()
         .env(API_OVERRIDE_ENV, server.uri())
         .env(PRIVATE_KEY_ENV, VALID_PRIVATE_KEY)
+        .env("FORCE_COLOR", "1")
         .write_stdin("n\n")
         .args(["orders", "cancel-all", "--testnet"])
         .assert()

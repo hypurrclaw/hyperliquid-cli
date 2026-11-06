@@ -264,6 +264,7 @@ async fn orders_open_pretty_empty_state_uses_theme_colors() {
     env.command()
         .env(API_OVERRIDE_ENV, server.uri())
         .env(PRIVATE_KEY_ENV, VALID_PRIVATE_KEY)
+        .env("FORCE_COLOR", "1")
         .args(["orders", "open"])
         .assert()
         .success()

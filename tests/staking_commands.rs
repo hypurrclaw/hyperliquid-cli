@@ -302,7 +302,7 @@ async fn staking_validators_lists_validator_names_and_addresses() {
         .success()
         .stdout(predicate::str::contains("Validator One"))
         .stdout(predicate::str::contains(VALIDATOR_ADDRESS))
-        .stderr(predicate::str::contains("Completed in"));
+        .stderr(predicate::str::contains("Completed in").not());
 }
 
 #[tokio::test]

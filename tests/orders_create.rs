@@ -2053,6 +2053,7 @@ async fn orders_create_market_slippage_warning_uses_yellow_in_pretty_only() {
     env.command()
         .env(API_OVERRIDE_ENV, server.uri())
         .env(PRIVATE_KEY_ENV, VALID_PRIVATE_KEY)
+        .env("FORCE_COLOR", "1")
         .args([
             "orders",
             "create",
