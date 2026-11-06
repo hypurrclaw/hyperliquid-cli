@@ -3,7 +3,7 @@
 use std::time::{Duration, Instant};
 
 use hypersdk::Decimal;
-use hypersdk::hypercore::{Dex, HttpClient, SpotMarket};
+use hypersdk::hypercore::{HttpClient, SpotMarket};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
@@ -68,11 +68,21 @@ pub struct DexRow {
     pub deployer_fee_scale: Option<Decimal>,
 }
 
-impl From<Dex> for DexRow {
-    fn from(dex: Dex) -> Self {
+/// One `perpDexs` entry. hypersdk 0.3's `Dex` no longer carries the deployer fee
+/// scale, so the CLI reads it from the raw response to keep the `meta` output stable.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawPerpDex {
+    name: String,
+    #[serde(default, with = "rust_decimal::serde::str_option")]
+    deployer_fee_scale: Option<Decimal>,
+}
+
+impl From<RawPerpDex> for DexRow {
+    fn from(dex: RawPerpDex) -> Self {
         Self {
-            name: dex.name().to_string(),
-            deployer_fee_scale: dex.deployer_fee_scale(),
+            name: dex.name,
+            deployer_fee_scale: dex.deployer_fee_scale,
         }
     }
 }
@@ -207,6 +217,7 @@ impl MetaAndAssetContexts {
 #[serde(rename_all = "camelCase", tag = "type")]
 enum RawInfoRequest {
     MetaAndAssetCtxs,
+    PerpDexs,
 }
 
 /// Fetch exchange metadata: perpetual universe, spot universe, asset contexts, and DEXes.
@@ -214,13 +225,7 @@ pub async fn query(client: &HttpClient) -> Result<MetaResult, anyhow::Error> {
     let start = Instant::now();
     let raw_meta_and_contexts = fetch_meta_and_asset_contexts(client).await?;
     let spot_universe = load_spot_universe(client).await?;
-    let dexes = client
-        .perp_dexs()
-        .await
-        .map_err(map_api_error)?
-        .into_iter()
-        .map(DexRow::from)
-        .collect();
+    let dexes = fetch_dexes(client).await?;
     let output = raw_meta_and_contexts.into_output(spot_universe, dexes);
 
     Ok(MetaResult {
@@ -249,6 +254,18 @@ pub async fn show(client: &HttpClient, format: OutputFormat) -> Result<(), anyho
 async fn fetch_meta_and_asset_contexts(
     client: &HttpClient,
 ) -> Result<MetaAndAssetContexts, CliError> {
+    fetch_raw_info(client, &RawInfoRequest::MetaAndAssetCtxs).await
+}
+
+async fn fetch_dexes(client: &HttpClient) -> Result<Vec<DexRow>, CliError> {
+    let dexes: Vec<Option<RawPerpDex>> = fetch_raw_info(client, &RawInfoRequest::PerpDexs).await?;
+    Ok(dexes.into_iter().flatten().map(DexRow::from).collect())
+}
+
+async fn fetch_raw_info<T: serde::de::DeserializeOwned>(
+    client: &HttpClient,
+    request: &RawInfoRequest,
+) -> Result<T, CliError> {
     let mut api_url = raw_info_base_url(client)?;
     api_url.set_path("/info");
 
@@ -259,7 +276,7 @@ async fn fetch_meta_and_asset_contexts(
         .map_err(|err| CliError::Internal(anyhow::Error::new(err)))?;
     let response = http_client
         .post(api_url)
-        .json(&RawInfoRequest::MetaAndAssetCtxs)
+        .json(request)
         .send()
         .await
         .map_err(|err| map_api_error(anyhow::Error::new(err)))?;

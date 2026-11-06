@@ -187,7 +187,7 @@ fn spread_and_funding_outputs_render_through_context_projection() {
         coin: "BTC".to_string(),
         current_funding_rate: Some(dec("0.0001")),
         predicted_funding_rate: dec("0.0002"),
-        premium: dec("0.00005"),
+        premium: Some(dec("0.00005")),
         mark_price: Some(dec("100")),
         oracle_price: Some(dec("99")),
         last_funding_time: Some(123),

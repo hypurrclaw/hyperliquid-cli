@@ -152,7 +152,7 @@ async fn historical_orders(
     user: Address,
 ) -> Result<Vec<BasicOrder>, CliError> {
     match client.historical_orders(user).await {
-        Ok(orders) => Ok(orders),
+        Ok(orders) => Ok(orders.into_iter().map(|update| update.order).collect()),
         Err(err) if should_fallback_to_raw_historical_orders(&err) => {
             historical_orders_raw(client, user).await
         }
@@ -165,9 +165,11 @@ fn normalize_order_display_coin(resolver: &AssetResolver, mut order: BasicOrder)
     order
 }
 
+/// hypersdk decodes `historicalOrders` as `OrderUpdate<BasicOrder>`; when the
+/// payload is a bare order list the decode fails with a serde error, and the raw
+/// path accepts both shapes.
 fn should_fallback_to_raw_historical_orders(err: &anyhow::Error) -> bool {
-    let message = err.to_string();
-    message.contains("decode failed") && message.contains("missing field `timestamp`")
+    err.chain().any(|cause| cause.is::<serde_json::Error>())
 }
 
 async fn historical_orders_raw(

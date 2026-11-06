@@ -1835,6 +1835,7 @@ async fn watch_book(
             coin: subscription_coin,
             n_sig_figs: None,
             mantissa: None,
+            fast: false,
         }],
         format,
         max_ticks,
@@ -1951,7 +1952,7 @@ async fn watch_positions(
     hyperliquid_cli::watch::run_snapshot_watch(
         "Live positions",
         context.chain(),
-        vec![Subscription::WebData2 { user, dex: None }],
+        vec![Subscription::WebData3 { user }],
         format,
         max_ticks,
         move || {
@@ -1985,6 +1986,7 @@ async fn subscribe(context: &AppContext, command: &SubscribeCommands) -> Result<
                     coin,
                     n_sig_figs: None,
                     mantissa: None,
+                    fast: false,
                 },
                 stream.max_events,
                 stream.idle_timeout(),
@@ -4200,7 +4202,7 @@ async fn load_hip3_perp_asset(
     token: &str,
 ) -> Result<hyperliquid_cli::commands::PerpAsset, errors::CliError> {
     let dex = client
-        .perp_dexs()
+        .perp_dexes()
         .await
         .map_err(errors::from_anyhow)?
         .into_iter()

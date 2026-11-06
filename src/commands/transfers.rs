@@ -454,15 +454,14 @@ pub async fn spot_send(
     confirm_transfer(&prompt, "spot send transfer aborted", format, args.yes)?;
 
     let nonce = actions::nonce_now();
-    let action = Action::SpotSend(
-        SpotSend {
-            destination,
-            token: SendToken(token.clone()),
-            amount: args.amount,
-            time: nonce,
-        }
-        .into_action(chain),
-    );
+    let spot_send = SpotSend {
+        destination,
+        token: SendToken(token.clone()),
+        amount: args.amount,
+        time: nonce,
+    }
+    .into_action(chain);
+    let action = Action::SpotSend(spot_send);
     actions::send_l1_action(api_base_url, chain, signer, action, nonce).await?;
 
     print_transfer(
@@ -512,18 +511,17 @@ pub async fn send_asset(
     confirm_transfer(&prompt, "send-asset transfer aborted", format, args.yes)?;
 
     let nonce = actions::nonce_now();
-    let action = Action::SendAsset(
-        SendAsset {
-            destination,
-            source_dex: source.target,
-            destination_dex: dest.target,
-            token: SendToken(token.clone()),
-            amount: args.amount,
-            from_sub_account: args.from_subaccount.clone().unwrap_or_default(),
-            nonce,
-        }
-        .into_action(chain),
-    );
+    let send_asset = SendAsset {
+        destination,
+        source_dex: source.target,
+        destination_dex: dest.target,
+        token: SendToken(token.clone()),
+        amount: args.amount,
+        from_sub_account: args.from_subaccount.clone().unwrap_or_default(),
+        nonce,
+    }
+    .into_action(chain);
+    let action = Action::SendAsset(send_asset);
     actions::send_l1_action(api_base_url, chain, signer, action, nonce).await?;
     if emit_output {
         print_transfer(

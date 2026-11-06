@@ -1,8 +1,8 @@
 //! Shared helpers for signed Hyperliquid exchange actions.
 
 use alloy::dyn_abi::{Eip712Types, Resolver, TypedData};
+use alloy::primitives::keccak256;
 use alloy::sol_types::SolStruct;
-use alloy_primitives::keccak256;
 use chrono::Utc;
 use hypersdk::Address;
 use hypersdk::hypercore::Chain;
@@ -182,7 +182,7 @@ fn raw_rmp_hash<T: Serialize>(
     nonce: u64,
     maybe_vault_address: Option<Address>,
     maybe_expires_after: Option<u64>,
-) -> Result<alloy_primitives::B256, rmp_serde::encode::Error> {
+) -> Result<alloy::primitives::B256, rmp_serde::encode::Error> {
     let mut bytes = rmp_serde::to_vec_named(value)?;
     bytes.extend(nonce.to_be_bytes());
 

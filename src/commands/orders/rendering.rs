@@ -65,6 +65,20 @@ impl OrderConfirmation {
             OrderResponseStatus::Success => {
                 Self::from_prepared(prepared, "accepted", None, prepared.price, prepared.size)
             }
+            OrderResponseStatus::WaitingForTrigger => Self::from_prepared(
+                prepared,
+                "waiting_for_trigger",
+                None,
+                prepared.price,
+                prepared.size,
+            ),
+            OrderResponseStatus::WaitingForFill => Self::from_prepared(
+                prepared,
+                "waiting_for_fill",
+                None,
+                prepared.price,
+                prepared.size,
+            ),
             OrderResponseStatus::Resting { oid, .. } => Self::from_prepared(
                 prepared,
                 "resting",

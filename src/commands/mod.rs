@@ -806,53 +806,24 @@ pub(crate) fn map_api_error(err: anyhow::Error) -> CliError {
         Ok(cli_err) => return cli_err,
         Err(err) => err,
     };
-    let err = match err.downcast::<hypersdk::hypercore::Error>() {
-        Ok(core_err) => return CliError::from(core_err),
-        Err(err) => err,
-    };
-    if let Some(request_err) = err.downcast_ref::<reqwest::Error>() {
-        return crate::errors::network_error(request_err, None);
+    if crate::errors::is_typed_hypersdk_error(&err) {
+        return crate::errors::from_hypersdk(err);
     }
 
     let raw_message = err.to_string();
-    let lower = raw_message.to_lowercase();
-    if lower.contains("rate limit")
-        || lower.contains("rate-limit")
-        || lower.contains("too many requests")
-        || lower.contains("http 429")
-        || lower.contains("429 too many")
-    {
+    if crate::errors::looks_like_rate_limit_text(&raw_message) {
         return CliError::RateLimited;
     }
-
-    // `HTTP <status> body=<text>` is written by this CLI: the server answered,
-    // so a 5xx is an API failure, not a connectivity problem.
-    if let Some(status) = parse_http_status(&lower)
-        && (500..600).contains(&status)
-        && let Ok(code) = reqwest::StatusCode::from_u16(status)
-    {
-        let body = raw_message
-            .split_once("body=")
-            .map(|(_, body)| body)
-            .unwrap_or_default();
-        return CliError::api_status(code, body);
+    if let Some(server_err) = crate::errors::http_server_error_from_text(&raw_message) {
+        return server_err;
     }
+    let lower = raw_message.to_lowercase();
 
     let transport_text = lower.split("body=").next().unwrap_or_default();
     if let Some(cause) = transport_failure_cause(transport_text) {
         return CliError::Unavailable(format!("Couldn't reach the Hyperliquid API. {cause}."));
     }
     CliError::Internal(anyhow::anyhow!("{}", labelled_untrusted_text(&raw_message)))
-}
-
-/// The three-digit status after `HTTP ` in lower-cased text.
-fn parse_http_status(lower: &str) -> Option<u16> {
-    let rest = &lower[lower.find("http ")? + "http ".len()..];
-    let digits = rest
-        .chars()
-        .take_while(char::is_ascii_digit)
-        .collect::<String>();
-    (digits.len() == 3).then(|| digits.parse().ok()).flatten()
 }
 
 /// Name the transport failure described by locally generated error text.

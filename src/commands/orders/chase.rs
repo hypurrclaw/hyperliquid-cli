@@ -118,7 +118,9 @@ pub async fn chase(
                         size: remaining,
                     });
                 }
-                OrderResponseStatus::Success => {
+                OrderResponseStatus::Success
+                | OrderResponseStatus::WaitingForTrigger
+                | OrderResponseStatus::WaitingForFill => {
                     working = Some(WorkingQuote {
                         oid: None,
                         cloid,
@@ -305,6 +307,7 @@ async fn cancel_working_quote(
                 asset: quote.asset,
                 cloid: quote.cloid,
             }],
+            fast: false,
         }),
         vault_address,
         "chase cancel failed",
@@ -349,6 +352,7 @@ async fn place_chase_quote(
         Action::Order(BatchOrder {
             orders: vec![prepared.request],
             grouping: OrderGrouping::Na,
+            builder: None,
         }),
         vault_address,
         "chase quote failed",
@@ -479,6 +483,10 @@ mod tests {
                 order_type: OrderType::Limit,
                 tif: None,
                 reduce_only: false,
+                is_trigger: None,
+                trigger_px: None,
+                trigger_condition: None,
+                is_position_tpsl: None,
             }
         }
 

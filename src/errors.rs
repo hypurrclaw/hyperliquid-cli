@@ -543,7 +543,7 @@ fn value_contains_rate_limit_text(value: &serde_json::Value) -> bool {
     }
 }
 
-fn looks_like_rate_limit_text(text: &str) -> bool {
+pub(crate) fn looks_like_rate_limit_text(text: &str) -> bool {
     let lower = text.to_lowercase();
     lower.contains("rate limit")
         || lower.contains("rate-limit")
@@ -562,53 +562,88 @@ fn code_indicates_rate_limit(code: &str) -> bool {
 
 // ── hypersdk → CliError mapping ─────────────────────────────────────────
 
-impl From<hypersdk::hypercore::Error> for CliError {
-    fn from(err: hypersdk::hypercore::Error) -> Self {
-        match &err {
-            hypersdk::hypercore::Error::Network(inner) => network_error(inner, None),
-            hypersdk::hypercore::Error::Timeout => CliError::Unavailable(
-                "Couldn't reach the Hyperliquid API. The request timed out.".to_string(),
-            ),
-            hypersdk::hypercore::Error::Api(msg) => {
-                let lower = msg.to_lowercase();
-                if lower.contains("rate limit")
-                    || lower.contains("rate-limit")
-                    || lower.contains("too many requests")
-                    || lower.contains("http 429")
-                    || lower.contains("429 too many")
-                {
-                    CliError::RateLimited
-                } else if lower.contains("invalid key")
-                    || lower.contains("invalid private key")
-                    || lower.contains("unauthorized")
-                {
-                    CliError::InvalidAuth(labelled_untrusted_text(msg))
-                } else {
-                    CliError::Internal(anyhow::anyhow!(
-                        "API error: {}",
-                        labelled_untrusted_text(msg)
-                    ))
-                }
-            }
-            hypersdk::hypercore::Error::Signing(_) => {
-                CliError::InvalidAuth(format!("Signing failed: {}", err))
-            }
-            hypersdk::hypercore::Error::InvalidAddress(addr) => {
-                CliError::Unsupported(format!("Invalid address: {}", addr))
-            }
-            hypersdk::hypercore::Error::InvalidOrder { message } => {
-                CliError::Unsupported(format!("Invalid order: {}", message))
-            }
-            hypersdk::hypercore::Error::WebSocket(msg) => CliError::Unavailable(format!(
-                "Couldn't keep the Hyperliquid WebSocket connection. {}",
-                labelled_untrusted_text(msg)
-            )),
-            hypersdk::hypercore::Error::Json(_) => CliError::Internal(anyhow::anyhow!("{}", err)),
-            hypersdk::hypercore::Error::Other(msg) => {
-                CliError::Internal(anyhow::anyhow!("{}", labelled_untrusted_text(msg)))
-            }
-        }
+/// Classify an error returned by `hypersdk` into a [`CliError`].
+///
+/// hypersdk 0.3 returns `anyhow::Error`. API failures carry a
+/// [`hypersdk::hypercore::ApiError`] (HTTP non-2xx arrives as
+/// `HTTP {status} body={text}`), transport failures carry a `reqwest::Error`,
+/// and decode failures carry a `serde_json::Error`. Typed [`CliError`]s that
+/// were already attached are recovered unchanged.
+pub fn from_hypersdk(err: anyhow::Error) -> CliError {
+    let err = match err.downcast::<CliError>() {
+        Ok(cli_err) => return cli_err,
+        Err(err) => err,
+    };
+
+    if let Some(api) = err
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<hypersdk::hypercore::ApiError>())
+    {
+        return classify_api_message(&api.0);
     }
+    if let Some(request_err) = err
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<reqwest::Error>())
+    {
+        return network_error(request_err, None);
+    }
+    if err.chain().any(|cause| cause.is::<serde_json::Error>()) {
+        return CliError::Internal(anyhow::anyhow!(
+            "{}",
+            labelled_untrusted_text(&format!("{err:#}"))
+        ));
+    }
+    CliError::Internal(anyhow::anyhow!(
+        "{}",
+        labelled_untrusted_text(&err.to_string())
+    ))
+}
+
+/// True when `err` carries a hypersdk API failure or a reqwest transport failure.
+pub(crate) fn is_typed_hypersdk_error(err: &anyhow::Error) -> bool {
+    err.chain()
+        .any(|cause| cause.is::<hypersdk::hypercore::ApiError>() || cause.is::<reqwest::Error>())
+}
+
+fn classify_api_message(msg: &str) -> CliError {
+    let lower = msg.to_lowercase();
+    if looks_like_rate_limit_text(msg) {
+        CliError::RateLimited
+    } else if lower.contains("invalid key")
+        || lower.contains("invalid private key")
+        || lower.contains("unauthorized")
+    {
+        CliError::InvalidAuth(labelled_untrusted_text(msg))
+    } else if let Some(server_err) = http_server_error_from_text(msg) {
+        server_err
+    } else {
+        CliError::Internal(anyhow::anyhow!(
+            "API error: {}",
+            labelled_untrusted_text(msg)
+        ))
+    }
+}
+
+/// Map `HTTP <5xx> body=<text>` text to [`CliError::ApiStatus`].
+///
+/// The server answered, so a 5xx is an API failure, not a connectivity problem.
+pub(crate) fn http_server_error_from_text(text: &str) -> Option<CliError> {
+    let lower = text.to_lowercase();
+    let rest = &lower[lower.find("http ")? + "http ".len()..];
+    let digits = rest
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect::<String>();
+    let status: u16 = (digits.len() == 3).then(|| digits.parse().ok()).flatten()?;
+    if !(500..600).contains(&status) {
+        return None;
+    }
+    let code = reqwest::StatusCode::from_u16(status).ok()?;
+    let body = text
+        .split_once("body=")
+        .map(|(_, body)| body)
+        .unwrap_or_default();
+    Some(CliError::api_status(code, body))
 }
 
 // ── JSON error envelope ─────────────────────────────────────────────────
@@ -1401,81 +1436,102 @@ mod tests {
 
     // ── hypersdk error mapping ──────────────────────────────────────
 
-    #[test]
-    fn test_hypersdk_network_error_maps_to_unavailable() {
-        let err = CliError::from(hypersdk::hypercore::Error::Timeout);
+    fn api_error(msg: &str) -> anyhow::Error {
+        anyhow::Error::new(hypersdk::hypercore::ApiError(msg.to_string()))
+    }
+
+    #[tokio::test]
+    async fn test_hypersdk_network_error_maps_to_unavailable() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        drop(listener);
+        let request_err = reqwest::Client::new()
+            .get(format!("http://{addr}/info"))
+            .send()
+            .await
+            .unwrap_err();
+        let err = from_hypersdk(anyhow::Error::new(request_err).context("[open_orders] request"));
         assert_eq!(err.exit_code(), 12);
         assert!(matches!(err, CliError::Unavailable(_)));
     }
 
     #[test]
     fn test_hypersdk_api_rate_limit_maps_to_rate_limited() {
-        let err = CliError::from(hypersdk::hypercore::Error::Api(
-            "Rate limit exceeded".into(),
-        ));
+        let err = from_hypersdk(api_error("Rate limit exceeded"));
         assert_eq!(err.exit_code(), 11);
         assert!(matches!(err, CliError::RateLimited));
     }
 
     #[test]
     fn test_hypersdk_api_too_many_requests_maps_to_rate_limited() {
-        let err = CliError::from(hypersdk::hypercore::Error::Api("Too many requests".into()));
+        let err = from_hypersdk(api_error("Too many requests"));
         assert_eq!(err.exit_code(), 11);
         assert!(matches!(err, CliError::RateLimited));
     }
 
     #[test]
     fn test_hypersdk_api_http_429_maps_to_rate_limited() {
-        let err = CliError::from(hypersdk::hypercore::Error::Api(
-            "HTTP 429 Too Many Requests".into(),
-        ));
+        let err = from_hypersdk(api_error("HTTP 429 Too Many Requests body="));
         assert_eq!(err.exit_code(), 11);
         assert!(matches!(err, CliError::RateLimited));
     }
 
     #[test]
     fn test_hypersdk_api_auth_error_maps_to_invalid_auth() {
-        let err = CliError::from(hypersdk::hypercore::Error::Api(
-            "Invalid key provided".into(),
-        ));
+        let err = from_hypersdk(api_error("Invalid key provided"));
         assert_eq!(err.exit_code(), 10);
         assert!(matches!(err, CliError::InvalidAuth(_)));
     }
 
     #[test]
     fn test_hypersdk_api_unauthorized_maps_to_invalid_auth() {
-        let err = CliError::from(hypersdk::hypercore::Error::Api(
-            "Unauthorized access".into(),
-        ));
+        let err = from_hypersdk(api_error("Unauthorized access"));
         assert_eq!(err.exit_code(), 10);
         assert!(matches!(err, CliError::InvalidAuth(_)));
     }
 
     #[test]
     fn test_hypersdk_api_generic_maps_to_internal() {
-        let err = CliError::from(hypersdk::hypercore::Error::Api(
-            "Insufficient margin".into(),
+        let err = from_hypersdk(api_error("Insufficient margin"));
+        assert_eq!(err.exit_code(), 1);
+        assert!(matches!(err, CliError::Internal(_)));
+        assert!(err.to_string().contains("[untrusted remote data]"));
+    }
+
+    #[test]
+    fn test_hypersdk_api_http_5xx_maps_to_api_status() {
+        let err = from_hypersdk(api_error(
+            "[open_orders] HTTP 503 Service Unavailable body=pool exhausted",
         ));
+        assert_eq!(err.exit_code(), 12);
+        assert!(matches!(err, CliError::ApiStatus { status: 503, .. }));
+    }
+
+    #[test]
+    fn test_hypersdk_api_http_4xx_maps_to_internal() {
+        let err = from_hypersdk(api_error("HTTP 422 Unprocessable Entity body=bad"));
         assert_eq!(err.exit_code(), 1);
         assert!(matches!(err, CliError::Internal(_)));
     }
 
     #[test]
-    fn test_hypersdk_invalid_address_maps_to_unsupported() {
-        let err = CliError::from(hypersdk::hypercore::Error::InvalidAddress(
-            "not a valid hex".into(),
-        ));
-        assert_eq!(err.exit_code(), 13);
-        assert!(matches!(err, CliError::Unsupported(_)));
+    fn test_hypersdk_api_error_survives_context_wrapping() {
+        let err = from_hypersdk(api_error("Rate limit exceeded").context("loading fills"));
+        assert!(matches!(err, CliError::RateLimited));
     }
 
     #[test]
-    fn test_hypersdk_invalid_order_maps_to_unsupported() {
-        let err = CliError::from(hypersdk::hypercore::Error::InvalidOrder {
-            message: "Size below minimum".into(),
-        });
-        assert_eq!(err.exit_code(), 13);
-        assert!(matches!(err, CliError::Unsupported(_)));
+    fn test_hypersdk_preserves_typed_cli_error() {
+        let err = from_hypersdk(anyhow::Error::new(CliError::AuthRequired));
+        assert!(matches!(err, CliError::AuthRequired));
+    }
+
+    #[test]
+    fn test_hypersdk_other_error_maps_to_labelled_internal() {
+        let err = from_hypersdk(anyhow::anyhow!("something odd"));
+        assert_eq!(err.exit_code(), 1);
+        assert!(matches!(err, CliError::Internal(_)));
+        assert!(err.to_string().contains("[untrusted remote data]"));
     }
 
     #[test]
@@ -1483,7 +1539,7 @@ mod tests {
         // Create a json error via serde
         let bad_json: Result<serde_json::Value, _> = serde_json::from_str("{invalid}");
         let json_err = bad_json.unwrap_err();
-        let err = CliError::from(hypersdk::hypercore::Error::Json(json_err));
+        let err = from_hypersdk(anyhow::Error::new(json_err).context("[meta] body={invalid}"));
         assert_eq!(err.exit_code(), 1);
         assert!(matches!(err, CliError::Internal(_)));
     }

@@ -680,7 +680,10 @@ async fn transfer_spot_send_submits_expected_exchange_payload() {
             .to_ascii_lowercase(),
         VALID_ADDRESS.to_ascii_lowercase()
     );
-    assert_eq!(body["action"]["token"], "HYPE");
+    assert_eq!(
+        body["action"]["token"],
+        "HYPE:0x11111111111111111111111111111111"
+    );
     assert_eq!(body["action"]["amount"], "1.23");
     assert!(body["action"]["time"].is_u64());
     assert!(body["signature"].is_object());
@@ -745,7 +748,10 @@ async fn transfer_send_asset_submits_expected_exchange_payload() {
     );
     assert_eq!(body["action"]["sourceDex"], "spot");
     assert_eq!(body["action"]["destinationDex"], "test");
-    assert_eq!(body["action"]["token"], "USDC");
+    assert_eq!(
+        body["action"]["token"],
+        "USDC:0x00000000000000000000000000000000"
+    );
     assert_eq!(body["action"]["amount"], "4.5");
     assert_eq!(body["action"]["fromSubAccount"], "");
     assert!(body["action"]["nonce"].is_u64());

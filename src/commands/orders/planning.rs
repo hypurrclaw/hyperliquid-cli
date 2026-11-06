@@ -485,6 +485,7 @@ async fn prepare_order_batch_from_create_args(
             .map(|leg| leg.order.request.clone())
             .collect(),
         grouping: OrderGrouping::Na,
+        builder: None,
     };
     Ok(PreparedOrderBatch {
         batch,
@@ -768,6 +769,7 @@ fn batch_from_legs(grouping: TpslGroupingArg, legs: Vec<PreparedTpslLeg>) -> Pre
     let batch = BatchOrder {
         orders: legs.iter().map(|leg| leg.request.clone()).collect(),
         grouping: grouping.to_sdk(),
+        builder: None,
     };
     PreparedTpslBatch {
         batch,
@@ -1076,6 +1078,7 @@ pub(crate) async fn prepare_cancel_order_plan(
     let action = match &identifier {
         OrderIdentifier::Oid(oid) => Action::Cancel(BatchCancel {
             cancels: vec![Cancel { asset, oid: *oid }],
+            fast: false,
         }),
         OrderIdentifier::Cloid { parsed, .. } => Action::CancelByCloid(BatchCancelCloid {
             cancels: vec![CancelByCloid {
@@ -1086,6 +1089,7 @@ pub(crate) async fn prepare_cancel_order_plan(
                 })?,
                 cloid: *parsed,
             }],
+            fast: false,
         }),
     };
 
@@ -1159,6 +1163,7 @@ pub(crate) async fn prepare_modify_order_plan(
                 oid: identifier.to_status_identifier(),
                 order: replacement,
             }],
+            always_place: false,
         }),
         confirmation: ModifyConfirmation {
             coin: resolver.display_coin(&order.coin),
@@ -1198,7 +1203,10 @@ pub(crate) async fn prepare_cancel_all_orders_plan(
                 oid: order.oid,
             });
         }
-        Some(Action::Cancel(BatchCancel { cancels }))
+        Some(Action::Cancel(BatchCancel {
+            cancels,
+            fast: false,
+        }))
     };
 
     Ok(CancelAllOrdersPlan {

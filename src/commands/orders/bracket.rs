@@ -214,7 +214,11 @@ pub async fn bracket(
             asset,
             open_size: requested_size,
         },
-        OrderResponseStatus::Success => EntryTracking {
+        // Accepted without an oid. The exchange has not reported a fill, so the entry
+        // is tracked by cloid and polled like any other resting entry.
+        OrderResponseStatus::Success
+        | OrderResponseStatus::WaitingForTrigger
+        | OrderResponseStatus::WaitingForFill => EntryTracking {
             oid: None,
             cloid,
             asset,
@@ -486,12 +490,14 @@ async fn cancel_entry(
                 asset: tracking.asset as usize,
                 oid,
             }],
+            fast: false,
         }),
         None => Action::CancelByCloid(BatchCancelCloid {
             cancels: vec![CancelByCloid {
                 asset: tracking.asset,
                 cloid: tracking.cloid,
             }],
+            fast: false,
         }),
     };
     actions::send_l1_action_raw(

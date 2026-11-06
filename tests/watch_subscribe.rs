@@ -7,8 +7,9 @@ use hyperliquid_cli::watch::{
 };
 use hypersdk::Address;
 use hypersdk::hypercore::{
-    BookLevel, Candle, Fill, Incoming, L2Book, NonUserCancel, OrderStatus, OrderUpdate, Side,
-    Trade, UserEvent, UserFunding, UserLiquidation, WsBasicOrder, ws::Event as WsEvent,
+    BookLevel, Candle, Fill, FillDirection, Incoming, L2Book, NonUserCancel, OrderStatus,
+    OrderUpdate, Side, Trade, UserEvent, UserFunding, UserLiquidation, WsBasicOrder,
+    ws::Event as WsEvent,
 };
 use predicates::prelude::*;
 use rust_decimal::Decimal;
@@ -927,7 +928,7 @@ fn fill() -> Fill {
         side: Side::Ask,
         time: 1,
         start_position: Decimal::ZERO,
-        dir: "Close Long".to_string(),
+        dir: FillDirection::CloseLong,
         closed_pnl: Decimal::from(5),
         hash: "0xdef".to_string(),
         oid: 9,
@@ -936,6 +937,7 @@ fn fill() -> Fill {
         tid: 43,
         cloid: None,
         fee_token: "USDC".to_string(),
+        builder_fee: None,
         liquidation: None,
     }
 }

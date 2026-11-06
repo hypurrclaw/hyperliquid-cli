@@ -858,9 +858,9 @@ pub fn encrypt_private_key(private_key: &str, key: &[u8; 32]) -> Result<String, 
         .map_err(|err| anyhow::anyhow!("failed to initialize encryption: {err}"))?;
     let mut nonce_bytes = [0_u8; 12];
     rand::rngs::SysRng.try_fill_bytes(&mut nonce_bytes)?;
-    let nonce = Nonce::from_slice(&nonce_bytes);
+    let nonce = Nonce::from(nonce_bytes);
     let ciphertext = cipher
-        .encrypt(nonce, private_key.as_bytes())
+        .encrypt(&nonce, private_key.as_bytes())
         .map_err(|err| anyhow::anyhow!("failed to encrypt private key: {err}"))?;
     Ok(format!(
         "{ENCRYPTION_VERSION}:{}:{}",
@@ -892,8 +892,10 @@ pub fn decrypt_private_key(encrypted: &str, key: &[u8; 32]) -> Result<String, an
     })?;
     let cipher = Aes256Gcm::new_from_slice(key)
         .map_err(|err| anyhow::anyhow!("failed to initialize decryption: {err}"))?;
+    let nonce = Nonce::try_from(nonce.as_slice())
+        .map_err(|_| CliError::InvalidAuth("stored account key has invalid nonce length".into()))?;
     let plaintext = cipher
-        .decrypt(Nonce::from_slice(&nonce), ciphertext.as_ref())
+        .decrypt(&nonce, ciphertext.as_ref())
         .map_err(|_| CliError::InvalidAuth("stored account key could not be decrypted".into()))?;
     String::from_utf8(plaintext)
         .map_err(|_| CliError::InvalidAuth("stored account key is not valid UTF-8".into()).into())

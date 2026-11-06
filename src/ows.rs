@@ -8,8 +8,8 @@ use std::env;
 use std::path::PathBuf;
 
 use alloy::dyn_abi::TypedData;
-use alloy_primitives::Address as AlloyAddress;
-use alloy_primitives::B256;
+use alloy::primitives::Address as AlloyAddress;
+use alloy::primitives::B256;
 use hypersdk::Address;
 use hypersdk::hypercore::types::Signature as HyperliquidSignature;
 
@@ -225,7 +225,7 @@ pub fn sign_typed_data(
     )
     .map_err(map_ows_error)?;
     let signature = hyperliquid_signature_from_ows(result)?;
-    let alloy_signature: alloy_primitives::Signature = signature.into();
+    let alloy_signature: alloy::primitives::Signature = signature.into();
     let signing_hash = typed_data.eip712_signing_hash().map_err(|err| {
         CliError::Internal(anyhow::anyhow!("failed to hash OWS typed data: {err}"))
     })?;
@@ -244,7 +244,7 @@ pub fn sign_hash(config: &OwsSigningConfig, hash: B256) -> Result<HyperliquidSig
     )
     .map_err(map_ows_error)?;
     let signature = hyperliquid_signature_from_ows(result)?;
-    let alloy_signature: alloy_primitives::Signature = signature.into();
+    let alloy_signature: alloy::primitives::Signature = signature.into();
     verify_recovered_address(config, &alloy_signature, hash)?;
     Ok(signature)
 }
@@ -252,7 +252,7 @@ pub fn sign_hash(config: &OwsSigningConfig, hash: B256) -> Result<HyperliquidSig
 pub fn sign_message(
     config: &OwsSigningConfig,
     message: &[u8],
-) -> Result<alloy_primitives::Signature, CliError> {
+) -> Result<alloy::primitives::Signature, CliError> {
     let result = ows_lib::sign_message(
         config.wallet_id()?,
         HYPERLIQUID_CHAIN_ALIAS,
@@ -458,7 +458,7 @@ fn hyperliquid_signature_from_ows(
 
 fn alloy_signature_from_ows(
     result: ows_lib::types::SignResult,
-) -> Result<alloy_primitives::Signature, CliError> {
+) -> Result<alloy::primitives::Signature, CliError> {
     let signature = hyperliquid_signature_from_ows(result)?;
     Ok(signature.into())
 }
@@ -504,7 +504,7 @@ fn canonical_signature_hex_parts(
 
 fn verify_recovered_address(
     config: &OwsSigningConfig,
-    signature: &alloy_primitives::Signature,
+    signature: &alloy::primitives::Signature,
     signing_hash: B256,
 ) -> Result<(), CliError> {
     let recovered = signature
@@ -968,7 +968,7 @@ mod tests {
         let hash = B256::repeat_byte(0x42);
 
         let signature = sign_hash(&config, hash).unwrap();
-        let alloy_signature: alloy_primitives::Signature = signature.into();
+        let alloy_signature: alloy::primitives::Signature = signature.into();
         let recovered = alloy_signature.recover_address_from_prehash(&hash).unwrap();
 
         assert_eq!(recovered, config.address());
@@ -1010,7 +1010,7 @@ mod tests {
         let signing_hash = typed_data.eip712_signing_hash().unwrap();
 
         let signature = sign_typed_data(&config, &typed_data).unwrap();
-        let alloy_signature: alloy_primitives::Signature = signature.into();
+        let alloy_signature: alloy::primitives::Signature = signature.into();
         let recovered = alloy_signature
             .recover_address_from_prehash(&signing_hash)
             .unwrap();

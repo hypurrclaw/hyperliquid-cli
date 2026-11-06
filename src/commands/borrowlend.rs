@@ -3,7 +3,7 @@
 use std::time::{Duration, Instant};
 
 use clap::Args;
-use hypersdk::hypercore::{Chain, HttpClient, UserBalance};
+use hypersdk::hypercore::{Chain, HttpClient};
 use hypersdk::{Address, Decimal};
 use rust_decimal::prelude::ToPrimitive;
 use serde::{Deserialize, Serialize};
@@ -728,24 +728,6 @@ fn format_reversibility(reversibility: ActionReversibility) -> &'static str {
         ActionReversibility::Reversible => "reversible",
         ActionReversibility::PartiallyReversible => "partially_reversible",
         ActionReversibility::Irreversible => "irreversible",
-    }
-}
-
-impl From<UserBalance> for UserBorrowLendPosition {
-    fn from(balance: UserBalance) -> Self {
-        let (supplied, borrowed) = if balance.total < Decimal::ZERO {
-            (Decimal::ZERO, -balance.total)
-        } else {
-            (balance.total, Decimal::ZERO)
-        };
-
-        Self {
-            token: balance.coin,
-            token_index: balance.token,
-            supplied,
-            borrowed,
-            hold: balance.hold,
-        }
     }
 }
 

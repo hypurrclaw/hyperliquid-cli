@@ -385,6 +385,9 @@ async fn place_prepared_single(
     let batch = BatchOrder {
         orders: vec![prepared.request.clone()],
         grouping: OrderGrouping::Na,
+        // The CLI sends builder fees through `place_builder_order_batch_raw`, which
+        // serializes its own `{ b, f }` object; the SDK field stays unset.
+        builder: None,
     };
     let statuses = if let Some(builder) = prepared.builder.clone() {
         place_builder_order_batch_raw(
@@ -1562,7 +1565,7 @@ async fn resolve_hip3_tradable_asset(
     token: &str,
 ) -> Result<TradableAsset, CliError> {
     let dex = client
-        .perp_dexs()
+        .perp_dexes()
         .await
         .map_err(map_api_error)?
         .into_iter()
@@ -1908,7 +1911,10 @@ fn modification_result_oid(statuses: &[OrderResponseStatus]) -> Option<u64> {
         OrderResponseStatus::Resting { oid, .. } | OrderResponseStatus::Filled { oid, .. } => {
             Some(*oid)
         }
-        OrderResponseStatus::Success | OrderResponseStatus::Error(_) => None,
+        OrderResponseStatus::Success
+        | OrderResponseStatus::WaitingForTrigger
+        | OrderResponseStatus::WaitingForFill
+        | OrderResponseStatus::Error(_) => None,
     })
 }
 
@@ -1943,6 +1949,22 @@ fn order_type_placement(
             trigger_px: trigger_price.or(legacy_price).unwrap_or(order.limit_px),
             tpsl: TpSl::Sl,
         }),
+        OrderType::TrailingStopMarket => Err(CliError::Unsupported(
+            "orders modify can't change a Trailing Stop Market order. Cancel it with `hyperliquid orders cancel <OID>`, then place a new trailing stop from the Hyperliquid app; this CLI has no trailing-stop command."
+                .to_string(),
+        )),
+        OrderType::TwapSlice => Err(CliError::Unsupported(
+            "orders modify can't change a Twap Slice order. Cancel the TWAP with `hyperliquid orders twap-cancel`, then re-create it with `hyperliquid orders twap-create`."
+                .to_string(),
+        )),
+        OrderType::VaultClose => Err(CliError::Unsupported(
+            "orders modify can't change a Vault Close order. The exchange places it when a vault closes positions; cancel it with `hyperliquid orders cancel <OID>` and place a regular order instead."
+                .to_string(),
+        )),
+        OrderType::SpotDustConversion => Err(CliError::Unsupported(
+            "orders modify can't change a Spot Dust Conversion order. Cancel it with `hyperliquid orders cancel <OID>` and place a regular order instead."
+                .to_string(),
+        )),
         OrderType::Limit | OrderType::Market => {
             if trigger_price.is_some() {
                 return Err(CliError::Configuration(
@@ -2933,5 +2955,74 @@ mod tests {
                 TpslResponseStatus::WaitingForTrigger
             ]
         ));
+    }
+
+    #[test]
+    fn order_response_parser_accepts_waiting_statuses_without_oid() {
+        let response = serde_json::json!({
+            "type": "order",
+            "data": { "statuses": ["waitingForTrigger", "waitingForFill"] }
+        });
+
+        let statuses = parse_order_statuses(response).unwrap();
+
+        assert!(matches!(
+            statuses.as_slice(),
+            [
+                OrderResponseStatus::WaitingForTrigger,
+                OrderResponseStatus::WaitingForFill
+            ]
+        ));
+        assert_eq!(
+            ensure_action_statuses_ok(&statuses, "place order").unwrap(),
+            2
+        );
+        assert_eq!(modification_result_oid(&statuses), None);
+    }
+
+    fn basic_order(order_type: OrderType) -> BasicOrder {
+        BasicOrder {
+            timestamp: 0,
+            coin: "BTC".to_string(),
+            side: hypersdk::hypercore::Side::Bid,
+            limit_px: Decimal::from(50_000),
+            sz: Decimal::ONE,
+            oid: 7,
+            orig_sz: Decimal::ONE,
+            cloid: None,
+            order_type,
+            tif: None,
+            reduce_only: false,
+            is_trigger: None,
+            trigger_px: None,
+            trigger_condition: None,
+            is_position_tpsl: None,
+        }
+    }
+
+    #[test]
+    fn modify_rejects_order_types_that_cannot_be_replaced() {
+        for (order_type, name, hint) in [
+            (
+                OrderType::TrailingStopMarket,
+                "Trailing Stop Market",
+                "hyperliquid orders cancel <OID>",
+            ),
+            (OrderType::TwapSlice, "Twap Slice", "orders twap-cancel"),
+            (OrderType::VaultClose, "Vault Close", "orders cancel <OID>"),
+            (
+                OrderType::SpotDustConversion,
+                "Spot Dust Conversion",
+                "orders cancel <OID>",
+            ),
+        ] {
+            let err = order_type_placement(&basic_order(order_type), None, None).unwrap_err();
+
+            assert!(matches!(err, CliError::Unsupported(_)));
+            assert_eq!(err.exit_code(), 13);
+            let message = err.to_string();
+            assert!(message.contains(name), "{message}");
+            assert!(message.contains(hint), "{message}");
+        }
     }
 }

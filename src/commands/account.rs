@@ -1036,7 +1036,7 @@ impl From<Fill> for FillRow {
             side: fill.side.to_string(),
             price: fill.px,
             size: fill.sz,
-            direction: fill.dir,
+            direction: fill.dir.to_string(),
             closed_pnl: fill.closed_pnl,
             fee: fill.fee,
             fee_token: fill.fee_token,

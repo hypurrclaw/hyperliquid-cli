@@ -293,7 +293,7 @@ async fn find_dex(
     dex_name: &str,
 ) -> Result<hypersdk::hypercore::Dex, CliError> {
     client
-        .perp_dexs()
+        .perp_dexes()
         .await
         .map_err(map_api_error)?
         .into_iter()

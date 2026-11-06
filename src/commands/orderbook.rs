@@ -262,8 +262,8 @@ pub struct FundingRow {
     pub current_funding_rate: Option<Decimal>,
     #[serde(with = "rust_decimal::serde::str")]
     pub predicted_funding_rate: Decimal,
-    #[serde(with = "rust_decimal::serde::str")]
-    pub premium: Decimal,
+    #[serde(with = "rust_decimal::serde::str_option")]
+    pub premium: Option<Decimal>,
     #[serde(with = "rust_decimal::serde::str_option")]
     pub mark_price: Option<Decimal>,
     #[serde(with = "rust_decimal::serde::str_option")]
@@ -289,7 +289,7 @@ impl TableData for FundingRow {
             self.coin.clone(),
             format_optional_decimal(self.current_funding_rate),
             self.predicted_funding_rate.to_string(),
-            self.premium.to_string(),
+            format_optional_decimal(self.premium),
             format_optional_decimal(self.mark_price),
             format_optional_decimal(self.oracle_price),
             self.last_funding_time
@@ -806,6 +806,7 @@ async fn fetch_l2_book(chain: Chain, coin: &str) -> Result<L2Book, CliError> {
         coin: coin.to_string(),
         n_sig_figs: None,
         mantissa: None,
+        fast: false,
     });
 
     tokio::time::timeout(WEBSOCKET_TIMEOUT, async {
@@ -1066,7 +1067,7 @@ mod tests {
             coin: "BTC".to_string(),
             current_funding_rate: Some(dec("0.0001")),
             predicted_funding_rate: dec("0.0002"),
-            premium: dec("0.00005"),
+            premium: Some(dec("0.00005")),
             mark_price: Some(dec("100")),
             oracle_price: Some(dec("99")),
             last_funding_time: Some(123),
