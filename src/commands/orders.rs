@@ -250,9 +250,9 @@ pub async fn create(
                 .unwrap_or_default();
             let helper = plan_hip3_helper(context, user, &coin, notional).await?;
             if context.submission.require_mainnet_confirmation && !args.yes {
-                warn_hip3_margin_helper(&helper, format)?;
+                warn_hip3_margin_helper(&helper)?;
                 let target = ConsentTarget::new(context.submission, vault_address, None);
-                if !confirm_mainnet_tpsl_batch(&prepared, &target, format)? {
+                if !confirm_mainnet_tpsl_batch(&prepared, &target)? {
                     return Err(CliError::Configuration(
                         "Mainnet TP/SL confirmation required; order placement cancelled. Rerun with --yes for deliberate automation."
                             .to_string(),
@@ -275,8 +275,7 @@ pub async fn create(
         }
         CreateOrderSubmission::Single(prepared) => {
             let statuses =
-                place_prepared_single(context, prepared.clone(), args, vault_address, format)
-                    .await?;
+                place_prepared_single(context, prepared.clone(), args, vault_address).await?;
             let rows = statuses
                 .into_iter()
                 .map(|status| OrderConfirmation::from_status(&prepared, status))
@@ -313,22 +312,16 @@ async fn plan_hip3_helper(
 }
 
 /// Disclose a planned HIP-3 margin helper transfer before order confirmation.
-fn warn_hip3_margin_helper(
-    helper: &Option<Hip3MarginPlan>,
-    format: OutputFormat,
-) -> Result<(), CliError> {
+fn warn_hip3_margin_helper(helper: &Option<Hip3MarginPlan>) -> Result<(), CliError> {
     if let Some(plan) = helper {
         let mut stderr = io::stderr();
         writeln!(
             stderr,
             "{}",
-            warning_prompt(
-                &format!(
-                    "This order requires a helper transfer of {} USDC from perp to dex:{} before placement.",
-                    plan.amount, plan.dest_dex
-                ),
-                format
-            )
+            prompt::warning(&format!(
+                "This order requires a helper transfer of {} USDC from perp to dex:{} before placement.",
+                plan.amount, plan.dest_dex
+            ))
         )
         .map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
     }
@@ -362,7 +355,6 @@ async fn place_prepared_single(
     prepared: PreparedOrder,
     args: &CreateArgs,
     vault_address: Option<Address>,
-    format: OutputFormat,
 ) -> Result<Vec<OrderResponseStatus>, anyhow::Error> {
     let user = vault_address.unwrap_or_else(|| context.submission.signer.query_address());
     let helper = plan_hip3_helper(
@@ -373,10 +365,10 @@ async fn place_prepared_single(
     )
     .await?;
     if context.submission.require_mainnet_confirmation && !args.yes {
-        warn_hip3_margin_helper(&helper, format)?;
+        warn_hip3_margin_helper(&helper)?;
         let target =
             ConsentTarget::new(context.submission, vault_address, prepared.builder.as_ref());
-        if !confirm_mainnet_order(&prepared, &target, format)? {
+        if !confirm_mainnet_order(&prepared, &target)? {
             return Err(CliError::Configuration(
                 "Mainnet order confirmation required; order placement cancelled. Rerun with --yes for deliberate automation."
                     .to_string(),
@@ -427,7 +419,7 @@ pub async fn scale(
     let prepared = prepare_scale_batch(context.client, context.resolver, args).await?;
     if context.submission.require_mainnet_confirmation && !args.yes {
         let target = ConsentTarget::new(context.submission, vault_address, None);
-        if !confirm_mainnet_order_batch("scale", &prepared, &target, format)? {
+        if !confirm_mainnet_order_batch("scale", &prepared, &target)? {
             return Err(CliError::Configuration(
                 "Mainnet scale order confirmation required; order placement cancelled. Rerun with --yes for deliberate automation."
                     .to_string(),
@@ -454,7 +446,7 @@ pub async fn batch_create(
     let prepared = plan.prepared;
     if context.submission.require_mainnet_confirmation && !args.yes {
         let target = ConsentTarget::new(context.submission, vault_address, None);
-        if !confirm_mainnet_order_batch("batch-create", &prepared, &target, format)? {
+        if !confirm_mainnet_order_batch("batch-create", &prepared, &target)? {
             return Err(CliError::Configuration(
                 "Mainnet batch order confirmation required; order placement cancelled. Rerun with --yes for deliberate automation."
                     .to_string(),
@@ -507,7 +499,7 @@ pub async fn tpsl(
         prepare_position_tpsl_batch(context.client, context.resolver, user, args).await?;
     if context.submission.require_mainnet_confirmation && !args.yes {
         let target = ConsentTarget::new(context.submission, vault_address, None);
-        if !confirm_mainnet_tpsl_batch(&prepared, &target, format)? {
+        if !confirm_mainnet_tpsl_batch(&prepared, &target)? {
             return Err(CliError::Configuration(
                 "Mainnet TP/SL confirmation required; order placement cancelled. Rerun with --yes for deliberate automation."
                     .to_string(),
@@ -694,9 +686,7 @@ pub async fn cancel_all(
 
     if plan.cancelled_orders != 0 {
         let target = ConsentTarget::new(context.submission, vault_address, None);
-        if !args.yes
-            && !confirm_cancel_all(args.coin.as_deref(), plan.cancelled_orders, &target, format)?
-        {
+        if !args.yes && !confirm_cancel_all(args.coin.as_deref(), plan.cancelled_orders, &target)? {
             return Err(CliError::Configuration("cancel-all aborted".to_string()).into());
         }
     }
@@ -812,7 +802,6 @@ pub async fn twap_create(
             &plan.coin,
             args,
             &ConsentTarget::new(context, vault_address, None),
-            format,
         )?
     {
         return Err(CliError::Configuration(
@@ -901,7 +890,6 @@ pub async fn schedule_cancel(
         && !confirm_mainnet_schedule_cancel(
             &plan,
             &ConsentTarget::new(context, vault_address, None),
-            format,
         )?
     {
         return Err(CliError::Configuration(
@@ -1997,7 +1985,6 @@ fn confirm_cancel_all(
     coin: Option<&str>,
     count: usize,
     target: &ConsentTarget<'_>,
-    format: OutputFormat,
 ) -> Result<bool, CliError> {
     let scope = coin.map(|coin| format!("{coin} ")).unwrap_or_default();
     let question = format!(
@@ -2005,13 +1992,12 @@ fn confirm_cancel_all(
         plural(count, "order", "orders"),
         target.network()
     );
-    ask_confirmation(target, &[], &question, format)
+    ask_confirmation(target, &[], &question)
 }
 
 fn confirm_mainnet_schedule_cancel(
     plan: &ScheduleCancelPlan,
     target: &ConsentTarget<'_>,
-    format: OutputFormat,
 ) -> Result<bool, CliError> {
     let question = if let Some(scheduled_at) = plan.scheduled_at.as_ref() {
         format!(
@@ -2022,7 +2008,7 @@ fn confirm_mainnet_schedule_cancel(
     } else {
         format!("Clear scheduled cancel-all on {}?", target.network())
     };
-    ask_confirmation(target, &[], &question, format)
+    ask_confirmation(target, &[], &question)
 }
 
 async fn market_mid_price(client: &HttpClient, lookup: &MidLookup) -> Result<Decimal, CliError> {
@@ -2068,7 +2054,6 @@ fn market_limit_price(
 fn confirm_mainnet_order(
     prepared: &PreparedOrder,
     target: &ConsentTarget<'_>,
-    format: OutputFormat,
 ) -> Result<bool, CliError> {
     let amount = prepared
         .amount
@@ -2095,13 +2080,12 @@ fn confirm_mainnet_order(
         reduce_only
     )];
     if let Some(slippage_warning) = &prepared.warning {
-        details.push(warning_prompt(slippage_warning, format));
+        details.push(prompt::warning(slippage_warning));
     }
     ask_confirmation(
         target,
         &details,
         &format!("Place this order on {}?", target.network()),
-        format,
     )
 }
 
@@ -2109,7 +2093,6 @@ fn confirm_mainnet_order_batch(
     label: &str,
     prepared: &PreparedOrderBatch,
     target: &ConsentTarget<'_>,
-    format: OutputFormat,
 ) -> Result<bool, CliError> {
     let count = prepared.legs.len();
     let orders = plural(count, "order", "orders");
@@ -2117,14 +2100,12 @@ fn confirm_mainnet_order_batch(
         target,
         &[format!("Orders: {count} {label} {orders}")],
         &format!("Submit {count} {label} {orders} on {}?", target.network()),
-        format,
     )
 }
 
 fn confirm_mainnet_tpsl_batch(
     prepared: &PreparedTpslBatch,
     target: &ConsentTarget<'_>,
-    format: OutputFormat,
 ) -> Result<bool, CliError> {
     let parent = prepared
         .legs
@@ -2156,14 +2137,13 @@ fn confirm_mainnet_tpsl_batch(
     let mut details = vec![summary];
     for leg in &prepared.legs {
         if let Some(warning) = &leg.warning {
-            details.push(warning_prompt(warning, format));
+            details.push(prompt::warning(warning));
         }
     }
     ask_confirmation(
         target,
         &details,
         &format!("Place this TP/SL batch on {}?", target.network()),
-        format,
     )
 }
 
@@ -2171,7 +2151,6 @@ fn confirm_mainnet_twap(
     coin: &str,
     args: &TwapCreateArgs,
     target: &ConsentTarget<'_>,
-    format: OutputFormat,
 ) -> Result<bool, CliError> {
     let details = [format!(
         "TWAP: {} {} {} over {} seconds",
@@ -2181,7 +2160,6 @@ fn confirm_mainnet_twap(
         target,
         &details,
         &format!("Create this TWAP on {}?", target.network()),
-        format,
     )
 }
 
@@ -2241,22 +2219,13 @@ fn ask_confirmation(
     target: &ConsentTarget<'_>,
     details: &[String],
     question: &str,
-    format: OutputFormat,
 ) -> Result<bool, CliError> {
     prompt::ensure_can_prompt("--yes")?;
     let mut stderr = io::stderr();
     for line in target.preview_lines().iter().chain(details) {
         writeln!(stderr, "{line}").map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
     }
-    prompt::confirm(&warning_prompt(question, format), "--yes")
-}
-
-fn warning_prompt(prompt: &str, format: OutputFormat) -> String {
-    if format == OutputFormat::Pretty {
-        output::colors::yellow(prompt)
-    } else {
-        prompt.to_string()
-    }
+    prompt::confirm_warning(question, "--yes")
 }
 
 /// Pick the singular or plural noun for `count`.

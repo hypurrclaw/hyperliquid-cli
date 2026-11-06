@@ -9,6 +9,7 @@ use std::io::{self, BufRead, Write};
 
 use crate::errors::CliError;
 use crate::mode;
+use crate::output::{colors, terminal};
 
 /// Ask a yes/no question. Only `y` or `yes` (any case) confirm.
 ///
@@ -17,6 +18,17 @@ use crate::mode;
 pub fn confirm(question: &str, bypass: &str) -> Result<bool, CliError> {
     let answer = read_line(&format!("{question} [y/N]: "), bypass)?;
     Ok(is_yes(&answer))
+}
+
+/// Like [`confirm`], with the question styled as a warning on stderr.
+pub fn confirm_warning(question: &str, bypass: &str) -> Result<bool, CliError> {
+    confirm(&warning(question), bypass)
+}
+
+/// Style `text` as a warning for a prompt or consent preview written to stderr.
+#[must_use]
+pub fn warning(text: &str) -> String {
+    colors::stderr::yellow(text)
 }
 
 /// Ask for one line of text and return it without its line ending.
@@ -39,7 +51,7 @@ pub fn read_line(label: &str, input: &str) -> Result<String, CliError> {
             "Can't continue without {input}. Stdin ended before an answer was given."
         )));
     }
-    if !stdin_is_terminal() {
+    if !terminal::stdin_is_terminal() {
         // Piped answers aren't echoed, so end the prompt line ourselves.
         eprintln!();
     }
@@ -61,13 +73,6 @@ pub fn is_yes(input: &str) -> bool {
     matches!(input.trim().to_ascii_lowercase().as_str(), "y" | "yes")
 }
 
-/// Whether stdin is an interactive terminal.
-#[must_use]
-pub fn stdin_is_terminal() -> bool {
-    use std::io::IsTerminal;
-    io::stdin().is_terminal()
-}
-
 /// Ask the user to type `expected` exactly. Anything else, including an empty
 /// line, declines. Use for destructive actions that can't be undone.
 pub fn confirm_typed(label: &str, expected: &str, bypass: &str) -> Result<bool, CliError> {
@@ -81,7 +86,7 @@ pub fn confirm_typed(label: &str, expected: &str, bypass: &str) -> Result<bool, 
 /// can prompt. Piped stdin supplies the secret directly: the first line, without
 /// its line ending. End of input is missing input.
 pub fn read_secret(label: &str, input: &str) -> Result<String, CliError> {
-    let value = if stdin_is_terminal() {
+    let value = if terminal::stdin_is_terminal() {
         ensure_can_prompt(input)?;
         write_label(label)?;
         let value = rpassword::read_password().map_err(io_error)?;
@@ -126,7 +131,8 @@ fn io_error(err: io::Error) -> CliError {
 
 #[cfg(test)]
 mod tests {
-    use super::is_yes;
+    use super::{is_yes, warning};
+    use crate::output::colors;
 
     #[test]
     fn only_explicit_yes_confirms() {
@@ -135,5 +141,13 @@ mod tests {
         assert!(!is_yes(""));
         assert!(!is_yes("yep"));
         assert!(!is_yes("n"));
+    }
+
+    #[test]
+    fn warning_follows_stderr_color_only() {
+        colors::with_streams_for_test(true, false, || assert_eq!(warning("q"), "q"));
+        colors::with_streams_for_test(false, true, || {
+            assert_eq!(warning("q"), colors::paint(colors::YELLOW, "q"));
+        });
     }
 }

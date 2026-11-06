@@ -7,7 +7,6 @@
 //! - `hyperliquid funding <COIN>` — show current and predicted funding
 //! - `hyperliquid mids` — show all mid prices
 
-use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
 use chrono::Utc;
@@ -881,13 +880,6 @@ fn format_optional_decimal(value: Option<Decimal>) -> String {
     value
         .map(|value| value.to_string())
         .unwrap_or_else(|| "n/a".to_string())
-}
-
-#[allow(dead_code)]
-fn sorted_decimal_map(rows: &[MidRow]) -> BTreeMap<String, Decimal> {
-    rows.iter()
-        .map(|row| (row.name.clone(), row.mid))
-        .collect::<BTreeMap<_, _>>()
 }
 
 #[cfg(test)]

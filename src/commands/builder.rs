@@ -20,7 +20,7 @@ use crate::commands::actions;
 use crate::dry_run::ActionReversibility;
 use crate::errors::CliError;
 use crate::http_api::post_info_json;
-use crate::output::{OutputFormat, TableData, colors};
+use crate::output::{OutputFormat, TableData};
 use crate::signing::SelectedSigner;
 
 /// Compile-time default builder address captured from the build environment.
@@ -399,7 +399,7 @@ pub async fn approve(
 ) -> Result<(), anyhow::Error> {
     let max_fee_tenths_bps = validate_max_fee_rate(&args.max_fee_rate)?;
     if require_confirmation && !args.yes {
-        confirm_builder_approval(builder, &args.max_fee_rate, max_fee_tenths_bps, format)?;
+        confirm_builder_approval(builder, &args.max_fee_rate, max_fee_tenths_bps)?;
     }
 
     let start = Instant::now();
@@ -646,18 +646,12 @@ fn confirm_builder_approval(
     builder: Address,
     max_fee_rate: &str,
     max_fee_tenths_bps: u64,
-    format: OutputFormat,
 ) -> Result<(), CliError> {
     crate::prompt::ensure_can_prompt("--yes")?;
     let question = format!(
         "Approve builder {builder} for max fee {max_fee_rate} ({max_fee_tenths_bps} tenths bps)?"
     );
-    let question = if format == OutputFormat::Pretty {
-        colors::yellow(&question)
-    } else {
-        question
-    };
-    if crate::prompt::confirm(&question, "--yes")? {
+    if crate::prompt::confirm_warning(&question, "--yes")? {
         Ok(())
     } else {
         Err(CliError::Configuration(

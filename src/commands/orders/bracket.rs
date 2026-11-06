@@ -184,8 +184,7 @@ pub async fn bracket(
     )?;
     validate_tpsl_price_ordering(args.side.opposite(), est_tp, est_sl, "orders bracket")?;
 
-    let statuses =
-        place_prepared_single(context, prepared, &entry_args, vault_address, format).await?;
+    let statuses = place_prepared_single(context, prepared, &entry_args, vault_address).await?;
     let entry_status = statuses.into_iter().next().ok_or_else(|| {
         CliError::Internal(anyhow::anyhow!("bracket entry returned no order status"))
     })?;
