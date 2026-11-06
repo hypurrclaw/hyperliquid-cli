@@ -273,7 +273,7 @@
         {
           "arg_type": "boolean",
           "default": null,
-          "description": "Skip confirmation prompt for deliberate automation.",
+          "description": "Skip the mainnet confirmation prompt for deliberate automation. Testnet orders never prompt.",
           "enum_values": [],
           "id": "yes",
           "input_kind": "boolean",
@@ -296,7 +296,7 @@
         "supported": true
       },
       "dangerous": true,
-      "description": "Create a live limit, market, stop-loss, take-profit, stop-limit, take-limit, or verified outcome limit order. Supports optional per-order builder fee params.",
+      "description": "Create a live limit, market, stop-loss, take-profit, stop-limit, take-limit, or verified outcome limit order. Supports optional per-order builder fee params. Mainnet orders prompt for confirmation unless --yes is passed; --testnet orders run without a prompt.",
       "dry_run": "optional",
       "group": "trade",
       "json_schema": {
@@ -418,7 +418,7 @@
             "type": "string"
           },
           "yes": {
-            "description": "Skip confirmation prompt for deliberate automation.",
+            "description": "Skip the mainnet confirmation prompt for deliberate automation. Testnet orders never prompt.",
             "input_kind": "boolean",
             "type": "boolean"
           }
@@ -832,6 +832,19 @@
           "positional_index": null,
           "required": true,
           "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Not supported for supply: the command rejects --max and requires --amount. Only withdraw accepts --max.",
+          "enum_values": [],
+          "id": "max",
+          "input_kind": null,
+          "long": "max",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
         }
       ],
       "auth_required": true,
@@ -846,7 +859,7 @@
         "supported": false
       },
       "dangerous": true,
-      "description": "Supply a borrow/lend reserve token through the verified wallet-signed exchange borrowLend action. Use --dry-run to inspect the action before submission.",
+      "description": "Supply a borrow/lend reserve token with a wallet-signed borrowLend exchange action. Runs live without a confirmation prompt; --dry-run previews the action without submitting.",
       "dry_run": "optional",
       "group": "market",
       "json_schema": {
@@ -855,6 +868,10 @@
           "amount": {
             "description": "Human-readable token amount to supply.",
             "input_kind": "amount",
+            "type": "string"
+          },
+          "max": {
+            "description": "Not supported for supply: the command rejects --max and requires --amount. Only withdraw accepts --max.",
             "type": "string"
           },
           "token": {

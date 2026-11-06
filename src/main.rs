@@ -26,6 +26,8 @@ use hyperliquid_cli::output;
 use hyperliquid_cli::resolvers::{DefaultSignerFallback, SignerResolverInput};
 use hyperliquid_cli::watch::{SubscribeEventKind, subscription_event_matches};
 
+#[cfg(test)]
+mod cli_contract_tests;
 mod cli_runtime;
 
 static ASSET_METADATA_CACHE: OnceLock<MetadataCache> = OnceLock::new();
