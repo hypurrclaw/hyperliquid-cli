@@ -43,6 +43,10 @@ pub enum CliError {
     #[error("Configuration error: {0}")]
     Configuration(String),
 
+    /// Required input is missing and this invocation can't prompt for it (exit 2).
+    #[error("{0}")]
+    MissingInput(String),
+
     /// No wallet or private key configured (exit 10).
     #[error("Authentication required. Run `hyperliquid setup` to configure your wallet.")]
     AuthRequired,
@@ -107,7 +111,7 @@ impl CliError {
     pub fn exit_code(&self) -> i32 {
         match self {
             Self::Internal(_) => 1,
-            Self::Configuration(_) => 2,
+            Self::Configuration(_) | Self::MissingInput(_) => 2,
             Self::AuthRequired
             | Self::InvalidAuth(_)
             | Self::OwsWalletNotFound { .. }
@@ -313,6 +317,7 @@ impl CliError {
         match self {
             Self::Internal(_) => "internal",
             Self::Configuration(_) => "configuration",
+            Self::MissingInput(_) => "missing_input",
             Self::AuthRequired
             | Self::InvalidAuth(_)
             | Self::OwsWalletNotFound { .. }

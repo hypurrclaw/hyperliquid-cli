@@ -81,10 +81,54 @@ pub mod colors {
         }
     }
 
+    use std::io::IsTerminal;
+    use std::sync::OnceLock;
+
+    /// Per-stream color decision: `(stdout, stderr)`.
+    static STREAMS: OnceLock<(bool, bool)> = OnceLock::new();
+
+    /// Resolve color once per process. Precedence: `--no-color`, non-empty
+    /// `NO_COLOR`, `FORCE_COLOR` (`0`/`false` off), then per-stream TTY detection
+    /// with `TERM=dumb` off. Later calls are ignored.
+    pub fn init(no_color_flag: bool) {
+        let _ = STREAMS.set(resolve(no_color_flag));
+    }
+
+    fn resolve(no_color_flag: bool) -> (bool, bool) {
+        if no_color_flag || std::env::var_os("NO_COLOR").is_some_and(|value| !value.is_empty()) {
+            return (false, false);
+        }
+        if let Ok(value) = std::env::var("FORCE_COLOR") {
+            let value = value.trim().to_ascii_lowercase();
+            if !value.is_empty() {
+                let on = value != "0" && value != "false";
+                return (on, on);
+            }
+        }
+        let dumb = std::env::var("TERM").is_ok_and(|term| term == "dumb");
+        (
+            !dumb && std::io::stdout().is_terminal(),
+            !dumb && std::io::stderr().is_terminal(),
+        )
+    }
+
+    fn streams() -> (bool, bool) {
+        *STREAMS.get_or_init(|| resolve(false))
+    }
+
+    /// Whether styling may be written to stdout.
+    pub fn stdout_enabled() -> bool {
+        streams().0
+    }
+
+    /// Whether styling may be written to stderr.
+    pub fn stderr_enabled() -> bool {
+        streams().1
+    }
+
     /// Check if stdout is connected to a terminal (supports colors).
     pub fn should_colorize() -> bool {
-        use std::io::IsTerminal;
-        std::io::stdout().is_terminal()
+        stdout_enabled()
     }
 }
 
