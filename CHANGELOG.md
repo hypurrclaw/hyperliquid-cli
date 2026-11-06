@@ -4,6 +4,7 @@
 
 Command-line behavior:
 
+- Errors for a bad `HYPERLIQUID_MAINNET_API_BASE_URL` or `HYPERLIQUID_TESTNET_API_BASE_URL` now name that variable. The update-check cache is written owner-only (0600). If a new wallet can't be recorded in the config and can't be removed from the vault either, the error says the wallet is still there. `wallet reset` no longer prints the plaintext-key warning for a file it is about to delete.
 - A group without an action (`hyperliquid orders`) and bare `hyperliquid` print help on stdout and exit `0`. `-h` and `--help` print the same help at every depth, and a closed pipe (`| head`) ends quietly.
 - `-v`/`--version` works at every depth. With JSON output it prints `{"version":"X"}`.
 - Added global `--non-interactive` and `--no-color`. `CI`, `HYPERLIQUID_AGENT`, JSON output, and `--payload-file -` never prompt. Boolean `HYPERLIQUID_*` variables are validated, and an invalid value exits `2`.

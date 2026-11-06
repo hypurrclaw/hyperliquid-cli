@@ -42,9 +42,10 @@ use hypersdk::hypercore::{self, Chain, HttpClient, PerpMarket, SpotMarket};
 use serde::{Deserialize, Serialize};
 use strsim::levenshtein;
 
-use crate::config::{self, Network};
 use crate::errors::CliError;
+use crate::network::Network;
 use crate::response_sanitization::labelled_untrusted_text;
+use crate::settings::Settings;
 
 /// Metadata cache lifetime for exchange metadata.
 pub const METADATA_TTL: Duration = Duration::from_secs(60);
@@ -355,15 +356,9 @@ pub(crate) async fn load_raw_spot_markets_from_url(
 }
 
 pub(crate) fn raw_info_base_url(client: &HttpClient) -> Result<reqwest::Url, CliError> {
-    let network = if client.chain().is_mainnet() {
-        Network::Mainnet
-    } else {
-        Network::Testnet
-    };
+    let network = Network::from_chain(client.chain());
 
-    if let Some(api_base_url) = config::resolve_api_base_url_override_for_network(network)
-        .map_err(crate::errors::from_anyhow)?
-    {
+    if let Some(api_base_url) = Settings::from_process().api_base_url_override(network)? {
         Ok(api_base_url)
     } else if client.chain().is_mainnet() {
         Ok(hypercore::mainnet_url())

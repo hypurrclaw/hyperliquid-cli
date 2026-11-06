@@ -56,7 +56,7 @@ fn release_install_path_uses_public_repo_and_checksums() {
     let readme = repo_file("README.md");
     let install_script = repo_file("install.sh");
     let release_workflow = repo_file(".github/workflows/release.yml");
-    let update_check = repo_file("src/update_check.rs");
+    let update_check = repo_file("src/update/release.rs");
 
     for required in [
         "hypurrclaw/hyperliquid-cli",
@@ -102,12 +102,12 @@ fn release_install_path_uses_public_repo_and_checksums() {
     ] {
         assert!(
             update_check.contains(required),
-            "src/update_check.rs is missing supported self-update asset mapping {required}"
+            "src/update/release.rs is missing supported self-update asset mapping {required}"
         );
     }
     assert!(
         update_check.contains("update is not supported on {os}/{arch}"),
-        "src/update_check.rs should fail closed for unsupported self-update platforms such as Windows"
+        "src/update/release.rs should fail closed for unsupported self-update platforms such as Windows"
     );
 }
 

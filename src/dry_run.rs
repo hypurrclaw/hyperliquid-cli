@@ -8,7 +8,7 @@ use std::sync::OnceLock;
 
 use serde::Serialize;
 
-use crate::config::Network;
+use crate::network::Network;
 use crate::output::TableData;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

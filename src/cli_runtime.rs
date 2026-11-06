@@ -26,7 +26,7 @@ async fn run_command(
             )
             .into());
         }
-        return hyperliquid_cli::update_check::update(cli.format, cli.dry_run).await;
+        return hyperliquid_cli::update::update(cli.format, cli.dry_run).await;
     }
 
     let command_contract = command_contract_for_path(registry_path)?;
@@ -79,24 +79,19 @@ async fn run_command(
         None => Ok(()),
         Some(Commands::Wallet {
             subcommand: WalletCommands::Address,
-        }) => hyperliquid_cli::commands::wallet::address(
-            context.private_key.as_deref(),
-            context.keystore.as_deref(),
-            context.keystore_password.as_deref(),
-            context.account.as_deref(),
-            context.ows_signer.as_deref(),
-            cli.format,
-        ),
+        }) => context.resolve_signer().map(|signer| {
+            hyperliquid_cli::commands::wallet::address(&signer, cli.format);
+        }),
         Some(Commands::Wallet {
             subcommand: WalletCommands::Show,
-        }) => hyperliquid_cli::commands::wallet::show(
-            context.private_key.as_deref(),
-            context.keystore.as_deref(),
-            context.keystore_password.as_deref(),
-            context.account.as_deref(),
-            context.ows_signer.as_deref(),
-            cli.format,
-        ),
+        }) => context.resolve_signer().map(|signer| {
+            hyperliquid_cli::commands::wallet::show(
+                &context.settings,
+                &context.selection,
+                &signer,
+                cli.format,
+            );
+        }),
         Some(Commands::Perps {
             subcommand: PerpsCommands::List(args),
         }) => {
@@ -1583,36 +1578,32 @@ fn parse_payload_json(raw: &str) -> Result<serde_json::Value, anyhow::Error> {
 /// Runtime settings resolved from CLI flags, environment variables, and config file.
 #[derive(Debug)]
 struct AppContext {
-    private_key: Option<String>,
-    keystore: Option<PathBuf>,
-    keystore_password: Option<String>,
-    account: Option<String>,
-    ows_signer: Option<String>,
-    network: config::Network,
+    settings: hyperliquid_cli::settings::Settings,
+    selection: hyperliquid_cli::auth::SignerSelection,
+    network: Network,
     api_base_url_override: Option<reqwest::Url>,
+    signer: std::sync::OnceLock<hyperliquid_cli::auth::ResolvedSigner>,
 }
 
 impl AppContext {
     fn resolve(cli: &Cli) -> Result<Self, anyhow::Error> {
-        let testnet = config::resolve_testnet(cli.testnet)?;
-        let network = if testnet {
-            config::Network::Testnet
-        } else {
-            config::Network::Mainnet
-        };
-        let private_key = if cli.account.is_some() || cli.ows_signer.is_some() {
-            None
-        } else {
-            config::resolve_private_key(cli.private_key.as_deref())?
-        };
+        let settings = hyperliquid_cli::settings::Settings::from_process();
+        let network = settings.network(cli.testnet)?;
+        let selection = hyperliquid_cli::auth::SignerSelection::from_flags(
+            &settings,
+            cli.private_key.as_deref(),
+            cli.keystore.clone(),
+            cli.keystore_password.clone(),
+            cli.account.clone(),
+            cli.ows_signer.clone(),
+        )?;
+        let api_base_url_override = settings.api_base_url_override(network)?;
         Ok(Self {
-            private_key,
-            keystore: cli.keystore.clone(),
-            keystore_password: cli.keystore_password.clone(),
-            account: cli.account.clone(),
-            ows_signer: cli.ows_signer.clone(),
+            settings,
+            selection,
             network,
-            api_base_url_override: config::resolve_api_base_url_override_for_network(network)?,
+            api_base_url_override,
+            signer: std::sync::OnceLock::new(),
         })
     }
 
@@ -1620,36 +1611,24 @@ impl AppContext {
         self.api_base_url_override
             .as_ref()
             .map(std::string::ToString::to_string)
-            .unwrap_or_else(|| {
-                config::api_base_url(self.network == config::Network::Testnet).to_string()
-            })
+            .unwrap_or_else(|| self.network.api_base_url().to_string())
     }
 
     fn chain(&self) -> Chain {
-        match self.network {
-            config::Network::Mainnet => Chain::Mainnet,
-            config::Network::Testnet => Chain::Testnet,
-        }
+        self.network.chain()
     }
 
     fn http_client(&self) -> HttpClient {
-        let client = HttpClient::new(self.chain());
-        if let Some(api_base_url) = self.api_base_url_override.as_ref() {
-            client.with_url(api_base_url.clone())
-        } else {
-            client
-        }
+        self.network.http_client(self.api_base_url_override.clone())
     }
 
+    /// The selected signer, resolved once per run. A failed resolution is not cached.
     fn resolve_signer(&self) -> Result<hyperliquid_cli::auth::ResolvedSigner, anyhow::Error> {
-        hyperliquid_cli::resolvers::resolve_selected_signer(SignerResolverInput {
-            resolved_private_key: self.private_key.as_deref(),
-            keystore_path: self.keystore.as_deref(),
-            keystore_password: self.keystore_password.as_deref(),
-            account_selector: self.account.as_deref(),
-            ows_selector: self.ows_signer.as_deref(),
-            default_fallback: DefaultSignerFallback::AllowStoredDefaultOrFirst,
-        })
+        if let Some(signer) = self.signer.get() {
+            return Ok(signer.clone());
+        }
+        let signer = hyperliquid_cli::auth::resolve_signer(&self.selection, &self.settings)?;
+        Ok(self.signer.get_or_init(|| signer).clone())
     }
 
     fn has_api_base_url_override(&self) -> bool {
@@ -1702,7 +1681,7 @@ fn order_submission_context<'a>(
         api_base_url,
         chain: context.chain(),
         signer,
-        require_mainnet_confirmation: context.network == config::Network::Mainnet,
+        require_mainnet_confirmation: context.network == Network::Mainnet,
     }
 }
 
@@ -2075,7 +2054,11 @@ fn resolve_protocol_user_string(selector: &str) -> Result<String, anyhow::Error>
 }
 
 fn resolve_protocol_user_address(selector: &str) -> Result<Address, anyhow::Error> {
-    Ok(hyperliquid_cli::resolvers::resolve_protocol_user_address(selector)?.address())
+    Ok(hyperliquid_cli::resolvers::resolve_protocol_user_address(
+        selector,
+        &hyperliquid_cli::settings::Settings::from_process(),
+    )?
+    .address())
 }
 
 fn resolve_protocol_user_string_or_selected(
@@ -2089,7 +2072,11 @@ fn resolve_protocol_user_string_or_selected(
 }
 
 fn resolve_acting_account_address(selector: &str) -> Result<Address, anyhow::Error> {
-    Ok(hyperliquid_cli::resolvers::resolve_acting_account_address(selector)?.address())
+    Ok(hyperliquid_cli::resolvers::resolve_acting_account_address(
+        selector,
+        &hyperliquid_cli::settings::Settings::from_process(),
+    )?
+    .address())
 }
 
 fn resolve_optional_acting_account_target(
@@ -4075,7 +4062,8 @@ async fn set_referral(
         Some(code) => code,
         None => {
             owned_default = hyperliquid_cli::commands::referral::resolve_default_referral_code(
-                context.network == config::Network::Testnet,
+                &context.settings,
+                context.network.is_testnet(),
             )?;
             match owned_default.as_deref() {
                 Some(default_code) => default_code,

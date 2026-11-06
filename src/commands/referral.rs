@@ -11,59 +11,32 @@ use crate::dry_run::ActionReversibility;
 use crate::errors::CliError;
 use crate::http_api::post_info_json;
 use crate::output::{self, OutputFormat, TableData};
+use crate::settings::Settings;
 use crate::signing::SelectedSigner;
-
-/// Compile-time default referral code captured from the build environment.
-///
-/// Set `HYPERLIQUID_DEFAULT_REFERRAL_CODE` while building the binary to bake in
-/// a default referral code. A runtime env var with the same name still overrides
-/// this value. Empty by default in the upstream repo, meaning no mainnet default.
-pub const DEFAULT_REFERRAL_CODE: &str = match option_env!("HYPERLIQUID_DEFAULT_REFERRAL_CODE") {
-    Some(code) => code,
-    None => "",
-};
 
 /// Resolve the default referral code.
 ///
-/// Priority:
-/// 1. `HYPERLIQUID_DEFAULT_REFERRAL_CODE` runtime env var (trimmed)
-/// 2. Config file `default_referral_code`
-/// 3. Build-time `HYPERLIQUID_DEFAULT_REFERRAL_CODE`
-/// 4. On testnet: built-in `"TESTNET"` fallback
-/// 5. On mainnet: returns `None` (caller should require an explicit code)
-pub fn resolve_default_referral_code(is_testnet: bool) -> Result<Option<String>, CliError> {
-    let config = crate::config::load_config()
-        .map_err(|err| CliError::Configuration(format!("failed to load config: {err}")))?;
-    Ok(resolve_default_referral_code_from_config(
-        is_testnet,
-        config.as_ref(),
-    ))
+/// Priority: `HYPERLIQUID_DEFAULT_REFERRAL_CODE`, the config file
+/// `default_referral_code`, the build-time default, then `TESTNET` on testnet.
+/// On mainnet `None` means the caller should require an explicit code.
+pub fn resolve_default_referral_code(
+    settings: &Settings,
+    is_testnet: bool,
+) -> Result<Option<String>, CliError> {
+    settings.default_referral_code(is_testnet)
 }
 
-pub fn resolve_default_referral_code_from_config(
+/// The referral code setup and wallet creation offer. Skips the config file and
+/// rejects a code that wouldn't be accepted by `referral set`.
+pub fn suggested_default_referral_code(
+    settings: &Settings,
     is_testnet: bool,
-    config: Option<&crate::config::Config>,
-) -> Option<String> {
-    if let Ok(code) = std::env::var("HYPERLIQUID_DEFAULT_REFERRAL_CODE") {
-        let code = code.trim().to_string();
-        if !code.is_empty() {
-            return Some(code);
-        }
+) -> Result<Option<String>, anyhow::Error> {
+    let code = settings.suggested_default_referral_code(is_testnet);
+    if let Some(code) = code.as_deref() {
+        validate_referral_code(code)?;
     }
-    if let Some(code) = config
-        .and_then(|config| config.default_referral_code.as_deref())
-        .map(str::trim)
-        .filter(|code| !code.is_empty())
-    {
-        return Some(code.to_string());
-    }
-    if !DEFAULT_REFERRAL_CODE.is_empty() {
-        return Some(DEFAULT_REFERRAL_CODE.to_string());
-    }
-    if is_testnet {
-        return Some("TESTNET".to_string());
-    }
-    None
+    Ok(code)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -418,26 +391,6 @@ fn format_reversibility(reversibility: ActionReversibility) -> &'static str {
 }
 
 #[cfg(test)]
-fn env_guard() -> impl Drop {
-    use std::sync::Mutex;
-    use std::sync::OnceLock;
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    let mutex = LOCK.get_or_init(|| Mutex::new(()));
-    let guard = mutex.lock().unwrap();
-    struct EnvRestore {
-        _guard: std::sync::MutexGuard<'static, ()>,
-    }
-    impl Drop for EnvRestore {
-        fn drop(&mut self) {
-            unsafe {
-                std::env::remove_var("HYPERLIQUID_DEFAULT_REFERRAL_CODE");
-            }
-        }
-    }
-    EnvRestore { _guard: guard }
-}
-
-#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -517,53 +470,22 @@ mod tests {
     }
 
     #[test]
-    fn resolve_default_referral_returns_testnet_fallback() {
-        let _guard = env_guard();
-        unsafe {
-            std::env::remove_var("HYPERLIQUID_DEFAULT_REFERRAL_CODE");
-        }
+    fn suggested_referral_code_is_validated() {
+        let settings = |code: &str| {
+            Settings::detached(
+                crate::settings::EnvSource::fixed([(
+                    crate::settings::env::DEFAULT_REFERRAL_CODE,
+                    code.to_string(),
+                )]),
+                None,
+            )
+        };
         assert_eq!(
-            resolve_default_referral_code_from_config(true, None),
-            Some("TESTNET".to_string())
+            suggested_default_referral_code(&settings("  GOOD  "), false)
+                .unwrap()
+                .as_deref(),
+            Some("GOOD")
         );
-    }
-
-    #[test]
-    fn resolve_default_referral_returns_none_on_mainnet_without_defaults() {
-        let _guard = env_guard();
-        unsafe {
-            std::env::remove_var("HYPERLIQUID_DEFAULT_REFERRAL_CODE");
-        }
-        assert_eq!(resolve_default_referral_code_from_config(false, None), None);
-    }
-
-    #[test]
-    fn resolve_default_referral_prefers_env_var() {
-        let _guard = env_guard();
-        unsafe {
-            std::env::remove_var("HYPERLIQUID_DEFAULT_REFERRAL_CODE");
-            std::env::set_var("HYPERLIQUID_DEFAULT_REFERRAL_CODE", "MYCODE");
-        }
-        assert_eq!(
-            resolve_default_referral_code_from_config(false, None),
-            Some("MYCODE".to_string())
-        );
-        assert_eq!(
-            resolve_default_referral_code_from_config(true, None),
-            Some("MYCODE".to_string())
-        );
-    }
-
-    #[test]
-    fn resolve_default_referral_trims_env_var() {
-        let _guard = env_guard();
-        unsafe {
-            std::env::remove_var("HYPERLIQUID_DEFAULT_REFERRAL_CODE");
-            std::env::set_var("HYPERLIQUID_DEFAULT_REFERRAL_CODE", "  CODE  ");
-        }
-        assert_eq!(
-            resolve_default_referral_code_from_config(false, None),
-            Some("CODE".to_string())
-        );
+        assert!(suggested_default_referral_code(&settings("bad code!"), false).is_err());
     }
 }

@@ -357,514 +357,139 @@ async fn test_cli_missing_config_remains_non_fatal() {
     assert_eq!(resolved_network(&mut command).await, "mainnet");
 }
 
-// ── Unit-level tests for config module (in-process) ──────────────────
+// ── In-process tests over `Settings` ─────────────────────────────────
+//
+// Resolution order and edge cases are covered by unit tests in `src/settings.rs`;
+// these check the same contract through the public API with a real config file.
 
-// These test the config resolution logic directly via the library.
-
-/// Helper to set up a unique test environment that won't interfere
-/// with the user's real config. We test the config resolution functions
-/// directly by manipulating env vars and temp files.
-mod config_unit_tests {
-    use hyperliquid_cli::config;
-    use std::fs;
+mod settings_tests {
+    use hyperliquid_cli::config::{Config, ConfigFile};
+    use hyperliquid_cli::network::Network;
+    use hyperliquid_cli::settings::{EnvSource, Settings, env};
     use tempfile::TempDir;
 
-    /// Test that config_dir returns a valid path.
-    #[test]
-    fn test_config_dir_returns_path() {
-        let dir = config::config_dir();
-        assert!(dir.is_some());
-        let dir = dir.unwrap();
-        assert!(dir.to_string_lossy().contains("hyperliquid"));
+    fn settings_with_file(env_pairs: &[(&str, &str)], config: &Config) -> (TempDir, Settings) {
+        let tmp = TempDir::new().unwrap();
+        let file = ConfigFile::at(tmp.path().join("nested").join("config.json"));
+        file.save(config).unwrap();
+        let settings = Settings::new(EnvSource::fixed(env_pairs.iter().copied()), Some(file));
+        (tmp, settings)
     }
 
-    /// Test that config_file_path returns a valid path ending in config.json.
-    #[test]
-    fn test_config_file_path_returns_path() {
-        let path = config::config_file_path();
-        assert!(path.is_some());
-        let path = path.unwrap();
-        assert!(path.to_string_lossy().ends_with("config.json"));
+    fn no_env() -> EnvSource {
+        EnvSource::fixed::<&str, &str>([])
     }
 
-    /// Test: CLI flag takes priority over everything.
     #[test]
-    fn test_private_key_cli_flag_priority() {
-        let cli_key = "0xcli_flag_key_1234567890abcdef1234567890abcdef1234567890abcdef";
+    fn config_paths_live_under_a_hyperliquid_directory() {
+        let file = ConfigFile::default_location().expect("config dir");
+        let path = file.path().to_string_lossy();
+        assert!(path.contains("hyperliquid"));
+        assert!(path.ends_with("config.json"));
+    }
 
-        // Even with env var set, CLI flag should win
-        let result = config::resolve_private_key_with_env(
-            Some(cli_key),
-            Some("0xenv_key_1234567890abcdef1234567890abcdef1234567890abcdef1234"),
+    #[test]
+    fn missing_config_defaults_to_mainnet_without_a_key() {
+        let settings = Settings::new(no_env(), None);
+        assert!(!settings.testnet(false).unwrap());
+        assert_eq!(settings.private_key(None).unwrap(), None);
+        let missing = Settings::new(
+            no_env(),
+            Some(ConfigFile::at("/nonexistent/config.json".into())),
         );
-        assert_eq!(result, Some(cli_key.to_string()));
-    }
-
-    /// Test: env var is used when no CLI flag.
-    #[test]
-    fn test_private_key_env_fallback() {
-        let env_key = "0xenv_key_1234567890abcdef1234567890abcdef1234567890abcdef1234";
-
-        let result = config::resolve_private_key_with_env(None, Some(env_key));
-        assert_eq!(result, Some(env_key.to_string()));
-    }
-
-    /// Test: config file is used when no CLI flag or env var.
-    #[test]
-    fn test_private_key_config_file_fallback() {
-        let tmp = TempDir::new().unwrap();
-        let config_dir = tmp.path().join("hyperliquid");
-        fs::create_dir_all(&config_dir).unwrap();
-        let config_path = config_dir.join("config.json");
-
-        let file_key = "0xfile_key_1234567890abcdef1234567890abcdef1234567890abcdef12345";
-        let config_json = serde_json::json!({
-            "private_key": file_key
-        });
-        fs::write(&config_path, serde_json::to_string(&config_json).unwrap()).unwrap();
-
-        let result = config::resolve_private_key_from_file(Some(&config_path)).unwrap();
-        assert_eq!(result, Some(file_key.to_string()));
-    }
-
-    /// Test: returns None when no source has a key.
-    #[test]
-    fn test_private_key_none_when_all_empty() {
-        let result = config::resolve_private_key_with_env(None, None);
-        // Without a config file present, should be None
-        // (config file resolution would require a real file)
-        assert!(result.is_none());
-    }
-
-    /// Test: empty CLI flag falls through to env.
-    #[test]
-    fn test_private_key_empty_cli_falls_through() {
-        let env_key = "0xenv_key_1234567890abcdef1234567890abcdef1234567890abcdef1234";
-        let result = config::resolve_private_key_with_env(Some(""), Some(env_key));
-        assert_eq!(result, Some(env_key.to_string()));
-    }
-
-    /// Test: empty env var falls through to None.
-    #[test]
-    fn test_private_key_empty_env_falls_through() {
-        let result = config::resolve_private_key_with_env(None, Some(""));
-        assert!(result.is_none());
-    }
-
-    // ── Network resolution ──────────────────────────────────────
-
-    /// Test: --testnet flag forces testnet.
-    #[test]
-    fn test_testnet_cli_flag_true() {
-        let result = config::resolve_testnet_with_env(true, Some("mainnet")).unwrap();
-        assert!(result);
-    }
-
-    /// Test: env var "testnet" selects testnet when no CLI flag.
-    #[test]
-    fn test_testnet_env_var() {
-        let result = config::resolve_testnet_with_env(false, Some("testnet")).unwrap();
-        assert!(result);
-    }
-
-    /// Test: env var "mainnet" keeps mainnet.
-    #[test]
-    fn test_mainnet_env_var() {
-        let result = config::resolve_testnet_with_env(false, Some("mainnet")).unwrap();
-        assert!(!result);
-    }
-
-    /// Test: env var is case-insensitive.
-    #[test]
-    fn test_testnet_env_case_insensitive() {
-        let result = config::resolve_testnet_with_env(false, Some("TESTNET")).unwrap();
-        assert!(result);
-
-        let result = config::resolve_testnet_with_env(false, Some("TestNet")).unwrap();
-        assert!(result);
-    }
-
-    /// Test: no flag and no env defaults to mainnet.
-    #[test]
-    fn test_default_is_mainnet() {
-        let result = config::resolve_testnet_with_env(false, None).unwrap();
-        assert!(!result);
-    }
-
-    /// Test: CLI --testnet flag overrides env var "mainnet".
-    #[test]
-    fn test_testnet_flag_overrides_env() {
-        let result = config::resolve_testnet_with_env(true, Some("mainnet")).unwrap();
-        assert!(result);
+        assert_eq!(missing.network(false).unwrap(), Network::Mainnet);
     }
 
     #[test]
-    fn test_invalid_network_env_returns_error() {
-        let err = config::resolve_testnet_with_env(false, Some("bogus")).unwrap_err();
-        assert!(err.to_string().contains("Configuration error"));
-        assert!(err.to_string().contains("HYPERLIQUID_NETWORK"));
-        assert!(err.to_string().contains("bogus"));
+    fn network_chain_flag_then_env_then_file() {
+        let testnet_file = Config {
+            network: Network::Testnet,
+            ..Config::default()
+        };
+        let (_tmp, from_file) = settings_with_file(&[], &testnet_file);
+        assert!(from_file.testnet(false).unwrap());
+
+        let (_tmp, env_wins) = settings_with_file(&[(env::NETWORK, "mainnet")], &testnet_file);
+        assert!(!env_wins.testnet(false).unwrap());
+
+        let (_tmp, flag_wins) = settings_with_file(&[(env::NETWORK, "mainnet")], &testnet_file);
+        assert!(flag_wins.testnet(true).unwrap());
+
+        let (_tmp, env_case) = settings_with_file(&[(env::NETWORK, "TestNet")], &Config::default());
+        assert!(env_case.testnet(false).unwrap());
     }
 
     #[test]
-    fn test_testnet_flag_overrides_invalid_env() {
-        let result = config::resolve_testnet_with_env(true, Some("bogus")).unwrap();
-        assert!(result);
-    }
-
-    /// Test: config file network is used when no CLI flag or env var.
-    #[test]
-    fn test_testnet_from_config_file() {
-        let tmp = TempDir::new().unwrap();
-        let config_dir = tmp.path().join("hyperliquid");
-        fs::create_dir_all(&config_dir).unwrap();
-        let config_path = config_dir.join("config.json");
-
-        let config_json = serde_json::json!({
-            "network": "testnet"
-        });
-        fs::write(&config_path, serde_json::to_string(&config_json).unwrap()).unwrap();
-
-        let result = config::resolve_testnet_from_file(Some(&config_path)).unwrap();
-        assert!(result);
-    }
-
-    /// Test: config file with "mainnet" stays mainnet.
-    #[test]
-    fn test_mainnet_from_config_file() {
-        let tmp = TempDir::new().unwrap();
-        let config_dir = tmp.path().join("hyperliquid");
-        fs::create_dir_all(&config_dir).unwrap();
-        let config_path = config_dir.join("config.json");
-
-        let config_json = serde_json::json!({
-            "network": "mainnet"
-        });
-        fs::write(&config_path, serde_json::to_string(&config_json).unwrap()).unwrap();
-
-        let result = config::resolve_testnet_from_file(Some(&config_path)).unwrap();
-        assert!(!result);
+    fn invalid_network_env_is_rejected_unless_the_flag_decides() {
+        let bogus = Settings::new(EnvSource::fixed([(env::NETWORK, "bogus")]), None);
+        let err = bogus.testnet(false).unwrap_err();
+        assert!(err.to_string().contains(env::NETWORK));
+        assert!(bogus.testnet(true).unwrap());
     }
 
     #[test]
-    fn test_invalid_network_in_config_file_returns_error() {
-        let tmp = TempDir::new().unwrap();
-        let config_dir = tmp.path().join("hyperliquid");
-        fs::create_dir_all(&config_dir).unwrap();
-        let config_path = config_dir.join("config.json");
+    fn private_key_chain_flag_then_env_then_file() {
+        let with_key = Config {
+            private_key: Some("0xfile".to_string()),
+            ..Config::default()
+        };
+        let (_tmp, all) = settings_with_file(&[(env::PRIVATE_KEY, "0xenv")], &with_key);
+        assert_eq!(all.private_key(Some("0xcli")).unwrap().unwrap(), "0xcli");
+        assert_eq!(all.private_key(None).unwrap().unwrap(), "0xenv");
 
-        let config_json = serde_json::json!({
-            "network": "bogus"
-        });
-        fs::write(&config_path, serde_json::to_string(&config_json).unwrap()).unwrap();
+        let (_tmp, file_only) = settings_with_file(&[], &with_key);
+        assert_eq!(file_only.private_key(None).unwrap().unwrap(), "0xfile");
 
-        let err = config::resolve_testnet_from_file(Some(&config_path)).unwrap_err();
-        assert!(err.to_string().contains("Configuration error"));
-        assert!(err.to_string().contains("invalid config file"));
-        assert!(err.to_string().contains("bogus"));
+        let (_tmp, empty_env) = settings_with_file(&[(env::PRIVATE_KEY, "")], &with_key);
+        assert_eq!(empty_env.private_key(Some("")).unwrap().unwrap(), "0xfile");
     }
 
     #[test]
-    fn test_private_key_resolution_ignores_invalid_lower_priority_network() {
-        let tmp = TempDir::new().unwrap();
-        let config_dir = tmp.path().join("hyperliquid");
-        fs::create_dir_all(&config_dir).unwrap();
-        let config_path = config_dir.join("config.json");
-
-        let file_key = "0xfile_key_1234567890abcdef1234567890abcdef1234567890abcdef12345";
-        let config_json = serde_json::json!({
-            "private_key": file_key,
-            "network": "bogus"
-        });
-        fs::write(&config_path, serde_json::to_string(&config_json).unwrap()).unwrap();
-
-        let result = config::resolve_private_key_from_file(Some(&config_path)).unwrap();
-        assert_eq!(result, Some(file_key.to_string()));
-    }
-
-    /// Test: missing config file defaults to mainnet.
-    #[test]
-    fn test_testnet_missing_config_defaults_mainnet() {
-        let result = config::resolve_testnet_from_file(None).unwrap();
-        assert!(!result);
-    }
-
-    // ── API base URL ────────────────────────────────────────────
-
-    #[test]
-    fn test_api_base_url_mainnet() {
-        assert_eq!(config::api_base_url(false), "https://api.hyperliquid.xyz");
-    }
-
-    #[test]
-    fn test_api_base_url_testnet() {
+    fn api_base_urls_default_to_the_public_endpoints() {
         assert_eq!(
-            config::api_base_url(true),
+            Network::Mainnet.api_base_url(),
+            "https://api.hyperliquid.xyz"
+        );
+        assert_eq!(
+            Network::Testnet.api_base_url(),
             "https://api.hyperliquid-testnet.xyz"
         );
     }
 
-    // ── save_config / load_config roundtrip ─────────────────────
-
     #[test]
-    fn test_save_and_load_config_roundtrip() {
-        let tmp = TempDir::new().unwrap();
-        let config_path = tmp.path().join("config.json");
-
-        let config = config::Config {
-            private_key: Some("0xabc123".to_string()),
-            network: config::Network::Testnet,
-            default_wallet_id: None,
-            default_builder_address: None,
-            default_builder_fee_rate: None,
-            default_referral_code: None,
-        };
-
-        config::save_config_to_path(&config, &config_path).unwrap();
-
-        // Verify file exists
-        assert!(config_path.exists());
-
-        // Load it back
-        let loaded = config::load_config_from_path(&config_path).unwrap();
-        assert_eq!(loaded.private_key, Some("0xabc123".to_string()));
-        assert_eq!(loaded.network, config::Network::Testnet);
-    }
-
-    #[test]
-    fn test_save_config_creates_directory() {
-        let tmp = TempDir::new().unwrap();
-        let nested_dir = tmp.path().join("deep").join("nested").join("config");
-        let config_path = nested_dir.join("config.json");
-
-        let config = config::Config {
-            private_key: None,
-            network: config::Network::Mainnet,
-            default_wallet_id: None,
-            default_builder_address: None,
-            default_builder_fee_rate: None,
-            default_referral_code: None,
-        };
-
-        config::save_config_to_path(&config, &config_path).unwrap();
-        assert!(config_path.exists());
-    }
-
-    #[test]
-    fn test_load_config_missing_file() {
-        let result =
-            config::load_config_from_path(std::path::Path::new("/nonexistent/config.json"));
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_load_config_invalid_json() {
-        let tmp = TempDir::new().unwrap();
-        let config_path = tmp.path().join("config.json");
-        fs::write(&config_path, "{invalid json").unwrap();
-
-        let result = config::load_config_from_path(&config_path);
-        assert!(result.is_err());
-    }
-
-    // ── Full resolution chain (integration) ─────────────────────
-
-    #[test]
-    fn test_full_chain_cli_overrides_env_and_file() {
-        let tmp = TempDir::new().unwrap();
-        let config_dir = tmp.path().join("hyperliquid");
-        fs::create_dir_all(&config_dir).unwrap();
-        let config_path = config_dir.join("config.json");
-
-        let config_json = serde_json::json!({
-            "private_key": "0xfile_key",
-            "network": "mainnet"
-        });
-        fs::write(&config_path, serde_json::to_string(&config_json).unwrap()).unwrap();
-
-        // CLI key should win over env and file
-        let resolved = config::resolve_private_key_full(
-            Some("0xcli_key"),
-            Some("0xenv_key"),
-            Some(&config_path),
-        )
-        .unwrap();
-        assert_eq!(resolved, Some("0xcli_key".to_string()));
-    }
-
-    #[test]
-    fn test_full_chain_env_overrides_file() {
-        let tmp = TempDir::new().unwrap();
-        let config_dir = tmp.path().join("hyperliquid");
-        fs::create_dir_all(&config_dir).unwrap();
-        let config_path = config_dir.join("config.json");
-
-        let config_json = serde_json::json!({
-            "private_key": "0xfile_key",
-            "network": "mainnet"
-        });
-        fs::write(&config_path, serde_json::to_string(&config_json).unwrap()).unwrap();
-
-        // Env key should win over file
-        let resolved =
-            config::resolve_private_key_full(None, Some("0xenv_key"), Some(&config_path)).unwrap();
-        assert_eq!(resolved, Some("0xenv_key".to_string()));
-    }
-
-    #[test]
-    fn test_full_chain_file_fallback() {
-        let tmp = TempDir::new().unwrap();
-        let config_dir = tmp.path().join("hyperliquid");
-        fs::create_dir_all(&config_dir).unwrap();
-        let config_path = config_dir.join("config.json");
-
-        let config_json = serde_json::json!({
-            "private_key": "0xfile_key",
-            "network": "testnet"
-        });
-        fs::write(&config_path, serde_json::to_string(&config_json).unwrap()).unwrap();
-
-        // No CLI, no env → file wins
-        let resolved = config::resolve_private_key_full(None, None, Some(&config_path)).unwrap();
-        assert_eq!(resolved, Some("0xfile_key".to_string()));
-    }
-
-    #[test]
-    fn test_full_chain_no_sources() {
-        // No CLI, no env, no file → None
-        let resolved = config::resolve_private_key_full(None, None, None).unwrap();
-        assert!(resolved.is_none());
-    }
-
-    #[test]
-    fn test_full_network_chain_cli_overrides_env_and_file() {
-        let tmp = TempDir::new().unwrap();
-        let config_dir = tmp.path().join("hyperliquid");
-        fs::create_dir_all(&config_dir).unwrap();
-        let config_path = config_dir.join("config.json");
-
-        let config_json = serde_json::json!({
-            "network": "mainnet"
-        });
-        fs::write(&config_path, serde_json::to_string(&config_json).unwrap()).unwrap();
-
-        // CLI --testnet should win over env "mainnet" and file "mainnet"
-        let resolved =
-            config::resolve_testnet_full(true, Some("mainnet"), Some(&config_path)).unwrap();
-        assert!(resolved);
-    }
-
-    #[test]
-    fn test_full_network_chain_env_overrides_file() {
-        let tmp = TempDir::new().unwrap();
-        let config_dir = tmp.path().join("hyperliquid");
-        fs::create_dir_all(&config_dir).unwrap();
-        let config_path = config_dir.join("config.json");
-
-        let config_json = serde_json::json!({
-            "network": "mainnet"
-        });
-        fs::write(&config_path, serde_json::to_string(&config_json).unwrap()).unwrap();
-
-        // Env "testnet" should win over file "mainnet"
-        let resolved =
-            config::resolve_testnet_full(false, Some("testnet"), Some(&config_path)).unwrap();
-        assert!(resolved);
-    }
-
-    #[test]
-    fn test_full_network_chain_file_fallback() {
-        let tmp = TempDir::new().unwrap();
-        let config_dir = tmp.path().join("hyperliquid");
-        fs::create_dir_all(&config_dir).unwrap();
-        let config_path = config_dir.join("config.json");
-
-        let config_json = serde_json::json!({
-            "network": "testnet"
-        });
-        fs::write(&config_path, serde_json::to_string(&config_json).unwrap()).unwrap();
-
-        // No CLI, no env → file wins
-        let resolved = config::resolve_testnet_full(false, None, Some(&config_path)).unwrap();
-        assert!(resolved);
-    }
-
-    #[test]
-    fn test_full_network_chain_default_mainnet() {
-        // No CLI, no env, no file → mainnet
-        let resolved = config::resolve_testnet_full(false, None, None).unwrap();
-        assert!(!resolved);
-    }
-
-    // ── Network enum ────────────────────────────────────────────
-
-    #[test]
-    fn test_network_enum_display() {
-        assert_eq!(config::Network::Mainnet.to_string(), "mainnet");
-        assert_eq!(config::Network::Testnet.to_string(), "testnet");
-    }
-
-    #[test]
-    fn test_network_enum_serde_roundtrip() {
-        let mainnet = config::Network::Mainnet;
-        let json = serde_json::to_string(&mainnet).unwrap();
-        assert_eq!(json, "\"mainnet\"");
-        let parsed: config::Network = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed, config::Network::Mainnet);
-
-        let testnet = config::Network::Testnet;
-        let json = serde_json::to_string(&testnet).unwrap();
-        assert_eq!(json, "\"testnet\"");
-        let parsed: config::Network = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed, config::Network::Testnet);
-    }
-
-    #[test]
-    fn test_network_enum_case_insensitive_parse() {
-        let parsed: config::Network = serde_json::from_str("\"TESTNET\"").unwrap();
-        assert_eq!(parsed, config::Network::Testnet);
-
-        let parsed: config::Network = serde_json::from_str("\"Mainnet\"").unwrap();
-        assert_eq!(parsed, config::Network::Mainnet);
-    }
-
-    // ── Config struct ───────────────────────────────────────────
-
-    #[test]
-    fn test_config_struct_with_all_fields() {
-        let config = config::Config {
+    fn saved_config_roundtrips_through_the_file() {
+        let config = Config {
             private_key: Some("0xkey".to_string()),
-            network: config::Network::Testnet,
-            default_wallet_id: None,
-            default_builder_address: None,
-            default_builder_fee_rate: None,
-            default_referral_code: None,
+            network: Network::Testnet,
+            default_wallet_id: Some("wallet".to_string()),
+            default_builder_address: Some("0xbuilder".to_string()),
+            default_builder_fee_rate: Some("0.001%".to_string()),
+            default_referral_code: Some("CODE".to_string()),
         };
-        let json = serde_json::to_string(&config).unwrap();
-        let parsed: config::Config = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.private_key, Some("0xkey".to_string()));
-        assert_eq!(parsed.network, config::Network::Testnet);
+        let (_tmp, settings) = settings_with_file(&[], &config);
+        assert_eq!(settings.config().unwrap(), Some(&config));
+        assert_eq!(settings.default_wallet_id().unwrap(), Some("wallet"));
     }
 
     #[test]
-    fn test_config_struct_optional_fields() {
-        let config = config::Config {
-            private_key: None,
-            network: config::Network::Mainnet,
-            default_wallet_id: None,
-            default_builder_address: None,
-            default_builder_fee_rate: None,
-            default_referral_code: None,
-        };
-        let json = serde_json::to_string(&config).unwrap();
-        // private_key should be null or absent
-        assert!(json.contains("null") || !json.contains("private_key"));
+    fn broken_config_files_are_configuration_errors() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("config.json");
+        std::fs::write(&path, "{not valid json").unwrap();
+        let settings = Settings::new(no_env(), Some(ConfigFile::at(path)));
+        let err = settings.config().unwrap_err();
+        assert!(err.to_string().contains("invalid config file"));
     }
 
     #[test]
-    fn test_config_default_is_mainnet_no_key() {
-        let config = config::Config::default();
-        assert!(config.private_key.is_none());
-        assert_eq!(config.network, config::Network::Mainnet);
+    fn config_struct_defaults_and_serde() {
+        let default = Config::default();
+        assert_eq!(default.network, Network::Mainnet);
+        assert!(default.private_key.is_none());
+
+        let json = serde_json::to_string(&Config::default()).unwrap();
+        assert!(!json.contains("private_key"));
+        let parsed: Config = serde_json::from_str(r#"{"network":"TESTNET"}"#).unwrap();
+        assert_eq!(parsed.network, Network::Testnet);
     }
 }

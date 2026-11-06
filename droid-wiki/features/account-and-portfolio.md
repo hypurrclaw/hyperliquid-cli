@@ -53,6 +53,6 @@ Only `account abstraction set` mutates. Its dry-run envelope captures the reques
 ## Entry points for modification
 
 - To add a new public read, route through `http_api::post_info_json` in `src/http_api.rs`, define a renderer in `src/commands/account.rs`, and update the schema fixture via `task contracts`.
-- To extend wallet lifecycle commands, prefer modifying the OWS vault path in `src/ows.rs` so the changes apply to both `account *` and `wallet *` entry points.
+- To extend wallet lifecycle commands, prefer modifying the OWS vault path in `src/wallet_store.rs` and `src/ows/vault.rs` so the changes apply to both `account *` and `wallet *` entry points.
 
 See also: [signing-and-wallets](../systems/signing-and-wallets.md), [agent-output-contract](agent-output-contract.md).

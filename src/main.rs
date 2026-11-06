@@ -16,13 +16,12 @@ use hyperliquid_cli::command_registry::{
     RawPayloadPolicy, Risk,
 };
 use hyperliquid_cli::commands::{AssetResolver, MetadataCache};
-use hyperliquid_cli::config;
 use hyperliquid_cli::dry_run::{
     ActionPlan, ActionReversibility, DryRunEnvelope, DryRunSigningContext, LiveSubmissionPolicy,
 };
 use hyperliquid_cli::errors;
+use hyperliquid_cli::network::Network;
 use hyperliquid_cli::output;
-use hyperliquid_cli::resolvers::{DefaultSignerFallback, SignerResolverInput};
 use hyperliquid_cli::watch::{SubscribeEventKind, subscription_event_matches};
 
 #[cfg(test)]
@@ -39,33 +38,21 @@ static ASSET_METADATA_CACHE: OnceLock<MetadataCache> = OnceLock::new();
 
 const GLOBAL_OPTIONS: &str = "Global Options";
 
-const ROOT_AFTER_HELP: &str = "\
+fn root_after_help() -> String {
+    format!(
+        "\
 Examples:
   hyperliquid --format json --select coin,price --max-results 5 mids
   hyperliquid --format json schema orders create
   hyperliquid --dry-run orders create --coin BTC --side buy --price 1 --size 0.001
 
-Environment:
-  HYPERLIQUID_FORMAT                Default output format: pretty, table, or json. --format overrides it.
-  HYPERLIQUID_AGENT                 Set to 1 for JSON output and no prompts.
-  HYPERLIQUID_NETWORK               Network to use: mainnet or testnet. --testnet overrides it.
-  HYPERLIQUID_PRIVATE_KEY           Private key for signing. Prefer it over --private-key.
-  HYPERLIQUID_KEYSTORE_PASSWORD     Password for --keystore. Prefer it over --keystore-password.
-  HYPERLIQUID_API_BASE_URL          Override the API endpoint. Loopback hosts only, for testing.
-  HYPERLIQUID_MAINNET_API_BASE_URL  Same override, mainnet only.
-  HYPERLIQUID_TESTNET_API_BASE_URL  Same override, testnet only.
-  HYPERLIQUID_OWS_VAULT_PATH        OWS vault directory. Defaults to ~/.hyperliquid.
-  OWS_PASSPHRASE                    Passphrase for the OWS vault.
-  HYPERLIQUID_NO_UPDATE_CHECK       Set to 1 to skip release update checks.
-  HYPERLIQUID_WATCH_MAX_TICKS       Tick bound for --watch when --max-ticks is not given.
-  HYPERLIQUID_SUBSCRIBE_MAX_EVENTS  Event bound for subscribe when no bound option is given.
-  NO_COLOR                          Disable color when set to a non-empty value.
-  FORCE_COLOR                       Force color on, or off when set to 0 or false.
-  CI                                Treat the run as non-interactive: no prompts.
-
+{}
 Learn more:
   hyperliquid <command> --help
-  hyperliquid --format json schema <command>";
+  hyperliquid --format json schema <command>",
+        hyperliquid_cli::settings::env_help_section()
+    )
+}
 
 #[derive(Parser, Debug)]
 #[command(
@@ -75,7 +62,7 @@ Learn more:
     propagate_version = true,
     disable_help_flag = true,
     disable_version_flag = true,
-    after_long_help = ROOT_AFTER_HELP
+    after_long_help = root_after_help()
 )]
 struct Cli {
     /// Output format: pretty, table, or json. Defaults to json when stdout is not a terminal or HYPERLIQUID_AGENT is set; overrides HYPERLIQUID_FORMAT
@@ -978,7 +965,7 @@ async fn main() {
         parsed.cli.max_results,
     );
     let is_update_command = matches!(&parsed.cli.command, Some(Commands::Update));
-    let update_check_handle = hyperliquid_cli::update_check::maybe_start_update_check(
+    let update_check_handle = hyperliquid_cli::update::maybe_start_update_check(
         format,
         parsed.cli.no_update_check || is_update_command,
     );
@@ -993,10 +980,10 @@ async fn main() {
         // This path handles CliError and anyhow errors from command handlers.
         // clap usage errors (exit 2) are handled by exit_for_clap_error before
         // the command runs, so they don't go through this path.
-        hyperliquid_cli::update_check::flush_update_check_silent(update_check_handle).await;
+        hyperliquid_cli::update::flush_update_check_silent(update_check_handle).await;
         let cli_err = errors::from_anyhow(err);
         errors::exit_with_error(cli_err, format);
     }
 
-    hyperliquid_cli::update_check::flush_update_check(update_check_handle).await;
+    hyperliquid_cli::update::flush_update_check(update_check_handle).await;
 }

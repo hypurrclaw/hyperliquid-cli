@@ -17,7 +17,7 @@
 - `src/errors.rs` — structured `CliError` variants and exit-code mapping.
 - `src/output/` — pretty/table/JSON rendering, color theme, JSON projection.
 - `src/commands/` — one module per command domain.
-- `src/auth.rs`, `src/config.rs`, `src/ows.rs` — wallet/config/account storage.
+- `src/auth.rs` — the one signer-selection resolver. `src/settings.rs` — env var names, help-text env section and layered flag/env/config settings. `src/config.rs` — the config file. `src/wallet_store.rs` — vault + config wallet workflow. `src/ows/` — `vault.rs` (wallet lifecycle) and `signing.rs` (signing backend). `src/legacy_accounts.rs` — read-only reader for old `accounts.db`. `src/private_fs.rs` — owner-only file writes and locks. `src/update/` — update notifier and self-updater.
 - `src/watch.rs` — streaming/watch support.
 - `tests/` — integration tests with `assert_cmd` and `wiremock`.
 
