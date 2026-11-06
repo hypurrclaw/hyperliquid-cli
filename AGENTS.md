@@ -56,7 +56,7 @@ Use the mission `services.yaml` commands when working inside a Factory mission.
 - Preserve structured exit codes: clap usage exits `2`, auth exits `10`, rate limits exit `11`, unavailable API/network exits `12`, unsupported assets/DEXes exit `13`.
 - Every data command should support `--format pretty|table|json`.
 - JSON keys must remain stable, snake_case, and safe for agents to parse.
-- Pretty output may use ANSI color; table and JSON output must remain uncolored.
+- Pretty output may use ANSI color only when `output::colors` enables it for the stream (`--no-color` > `NO_COLOR` > `FORCE_COLOR` > TTY); table and JSON output must remain uncolored. Table output is bordered on a TTY and a header plus tab-separated rows on a pipe; JSON is indented on a TTY and compact single-line otherwise. Empty-state sentences and `--max-results` truncation notices go to stderr.
 - Never log, print, commit, or store plaintext private keys.
 
 ## Terminology and Selector Semantics

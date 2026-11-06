@@ -199,7 +199,7 @@ impl TableData for CandlesOutput {
             .iter()
             .map(|candle| {
                 vec![
-                    candle.timestamp.to_string(),
+                    crate::output::format::epoch_ms_to_iso(candle.timestamp),
                     candle.coin.clone(),
                     candle.interval.clone(),
                     candle.open.to_string(),
@@ -211,6 +211,10 @@ impl TableData for CandlesOutput {
                 ]
             })
             .collect()
+    }
+
+    fn empty_message(&self) -> Option<&str> {
+        Some("No candles.")
     }
 
     fn to_json_value(&self) -> serde_json::Value {
@@ -289,7 +293,7 @@ impl TableData for FundingRow {
             format_optional_decimal(self.mark_price),
             format_optional_decimal(self.oracle_price),
             self.last_funding_time
-                .map(|time| time.to_string())
+                .map(crate::output::format::epoch_ms_to_iso)
                 .unwrap_or_else(|| "n/a".to_string()),
         ]]
     }
@@ -1072,6 +1076,8 @@ mod tests {
         assert_eq!(json["current_funding_rate"], "0.0001");
         assert_eq!(json["predicted_funding_rate"], "0.0002");
         assert_eq!(json["premium"], "0.00005");
+        assert_eq!(json["last_funding_time"], 123);
+        assert_eq!(output.rows()[0][6], "1970-01-01T00:00:00.123Z");
     }
 
     #[test]

@@ -7,6 +7,7 @@ use serde::Serialize;
 
 use crate::command_context::CommandContext;
 use crate::commands::map_api_error;
+use crate::output::format::{duration, plural};
 use crate::output::{OutputFormat, TableData};
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -36,9 +37,15 @@ impl TableData for StatusOutput {
         vec![vec![
             self.network.clone(),
             self.health.clone(),
-            format!("{}ms", self.latency_ms),
-            format!("{} perps, {} mids", self.perps_count, self.mids_count),
-            format!("{} — {}", self.rate_limit_status, self.rate_limit_note),
+            duration(Duration::from_millis(
+                u64::try_from(self.latency_ms).unwrap_or(u64::MAX),
+            )),
+            format!(
+                "{}, {}",
+                plural(self.perps_count, "perp", "perps"),
+                plural(self.mids_count, "mid", "mids")
+            ),
+            self.rate_limit_status.clone(),
         ]]
     }
 
@@ -133,6 +140,9 @@ mod tests {
 
         assert_eq!(json["health"], "healthy");
         assert_eq!(json["rate_limit_status"], "ok");
-        assert!(output.rows()[0][4].contains("rate-limit"));
+        assert_eq!(output.rows()[0][3], "100 perps, 100 mids");
+        assert_eq!(output.rows()[0][4], "ok");
+        assert_eq!(output.rows()[0][2], "42ms");
+        assert_eq!(json["rate_limit_note"], "no rate-limit response observed");
     }
 }

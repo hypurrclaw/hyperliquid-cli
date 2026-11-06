@@ -10,6 +10,7 @@ use serde_json::{Map, Value};
 use crate::command_context::CommandContext;
 use crate::commands::{RawSpotMarket, load_raw_spot_markets, map_api_error, raw_info_base_url};
 use crate::errors::CliError;
+use crate::output::format::thousands;
 use crate::output::{OutputFormat, TableData};
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -113,7 +114,7 @@ impl TableData for MetaOutput {
         vec![
             vec![
                 "universe".to_string(),
-                self.universe.len().to_string(),
+                thousands(self.universe.len() as u64),
                 self.universe
                     .iter()
                     .take(5)
@@ -123,7 +124,7 @@ impl TableData for MetaOutput {
             ],
             vec![
                 "spot_universe".to_string(),
-                self.spot_universe.len().to_string(),
+                thousands(self.spot_universe.len() as u64),
                 self.spot_universe
                     .iter()
                     .take(5)
@@ -133,7 +134,7 @@ impl TableData for MetaOutput {
             ],
             vec![
                 "asset_contexts".to_string(),
-                self.asset_contexts.len().to_string(),
+                thousands(self.asset_contexts.len() as u64),
                 self.asset_contexts
                     .iter()
                     .take(5)
@@ -146,7 +147,7 @@ impl TableData for MetaOutput {
             ],
             vec![
                 "dexes".to_string(),
-                self.dexes.len().to_string(),
+                thousands(self.dexes.len() as u64),
                 self.dexes
                     .iter()
                     .take(5)

@@ -425,6 +425,7 @@ Resolution order: CLI flags → environment variables → `~/.config/hyperliquid
 | `HYPERLIQUID_DEFAULT_REFERRAL_CODE` | Runtime default referral code for setup and `referral set`. |
 | `HYPERLIQUID_FEEDBACK_URL` | Runtime or build-time default endpoint for `hyperliquid feedback`. |
 | `HYPERLIQUID_NO_UPDATE_CHECK` | Disable release update checks when truthy. |
+| `NO_UPDATE_NOTIFIER` | Suppress the update notice and background release check when set to any non-empty value. Updates are also never announced in CI, agent, JSON, or non-TTY runs, and at most once every 24 hours. |
 
 ## Develop
 

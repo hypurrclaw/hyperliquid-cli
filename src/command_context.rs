@@ -74,8 +74,8 @@ impl CommandOutputContext {
     }
 
     pub fn print(&self, data: &dyn TableData, duration: Duration) {
-        println!("{}", self.render(data));
-        output::print_timing(duration);
+        output::emit(data, self.format, &self.json_options);
+        output::print_timing(duration, self.format);
     }
 }
 

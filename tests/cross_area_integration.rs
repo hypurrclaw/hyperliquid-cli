@@ -146,7 +146,7 @@ async fn first_visit_setup_then_query_and_first_order_succeed() {
         .assert()
         .success()
         .stdout(predicate::str::contains("BTC"))
-        .stderr(predicate::str::contains("Completed in"));
+        .stderr(predicate::str::contains("Completed in").not());
 
     env.account_command_with_server(TEST_ACCOUNT_PASSPHRASE, &server)
         .args([
