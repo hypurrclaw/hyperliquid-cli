@@ -669,7 +669,7 @@ pub async fn history_query(
     )
     .await?;
     Ok(StakingQueryResult {
-        output: JsonValueOutput::new(value, "no staking history found"),
+        output: JsonValueOutput::new(value, "No staking history."),
         elapsed: start.elapsed(),
     })
 }
@@ -1193,26 +1193,15 @@ fn confirm_staking_link(
     format: OutputFormat,
 ) -> Result<(), CliError> {
     let phase = link_phase(is_finalize);
-    let prompt = format!(
-        "{warning}\nSubmit staking link {phase} for user {user}? [y/N] ",
-        warning = STAKING_LINK_WARNING
-    );
-    let prompt = if format == OutputFormat::Pretty {
-        output::colors::yellow(&prompt)
+    crate::prompt::ensure_can_prompt("--yes")?;
+    eprintln!("{STAKING_LINK_WARNING}");
+    let question = format!("Submit staking link {phase} for user {user}?");
+    let question = if format == OutputFormat::Pretty {
+        output::colors::yellow(&question)
     } else {
-        prompt
+        question
     };
-    use std::io::Write;
-    let mut stderr = std::io::stderr();
-    write!(stderr, "{prompt}").map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
-    stderr
-        .flush()
-        .map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
-    let mut input = String::new();
-    std::io::stdin()
-        .read_line(&mut input)
-        .map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
-    if matches!(input.trim().to_ascii_lowercase().as_str(), "y" | "yes") {
+    if crate::prompt::confirm(&question, "--yes")? {
         Ok(())
     } else {
         Err(CliError::Configuration(

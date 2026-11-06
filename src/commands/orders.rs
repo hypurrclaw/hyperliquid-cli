@@ -26,6 +26,8 @@ use crate::errors::CliError;
 use crate::http_api::post_info_json;
 use crate::input_hardening::{FilePolicy, read_json_file};
 use crate::output::{self, OutputFormat, TableData};
+use crate::prompt;
+use crate::response_sanitization::labelled_untrusted_text;
 use crate::signing::SelectedSigner;
 
 const DEFAULT_MARKET_ORDER_SLIPPAGE_BPS: u16 = 500;
@@ -68,10 +70,10 @@ pub use queries::{history, open, open_snapshot, status, status_query};
 pub use rendering::OrderListOutput;
 use rendering::{
     CancelAllSummary, CancelAllSummaryOutput, CancelConfirmation, CancelConfirmationOutput,
-    ModifyConfirmation, ModifyConfirmationOutput, OrderConfirmation, OrderConfirmationOutput,
-    OrderListRow, ScheduleCancelConfirmation, ScheduleCancelOutput, TpslOrderConfirmation,
-    TpslOrderConfirmationOutput, TpslResponseStatus, TwapCancelConfirmation, TwapCancelOutput,
-    TwapCreateConfirmation, TwapCreateOutput,
+    CancelLeg, CancelLegsOutput, ModifyConfirmation, ModifyConfirmationOutput, OrderConfirmation,
+    OrderConfirmationOutput, OrderListRow, PartialBatchOutput, ScheduleCancelConfirmation,
+    ScheduleCancelOutput, TpslOrderConfirmation, TpslOrderConfirmationOutput, TpslResponseStatus,
+    TwapCancelConfirmation, TwapCancelOutput, TwapCreateConfirmation, TwapCreateOutput,
 };
 pub use validation::{
     read_validated_batch_create_orders, validate_batch_create_args, validate_create_args,
@@ -245,7 +247,8 @@ pub async fn create(
             let helper = plan_hip3_helper(context, user, &coin, notional).await?;
             if context.submission.require_mainnet_confirmation && !args.yes {
                 warn_hip3_margin_helper(&helper, format)?;
-                if !confirm_mainnet_tpsl_batch(&prepared, format)? {
+                let target = ConsentTarget::new(context.submission, vault_address, None);
+                if !confirm_mainnet_tpsl_batch(&prepared, &target, format)? {
                     return Err(CliError::Configuration(
                         "Mainnet TP/SL confirmation required; order placement cancelled. Rerun with --yes for deliberate automation."
                             .to_string(),
@@ -264,13 +267,7 @@ pub async fn create(
             )
             .await?;
             let rows = tpsl_confirmation_rows(&prepared, statuses)?;
-            emit_order_output(
-                &TpslOrderConfirmationOutput { rows },
-                format,
-                start.elapsed(),
-                emit_output,
-            );
-            Ok(())
+            finish_tpsl_batch(rows, format, start, emit_output)
         }
         CreateOrderSubmission::Single(prepared) => {
             let statuses =
@@ -373,7 +370,9 @@ async fn place_prepared_single(
     .await?;
     if context.submission.require_mainnet_confirmation && !args.yes {
         warn_hip3_margin_helper(&helper, format)?;
-        if !confirm_mainnet_order(&prepared, format)? {
+        let target =
+            ConsentTarget::new(context.submission, vault_address, prepared.builder.as_ref());
+        if !confirm_mainnet_order(&prepared, &target, format)? {
             return Err(CliError::Configuration(
                 "Mainnet order confirmation required; order placement cancelled. Rerun with --yes for deliberate automation."
                     .to_string(),
@@ -419,20 +418,19 @@ pub async fn scale(
 ) -> Result<(), anyhow::Error> {
     let start = Instant::now();
     let prepared = prepare_scale_batch(context.client, context.resolver, args).await?;
-    if context.submission.require_mainnet_confirmation
-        && !args.yes
-        && !confirm_mainnet_order_batch("scale", &prepared, format)?
-    {
-        return Err(CliError::Configuration(
-            "Mainnet scale order confirmation required; order placement cancelled. Rerun with --yes for deliberate automation."
-                .to_string(),
-        )
-        .into());
+    if context.submission.require_mainnet_confirmation && !args.yes {
+        let target = ConsentTarget::new(context.submission, vault_address, None);
+        if !confirm_mainnet_order_batch("scale", &prepared, &target, format)? {
+            return Err(CliError::Configuration(
+                "Mainnet scale order confirmation required; order placement cancelled. Rerun with --yes for deliberate automation."
+                    .to_string(),
+            )
+            .into());
+        }
     }
 
     let rows = place_order_batch(context, prepared, vault_address).await?;
-    output::print_data(&OrderConfirmationOutput { rows }, format, start.elapsed());
-    Ok(())
+    finish_order_batch(rows, format, start)
 }
 
 /// Place an explicit JSON order batch.
@@ -447,20 +445,19 @@ pub async fn batch_create(
     let plan =
         prepare_batch_create_order_plan(context.client, context.resolver, args, orders).await?;
     let prepared = plan.prepared;
-    if context.submission.require_mainnet_confirmation
-        && !args.yes
-        && !confirm_mainnet_order_batch("batch-create", &prepared, format)?
-    {
-        return Err(CliError::Configuration(
-            "Mainnet batch order confirmation required; order placement cancelled. Rerun with --yes for deliberate automation."
-                .to_string(),
-        )
-        .into());
+    if context.submission.require_mainnet_confirmation && !args.yes {
+        let target = ConsentTarget::new(context.submission, vault_address, None);
+        if !confirm_mainnet_order_batch("batch-create", &prepared, &target, format)? {
+            return Err(CliError::Configuration(
+                "Mainnet batch order confirmation required; order placement cancelled. Rerun with --yes for deliberate automation."
+                    .to_string(),
+            )
+            .into());
+        }
     }
 
     let rows = place_order_batch(context, prepared, vault_address).await?;
-    output::print_data(&OrderConfirmationOutput { rows }, format, start.elapsed());
-    Ok(())
+    finish_order_batch(rows, format, start)
 }
 
 async fn place_order_batch(
@@ -478,19 +475,15 @@ async fn place_order_batch(
     .await?;
 
     if statuses.len() != prepared.legs.len() {
-        return Err(CliError::Internal(anyhow::anyhow!(
-            "exchange returned {} statuses for {} order legs",
-            statuses.len(),
-            prepared.legs.len()
-        )));
+        return Err(status_count_mismatch(statuses.len(), prepared.legs.len()));
     }
 
-    prepared
+    Ok(prepared
         .legs
         .iter()
         .zip(statuses)
-        .map(|(leg, status)| OrderConfirmation::from_status(&leg.order, status))
-        .collect()
+        .map(|(leg, status)| OrderConfirmation::from_leg_status(&leg.order, status))
+        .collect())
 }
 
 /// Place position-attached take-profit and/or stop-loss trigger orders.
@@ -505,15 +498,15 @@ pub async fn tpsl(
     let user = vault_address.unwrap_or_else(|| context.submission.signer.query_address());
     let prepared =
         prepare_position_tpsl_batch(context.client, context.resolver, user, args).await?;
-    if context.submission.require_mainnet_confirmation
-        && !args.yes
-        && !confirm_mainnet_tpsl_batch(&prepared, format)?
-    {
-        return Err(CliError::Configuration(
-            "Mainnet TP/SL confirmation required; order placement cancelled. Rerun with --yes for deliberate automation."
-                .to_string(),
-        )
-        .into());
+    if context.submission.require_mainnet_confirmation && !args.yes {
+        let target = ConsentTarget::new(context.submission, vault_address, None);
+        if !confirm_mainnet_tpsl_batch(&prepared, &target, format)? {
+            return Err(CliError::Configuration(
+                "Mainnet TP/SL confirmation required; order placement cancelled. Rerun with --yes for deliberate automation."
+                    .to_string(),
+            )
+            .into());
+        }
     }
 
     let statuses = place_tpsl_batch(
@@ -525,13 +518,7 @@ pub async fn tpsl(
     )
     .await?;
     let rows = tpsl_confirmation_rows(&prepared, statuses)?;
-    emit_order_output(
-        &TpslOrderConfirmationOutput { rows },
-        format,
-        start.elapsed(),
-        emit_output,
-    );
-    Ok(())
+    finish_tpsl_batch(rows, format, start, emit_output)
 }
 
 fn emit_order_output(
@@ -543,6 +530,101 @@ fn emit_order_output(
     if emit_output {
         output::print_data(data, format, duration);
     }
+}
+
+/// Sanitized exchange errors of the rejected legs, in leg order.
+fn rejection_errors<'a>(errors: impl IntoIterator<Item = Option<&'a str>>) -> Vec<String> {
+    errors.into_iter().flatten().map(str::to_string).collect()
+}
+
+/// Error for a batch where the exchange rejected every leg. `failures` are
+/// already sanitized and labelled.
+fn rejected_all(action: &str, failures: &[String]) -> CliError {
+    match failures {
+        [one] => CliError::Unsupported(format!("Couldn't {action}. Exchange said: {one}")),
+        many => {
+            let lines = many
+                .iter()
+                .enumerate()
+                .map(|(index, failure)| format!("  {}. {failure}", index + 1))
+                .collect::<Vec<_>>()
+                .join("\n");
+            CliError::Unsupported(format!("Couldn't {action}. Exchange said:\n{lines}"))
+        }
+    }
+}
+
+/// Report a batch where some legs failed. Prints the per-leg result, then
+/// returns the partial-results error (exit 15). When every leg failed there is
+/// no partial result, so the rejection is the error.
+fn finish_with_failures(
+    legs: impl TableData + 'static,
+    verb: &str,
+    action: &str,
+    failures: Vec<String>,
+    format: OutputFormat,
+    start: Instant,
+) -> Result<(), anyhow::Error> {
+    let total = legs.rows().len();
+    let failed = failures.len();
+    if failed >= total {
+        return Err(rejected_all(action, &failures).into());
+    }
+    let succeeded = total - failed;
+    let partial = PartialBatchOutput {
+        legs: Box::new(legs),
+        legs_key: "orders",
+        succeeded,
+        failed,
+        headline: format!(
+            "{verb} {succeeded} of {total} {}. {failed} failed.",
+            plural(total, "order", "orders")
+        ),
+    };
+    output::print_data(&partial, format, start.elapsed());
+    Err(partial.error().into())
+}
+
+/// Print a placed batch, or report its failed legs.
+fn finish_order_batch(
+    rows: Vec<OrderConfirmation>,
+    format: OutputFormat,
+    start: Instant,
+) -> Result<(), anyhow::Error> {
+    let legs = OrderConfirmationOutput { rows };
+    let failures = legs.rejection_errors();
+    if failures.is_empty() {
+        output::print_data(&legs, format, start.elapsed());
+        return Ok(());
+    }
+    finish_with_failures(legs, "Placed", "place orders", failures, format, start)
+}
+
+/// Print a placed TP/SL batch, or report its failed legs. With `emit_output`
+/// off (bracket protection) a failed leg is returned as an error instead.
+fn finish_tpsl_batch(
+    rows: Vec<TpslOrderConfirmation>,
+    format: OutputFormat,
+    start: Instant,
+    emit_output: bool,
+) -> Result<(), anyhow::Error> {
+    let legs = TpslOrderConfirmationOutput { rows };
+    let failures = legs.rejection_errors();
+    if failures.is_empty() {
+        emit_order_output(&legs, format, start.elapsed(), emit_output);
+        return Ok(());
+    }
+    if !emit_output {
+        return Err(rejected_all("place TP/SL orders", &failures).into());
+    }
+    finish_with_failures(
+        legs,
+        "Placed",
+        "place TP/SL orders",
+        failures,
+        format,
+        start,
+    )
 }
 
 /// Cancel a single open order by exchange OID or client order ID.
@@ -572,7 +654,7 @@ pub async fn cancel(
     .await?;
     let statuses = order_statuses_from_response(response, "cancel")?;
 
-    ensure_action_statuses_ok(&statuses, "cancel")?;
+    ensure_action_statuses_ok(&statuses, "cancel order")?;
     output::print_data(
         &CancelConfirmationOutput {
             rows: vec![CancelConfirmation {
@@ -603,12 +685,20 @@ pub async fn cancel_all(
     let start = Instant::now();
     let plan = prepare_cancel_all_orders_plan(context.client, context.resolver, user, args).await?;
 
-    if plan.cancelled_orders != 0 && !args.yes && !confirm_cancel_all(args.coin.as_deref(), format)?
-    {
-        return Err(CliError::Configuration("cancel-all aborted".to_string()).into());
+    if plan.cancelled_orders != 0 {
+        let target = ConsentTarget::new(context.submission, vault_address, None);
+        if !args.yes
+            && !confirm_cancel_all(args.coin.as_deref(), plan.cancelled_orders, &target, format)?
+        {
+            return Err(CliError::Configuration("cancel-all aborted".to_string()).into());
+        }
     }
 
     let cancelled_orders = if let Some(action) = plan.action {
+        let order_ids: Vec<u64> = match &action {
+            Action::Cancel(batch) => batch.cancels.iter().map(|cancel| cancel.oid).collect(),
+            _ => Vec::new(),
+        };
         let nonce = Utc::now().timestamp_millis() as u64;
         let response = actions::send_l1_action_raw(
             context.submission.api_base_url,
@@ -621,7 +711,26 @@ pub async fn cancel_all(
         )
         .await?;
         let statuses = order_statuses_from_response(response, "cancel-all")?;
-        ensure_action_statuses_ok(&statuses, "cancel-all")?
+        if statuses.len() != order_ids.len() {
+            return Err(status_count_mismatch(statuses.len(), order_ids.len()).into());
+        }
+        let rows: Vec<CancelLeg> = order_ids
+            .iter()
+            .zip(&statuses)
+            .map(|(order_id, status)| CancelLeg::from_status(*order_id, status))
+            .collect();
+        let failures = rejection_errors(rows.iter().map(|row| row.error.as_deref()));
+        if !failures.is_empty() {
+            return finish_with_failures(
+                CancelLegsOutput { rows },
+                "Cancelled",
+                "cancel all orders",
+                failures,
+                format,
+                start,
+            );
+        }
+        statuses.len()
     } else {
         0
     };
@@ -665,7 +774,7 @@ pub async fn modify(
     )
     .await?;
     let statuses = order_statuses_from_response(response, "modify")?;
-    ensure_action_statuses_ok(&statuses, "modify")?;
+    ensure_action_statuses_ok(&statuses, "modify order")?;
     let mut confirmation = plan.confirmation;
     confirmation.order_id = modification_result_oid(&statuses).or(confirmation.order_id);
 
@@ -692,7 +801,12 @@ pub async fn twap_create(
     let plan = prepare_twap_create_plan(resolver, args)?;
     if context.require_mainnet_confirmation
         && !args.yes
-        && !confirm_mainnet_twap(&plan.coin, args, format)?
+        && !confirm_mainnet_twap(
+            &plan.coin,
+            args,
+            &ConsentTarget::new(context, vault_address, None),
+            format,
+        )?
     {
         return Err(CliError::Configuration(
             "Mainnet TWAP confirmation required; TWAP creation cancelled. Rerun with --yes for deliberate automation."
@@ -777,7 +891,11 @@ pub async fn schedule_cancel(
     let mut plan = prepare_schedule_cancel_plan(args, Utc::now())?;
     if context.require_mainnet_confirmation
         && !args.yes
-        && !confirm_mainnet_schedule_cancel(&plan, format)?
+        && !confirm_mainnet_schedule_cancel(
+            &plan,
+            &ConsentTarget::new(context, vault_address, None),
+            format,
+        )?
     {
         return Err(CliError::Configuration(
             "Mainnet schedule-cancel confirmation required; action cancelled. Rerun with --yes for deliberate automation."
@@ -1038,18 +1156,92 @@ fn order_builder_fee(
     }))
 }
 
+/// Most problems listed in one batch-file error.
+const MAX_LISTED_LEG_PROBLEMS: usize = 5;
+
 fn read_batch_create_orders(path: &Path) -> Result<Vec<BatchCreateOrder>, CliError> {
     let value = read_json_file(path, FilePolicy::json_artifact("orders file"))?;
     let orders_value = value.get("orders").cloned().unwrap_or(value);
-    let orders = serde_json::from_value::<Vec<BatchCreateOrder>>(orders_value).map_err(|err| {
-        CliError::Configuration(format!("invalid orders file {}: {err}", path.display()))
-    })?;
-    if orders.len() > MAX_BATCH_ORDER_COUNT {
+    let serde_json::Value::Array(items) = orders_value else {
         return Err(CliError::Configuration(format!(
-            "orders batch-create supports at most {MAX_BATCH_ORDER_COUNT} order legs"
+            "Can't use orders file {}. Expected a JSON array, or an object with an `orders` array.",
+            path.display()
+        )));
+    };
+    if items.len() > MAX_BATCH_ORDER_COUNT {
+        return Err(CliError::Configuration(format!(
+            "orders batch-create supports at most {MAX_BATCH_ORDER_COUNT} order legs, {} given in {}",
+            items.len(),
+            path.display()
         )));
     }
-    Ok(orders)
+
+    let mut orders = Vec::with_capacity(items.len());
+    let mut problems = Vec::new();
+    for (index, item) in items.into_iter().enumerate() {
+        let leg_problems = batch_leg_problems(index, &item);
+        if leg_problems.is_empty() {
+            match serde_json::from_value::<BatchCreateOrder>(item) {
+                Ok(order) => orders.push(order),
+                Err(err) => problems.push(format!("orders[{index}]: {err}")),
+            }
+        } else {
+            problems.extend(leg_problems);
+        }
+    }
+    if problems.is_empty() {
+        return Ok(orders);
+    }
+
+    let hidden = problems.len().saturating_sub(MAX_LISTED_LEG_PROBLEMS);
+    let mut lines: Vec<String> = problems
+        .iter()
+        .take(MAX_LISTED_LEG_PROBLEMS)
+        .map(|problem| format!("  {problem}"))
+        .collect();
+    if hidden > 0 {
+        lines.push(format!("  and {hidden} more"));
+    }
+    Err(CliError::Configuration(format!(
+        "Can't use orders file {}. Fix these fields:\n{}",
+        path.display(),
+        lines.join("\n")
+    )))
+}
+
+/// Every invalid field of one batch leg, named as `orders[<index>].<field>`.
+fn batch_leg_problems(index: usize, item: &serde_json::Value) -> Vec<String> {
+    let Some(object) = item.as_object() else {
+        return vec![format!("orders[{index}] must be an object")];
+    };
+    let mut problems = Vec::new();
+    let mut check =
+        |name: &str, required: bool, parse: fn(&serde_json::Value) -> Option<String>| match object
+            .get(name)
+        {
+            None if required => problems.push(format!("orders[{index}].{name} is required")),
+            None => {}
+            Some(value) => {
+                if let Some(reason) = parse(value) {
+                    problems.push(format!("orders[{index}].{name}: {reason}"));
+                }
+            }
+        };
+    check("coin", true, probe::<String>);
+    check("side", true, probe::<OrderSide>);
+    check("price", true, probe::<Decimal>);
+    check("size", true, probe::<Decimal>);
+    check("dex", false, probe::<Option<String>>);
+    check("tif", false, probe::<Option<TifArg>>);
+    check("reduce_only", false, probe::<bool>);
+    check("cloid", false, probe::<Option<String>>);
+    problems
+}
+
+fn probe<T: serde::de::DeserializeOwned>(value: &serde_json::Value) -> Option<String> {
+    serde_json::from_value::<T>(value.clone())
+        .err()
+        .map(|err| err.to_string())
 }
 
 fn scale_prices(
@@ -1142,20 +1334,27 @@ fn tpsl_confirmation_rows(
     statuses: Vec<TpslResponseStatus>,
 ) -> Result<Vec<TpslOrderConfirmation>, CliError> {
     if statuses.len() != prepared.legs.len() {
-        return Err(CliError::Internal(anyhow::anyhow!(
-            "order placement returned {} statuses for {} TP/SL legs",
-            statuses.len(),
-            prepared.legs.len()
-        )));
+        return Err(status_count_mismatch(statuses.len(), prepared.legs.len()));
     }
-    prepared
+    Ok(prepared
         .legs
         .iter()
         .zip(statuses)
         .map(|(leg, status)| {
             TpslOrderConfirmation::from_tpsl_status(leg, prepared.grouping, status)
         })
-        .collect()
+        .collect())
+}
+
+/// The exchange answered with a different number of statuses than orders sent,
+/// so some orders may be live without a matching row.
+fn status_count_mismatch(statuses: usize, orders: usize) -> CliError {
+    CliError::Internal(anyhow::anyhow!(
+        "The exchange returned {statuses} {} for {orders} {}. Check what is live:\n    {}",
+        plural(statuses, "status", "statuses"),
+        plural(orders, "order", "orders"),
+        rendering::CHECK_LIVE_COMMAND
+    ))
 }
 
 async fn place_tpsl_batch(
@@ -1446,9 +1645,7 @@ fn parse_twap_create_response(response: serde_json::Value) -> Result<u64, CliErr
         .pointer("/data/status/error")
         .and_then(serde_json::Value::as_str)
     {
-        return Err(CliError::Unsupported(format!(
-            "twap-create rejected: {error}"
-        )));
+        return Err(rendering::status_error("create TWAP", error));
     }
 
     response
@@ -1482,9 +1679,7 @@ fn parse_twap_cancel_response(response: serde_json::Value) -> Result<(), CliErro
     }
 
     if let Some(error) = status.get("error").and_then(serde_json::Value::as_str) {
-        return Err(CliError::Unsupported(format!(
-            "twap-cancel rejected: {error}"
-        )));
+        return Err(rendering::status_error("cancel TWAP", error));
     }
 
     Err(CliError::Internal(anyhow::anyhow!(
@@ -1694,13 +1889,15 @@ fn order_statuses_from_response(
         })
 }
 
+/// Fail on the first rejected status, with the exchange text sanitized and
+/// labelled. `action` completes "Couldn't ...", such as `cancel order`.
 fn ensure_action_statuses_ok(
     statuses: &[OrderResponseStatus],
-    action: &'static str,
+    action: &str,
 ) -> Result<usize, CliError> {
     for status in statuses {
         if let OrderResponseStatus::Error(err) = status {
-            return Err(CliError::Unsupported(format!("{action} rejected: {err}")));
+            return Err(rendering::status_error(action, err));
         }
     }
     Ok(statuses.len())
@@ -1770,49 +1967,36 @@ fn require_modify_trigger_price(
     })
 }
 
-fn confirm_cancel_all(coin: Option<&str>, format: OutputFormat) -> Result<bool, CliError> {
-    let mut stderr = io::stderr();
-    let prompt = match coin {
-        Some(coin) => format!("Cancel all {coin} orders? [y/N] "),
-        None => "Cancel all orders? [y/N] ".to_string(),
-    };
-    write!(stderr, "{}", warning_prompt(&prompt, format))
-        .map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
-    stderr
-        .flush()
-        .map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
-
-    let mut input = String::new();
-    io::stdin()
-        .read_line(&mut input)
-        .map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
-    Ok(is_yes(input.trim()))
+fn confirm_cancel_all(
+    coin: Option<&str>,
+    count: usize,
+    target: &ConsentTarget<'_>,
+    format: OutputFormat,
+) -> Result<bool, CliError> {
+    let scope = coin.map(|coin| format!("{coin} ")).unwrap_or_default();
+    let question = format!(
+        "Cancel {count} open {scope}{} on {}?",
+        plural(count, "order", "orders"),
+        target.network()
+    );
+    ask_confirmation(target, &[], &question, format)
 }
 
 fn confirm_mainnet_schedule_cancel(
     plan: &ScheduleCancelPlan,
+    target: &ConsentTarget<'_>,
     format: OutputFormat,
 ) -> Result<bool, CliError> {
-    let mut stderr = io::stderr();
-    let prompt = if let Some(scheduled_at) = plan.scheduled_at.as_ref() {
+    let question = if let Some(scheduled_at) = plan.scheduled_at.as_ref() {
         format!(
-            "Schedule mainnet cancel-all for {}? [y/N] ",
-            scheduled_at.to_rfc3339()
+            "Schedule cancel-all for {} on {}?",
+            scheduled_at.to_rfc3339(),
+            target.network()
         )
     } else {
-        "Clear mainnet scheduled cancel-all? [y/N] ".to_string()
+        format!("Clear scheduled cancel-all on {}?", target.network())
     };
-    write!(stderr, "{}", warning_prompt(&prompt, format))
-        .map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
-    stderr
-        .flush()
-        .map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
-
-    let mut input = String::new();
-    io::stdin()
-        .read_line(&mut input)
-        .map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
-    Ok(is_yes(input.trim()))
+    ask_confirmation(target, &[], &question, format)
 }
 
 async fn market_mid_price(client: &HttpClient, lookup: &MidLookup) -> Result<Decimal, CliError> {
@@ -1855,8 +2039,11 @@ fn market_limit_price(
         })
 }
 
-fn confirm_mainnet_order(prepared: &PreparedOrder, format: OutputFormat) -> Result<bool, CliError> {
-    let mut stderr = io::stderr();
+fn confirm_mainnet_order(
+    prepared: &PreparedOrder,
+    target: &ConsentTarget<'_>,
+    format: OutputFormat,
+) -> Result<bool, CliError> {
     let amount = prepared
         .amount
         .map(|amount| format!(", amount {amount} {}", prepared.amount_unit))
@@ -1870,8 +2057,8 @@ fn confirm_mainnet_order(prepared: &PreparedOrder, format: OutputFormat) -> Resu
     } else {
         "not reduce-only"
     };
-    let warning = format!(
-        "Mainnet order confirmation required: place {} {} order for {} {} at price {}{}{}, {}.",
+    let mut details = vec![format!(
+        "Order: {} {} order for {} {} at price {}{}{}, {}",
         prepared.side,
         prepared.order_type,
         prepared.size,
@@ -1880,70 +2067,52 @@ fn confirm_mainnet_order(prepared: &PreparedOrder, format: OutputFormat) -> Resu
         trigger,
         amount,
         reduce_only
-    );
-    writeln!(stderr, "{}", warning_prompt(&warning, format))
-        .map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
+    )];
     if let Some(slippage_warning) = &prepared.warning {
-        writeln!(stderr, "{}", warning_prompt(slippage_warning, format))
-            .map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
+        details.push(warning_prompt(slippage_warning, format));
     }
-    write!(
-        stderr,
-        "{}",
-        warning_prompt("Place this mainnet order? [y/N] ", format)
+    ask_confirmation(
+        target,
+        &details,
+        &format!("Place this order on {}?", target.network()),
+        format,
     )
-    .map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
-    stderr
-        .flush()
-        .map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
-
-    let mut input = String::new();
-    io::stdin()
-        .read_line(&mut input)
-        .map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
-    Ok(is_yes(input.trim()))
 }
 
 fn confirm_mainnet_order_batch(
     label: &str,
     prepared: &PreparedOrderBatch,
+    target: &ConsentTarget<'_>,
     format: OutputFormat,
 ) -> Result<bool, CliError> {
-    let mut stderr = io::stderr();
-    let prompt = format!(
-        "Submit {count} {label} order(s) on mainnet? [y/N] ",
-        count = prepared.legs.len()
-    );
-    write!(stderr, "{}", warning_prompt(&prompt, format))
-        .map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
-    stderr
-        .flush()
-        .map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
-
-    let mut input = String::new();
-    io::stdin()
-        .read_line(&mut input)
-        .map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
-    Ok(is_yes(input.trim()))
+    let count = prepared.legs.len();
+    let orders = plural(count, "order", "orders");
+    ask_confirmation(
+        target,
+        &[format!("Orders: {count} {label} {orders}")],
+        &format!("Submit {count} {label} {orders} on {}?", target.network()),
+        format,
+    )
 }
 
 fn confirm_mainnet_tpsl_batch(
     prepared: &PreparedTpslBatch,
+    target: &ConsentTarget<'_>,
     format: OutputFormat,
 ) -> Result<bool, CliError> {
-    let mut stderr = io::stderr();
     let parent = prepared
         .legs
         .iter()
         .find(|leg| leg.leg == TpslLegKind::Parent);
     let summary = if let Some(parent) = parent {
+        let children = prepared.legs.len().saturating_sub(1);
         format!(
-            "Mainnet TP/SL confirmation required: place {} parent order for {} {} at price {} with {} grouped child order(s) using {}.",
+            "Orders: {} parent order for {} {} at price {} with {children} grouped child {} using {}",
             parent.side,
             parent.size,
             parent.coin,
             parent.price,
-            prepared.legs.len().saturating_sub(1),
+            plural(children, "order", "orders"),
             prepared.grouping
         )
     } else {
@@ -1951,64 +2120,109 @@ fn confirm_mainnet_tpsl_batch(
             CliError::Configuration("TP/SL batch requires at least one leg".to_string())
         })?;
         format!(
-            "Mainnet TP/SL confirmation required: place {} grouped TP/SL order(s) for {} using {}.",
+            "Orders: {} grouped TP/SL {} for {} using {}",
             prepared.legs.len(),
+            plural(prepared.legs.len(), "order", "orders"),
             first.coin,
             prepared.grouping
         )
     };
-    writeln!(stderr, "{}", warning_prompt(&summary, format))
-        .map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
+    let mut details = vec![summary];
     for leg in &prepared.legs {
         if let Some(warning) = &leg.warning {
-            writeln!(stderr, "{}", warning_prompt(warning, format))
-                .map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
+            details.push(warning_prompt(warning, format));
         }
     }
-    write!(
-        stderr,
-        "{}",
-        warning_prompt("Place this mainnet TP/SL batch? [y/N] ", format)
+    ask_confirmation(
+        target,
+        &details,
+        &format!("Place this TP/SL batch on {}?", target.network()),
+        format,
     )
-    .map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
-    stderr
-        .flush()
-        .map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
-
-    let mut input = String::new();
-    io::stdin()
-        .read_line(&mut input)
-        .map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
-    Ok(is_yes(input.trim()))
 }
 
 fn confirm_mainnet_twap(
     coin: &str,
     args: &TwapCreateArgs,
+    target: &ConsentTarget<'_>,
     format: OutputFormat,
 ) -> Result<bool, CliError> {
-    let mut stderr = io::stderr();
-    let warning = format!(
-        "Mainnet TWAP confirmation required: create {} TWAP for {} {} over {} seconds on mainnet.",
+    let details = [format!(
+        "TWAP: {} {} {} over {} seconds",
         args.side, args.size, coin, args.duration
-    );
-    writeln!(stderr, "{}", warning_prompt(&warning, format))
-        .map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
-    write!(
-        stderr,
-        "{}",
-        warning_prompt("Create this mainnet TWAP? [y/N] ", format)
+    )];
+    ask_confirmation(
+        target,
+        &details,
+        &format!("Create this TWAP on {}?", target.network()),
+        format,
     )
-    .map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
-    stderr
-        .flush()
-        .map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
+}
 
-    let mut input = String::new();
-    io::stdin()
-        .read_line(&mut input)
-        .map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
-    Ok(is_yes(input.trim()))
+/// Target facts every consent preview shows before the question.
+struct ConsentTarget<'a> {
+    chain: Chain,
+    signer: &'a SelectedSigner,
+    vault_address: Option<Address>,
+    builder: Option<&'a OrderBuilderFee>,
+}
+
+impl<'a> ConsentTarget<'a> {
+    fn new(
+        submission: OrderSubmissionContext<'a>,
+        vault_address: Option<Address>,
+        builder: Option<&'a OrderBuilderFee>,
+    ) -> Self {
+        Self {
+            chain: submission.chain,
+            signer: submission.signer,
+            vault_address,
+            builder,
+        }
+    }
+
+    fn network(&self) -> &'static str {
+        match self.chain {
+            Chain::Mainnet => "mainnet",
+            Chain::Testnet => "testnet",
+        }
+    }
+
+    fn preview_lines(&self) -> Vec<String> {
+        let mut lines = vec![
+            format!("Network: {}", self.network()),
+            format!("Signer: {}", self.signer.address()),
+        ];
+        if let Some(vault) = self.vault_address {
+            lines.push(format!("Acting as: {vault} (vault or subaccount)"));
+        }
+        if let Some(builder) = self.builder {
+            lines.push(format!(
+                "Builder: {} (max fee {}%)",
+                builder.b,
+                Decimal::new(i64::try_from(builder.f).unwrap_or(i64::MAX), 3).normalize()
+            ));
+        }
+        lines
+    }
+}
+
+/// Print the consent preview block on stderr, then ask `question`.
+///
+/// Runs that can't prompt fail with `--yes` as the way to answer before the
+/// block is printed.
+fn ask_confirmation(
+    target: &ConsentTarget<'_>,
+    details: &[String],
+    question: &str,
+    format: OutputFormat,
+) -> Result<bool, CliError> {
+    prompt::ensure_can_prompt("--yes")?;
+    let mut stderr = io::stderr();
+    for line in target.preview_lines().iter().chain(details) {
+        writeln!(stderr, "{line}").map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
+    }
+    prompt::confirm(&warning_prompt(question, format), "--yes")
 }
 
 fn warning_prompt(prompt: &str, format: OutputFormat) -> String {
@@ -2019,8 +2233,9 @@ fn warning_prompt(prompt: &str, format: OutputFormat) -> String {
     }
 }
 
-fn is_yes(input: &str) -> bool {
-    matches!(input.to_ascii_lowercase().as_str(), "y" | "yes")
+/// Pick the singular or plural noun for `count`.
+pub(crate) fn plural<'a>(count: usize, singular: &'a str, plural: &'a str) -> &'a str {
+    if count == 1 { singular } else { plural }
 }
 
 #[cfg(test)]

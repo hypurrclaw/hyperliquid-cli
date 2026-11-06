@@ -68,8 +68,8 @@ pub async fn chase(
     let timeout = effective_timeout(args)?;
     if context.submission.require_mainnet_confirmation && !args.yes {
         return Err(CliError::Configuration(
-            "Mainnet chase confirmation required; rerun with --yes for deliberate automation.\n  \
-             hyperliquid --format json -y orders chase --coin ETH --side buy --size 0.5 --timeout 60s"
+            "Can't chase on mainnet without --yes. Rerun with --yes once you approve it:\n    \
+             hyperliquid --format json orders chase --coin ETH --side buy --size 0.5 --timeout 60s --yes"
                 .to_string(),
         )
         .into());

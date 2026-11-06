@@ -5,7 +5,6 @@
 //! - `hyperliquid builder approved --user <ADDRESS>`
 //! - `hyperliquid builder approve --builder <ADDRESS> --max-fee-rate <PERCENT>`
 
-use std::io::{self, Write};
 use std::time::Instant;
 
 use alloy::sol;
@@ -222,7 +221,7 @@ impl TableData for BuilderApprovedOutput {
 
     fn rows(&self) -> Vec<Vec<String>> {
         if self.rows.is_empty() {
-            return vec![vec!["No approved builders found".to_string()]];
+            return vec![vec!["No approved builders.".to_string()]];
         }
         self.rows
             .iter()
@@ -652,24 +651,16 @@ fn confirm_builder_approval(
     max_fee_tenths_bps: u64,
     format: OutputFormat,
 ) -> Result<(), CliError> {
-    let prompt = format!(
-        "Approve builder {builder} for max fee {max_fee_rate} ({max_fee_tenths_bps} tenths bps)? [y/N] "
+    crate::prompt::ensure_can_prompt("--yes")?;
+    let question = format!(
+        "Approve builder {builder} for max fee {max_fee_rate} ({max_fee_tenths_bps} tenths bps)?"
     );
-    let prompt = if format == OutputFormat::Pretty {
-        colors::yellow(&prompt)
+    let question = if format == OutputFormat::Pretty {
+        colors::yellow(&question)
     } else {
-        prompt
+        question
     };
-    let mut stderr = io::stderr();
-    write!(stderr, "{prompt}").map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
-    stderr
-        .flush()
-        .map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
-    let mut input = String::new();
-    io::stdin()
-        .read_line(&mut input)
-        .map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
-    if matches!(input.trim().to_ascii_lowercase().as_str(), "y" | "yes") {
+    if crate::prompt::confirm(&question, "--yes")? {
         Ok(())
     } else {
         Err(CliError::Configuration(

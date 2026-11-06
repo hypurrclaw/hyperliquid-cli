@@ -283,7 +283,7 @@ impl TableData for VaultSummaryOutput {
 
     fn rows(&self) -> Vec<Vec<String>> {
         if self.rows.is_empty() {
-            return vec![vec!["No vaults found".to_string()]];
+            return vec![vec!["No vaults.".to_string()]];
         }
         let show_user_deposit = self.rows.iter().any(|row| row.user_deposit.is_some());
         self.rows
@@ -312,7 +312,7 @@ impl TableData for VaultSummaryOutput {
 
     fn pretty_rows(&self) -> Vec<Vec<String>> {
         if self.rows.is_empty() {
-            return vec![vec![output::colors::gray("No vaults found")]];
+            return vec![vec![output::colors::gray("No vaults.")]];
         }
         self.rows()
     }
@@ -347,7 +347,7 @@ impl TableData for VaultPositionsOutput {
         if self.rows.is_empty() {
             return vec![vec![
                 self.vault_address.clone(),
-                "No open positions".to_string(),
+                "No open positions.".to_string(),
             ]];
         }
 
