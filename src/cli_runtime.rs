@@ -775,12 +775,18 @@ fn validate_prompt_policy(
                 .to_string(),
         ));
     }
+    if !cli.dry_run
+        && !hyperliquid_cli::mode::can_prompt()
+        && let Some(error) = missing_selector_error(&cli.command)
+    {
+        return Err(error);
+    }
     if cli.dry_run
         || hyperliquid_cli::mode::can_prompt()
         || command.confirmation != ConfirmationPolicy::Prompt
         || !prompt_required_for_invocation(cli, command)
         || confirmation.given
-        || selector_missing(&cli.command)
+        || confirmation_not_required(&cli.command)
     {
         return Ok(());
     }
@@ -842,14 +848,29 @@ fn argv_secret_supplied(command: &Option<Commands>) -> bool {
     }
 }
 
-/// `account set-default` never asks for confirmation, and `account remove`
-/// without a selector fails on the missing selector in its own handler.
-fn selector_missing(command: &Option<Commands>) -> bool {
+/// `account set-default` and `account remove` choose a wallet interactively
+/// when no selector is given. Without a prompt that is missing input.
+fn missing_selector_error(command: &Option<Commands>) -> Option<errors::CliError> {
+    let key = match command {
+        Some(Commands::Account {
+            subcommand: AccountCommands::SetDefault { selector: None },
+        }) => "account set-default",
+        Some(Commands::Account {
+            subcommand: AccountCommands::Remove { selector: None, .. },
+        }) => "account remove",
+        _ => return None,
+    };
+    Some(errors::CliError::Unsupported(format!(
+        "Can't run `{key}` without a wallet selector in non-interactive mode.\nList wallets:\n    hyperliquid account ls\nThen pass one:\n    hyperliquid {key} <SELECTOR>"
+    )))
+}
+
+/// `account set-default` only switches a pointer. It never asks for confirmation.
+fn confirmation_not_required(command: &Option<Commands>) -> bool {
     matches!(
         command,
         Some(Commands::Account {
             subcommand: AccountCommands::SetDefault { .. }
-                | AccountCommands::Remove { selector: None, .. },
         })
     )
 }

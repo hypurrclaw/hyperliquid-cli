@@ -277,26 +277,41 @@ fn prompt_required_commands_fail_closed_for_agent_env_even_with_explicit_pretty_
 }
 
 #[test]
-fn wallet_export_secret_stdout_is_not_enabled_by_yes_in_machine_context() {
+fn wallet_export_yes_satisfies_confirmation_in_machine_context() {
     let env = IsolatedHome::new();
 
-    let output = env
+    // Without --yes the run can't prompt, so it fails closed on confirmation.
+    let blocked = env
         .command()
-        .args(["--format", "json", "wallet", "export", "qa-wallet", "--yes"])
+        .args(["--format", "json", "wallet", "export", "qa-wallet"])
         .assert()
         .failure()
         .code(13)
         .get_output()
         .stdout
         .clone();
-    let json: Value = serde_json::from_slice(&output).unwrap();
+    let json: Value = serde_json::from_slice(&blocked).unwrap();
+    let message = json["error"].as_str().unwrap();
     assert!(
-        json["error"]
-            .as_str()
-            .unwrap()
-            .contains("requires confirmation in machine-readable contexts"),
+        message.contains("without confirmation in non-interactive mode"),
         "{json}"
     );
+    assert!(message.contains("rerun with --yes"), "{json}");
+
+    // With --yes the confirmation is answered; the run proceeds to the wallet
+    // lookup and fails there because the wallet doesn't exist.
+    let accepted = env
+        .command()
+        .args(["--format", "json", "wallet", "export", "qa-wallet", "--yes"])
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+    let json: Value = serde_json::from_slice(&accepted).unwrap();
+    let message = json["error"].as_str().unwrap();
+    assert!(!message.contains("without confirmation"), "{json}");
+    assert!(message.contains("qa-wallet"), "{json}");
 }
 
 #[test]

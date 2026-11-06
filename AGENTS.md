@@ -13,6 +13,7 @@
 ## Architecture
 
 - `src/main.rs` — clap entry point, global flags, command dispatch, network/client setup.
+- `src/cli_shell.rs` — clap tree decoration (help order, aliases, catalog-derived option help and `Notes:`), usage-error and help rendering, panic hook, output-format resolution.
 - `src/errors.rs` — structured `CliError` variants and exit-code mapping.
 - `src/output/` — pretty/table/JSON rendering, color theme, JSON projection.
 - `src/commands/` — one module per command domain.

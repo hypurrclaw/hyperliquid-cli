@@ -387,6 +387,7 @@ fn legacy_raw_key_store_override_is_rejected() {
             env.tmp_path().join("raw-key-store"),
         )
         .env_remove(ACCOUNT_KEY_PASSPHRASE_ENV)
+        .env_remove("CI")
         .env_remove("HYPERLIQUID_PRIVATE_KEY")
         .env_remove("HYPERLIQUID_NETWORK")
         .args(["wallet", "import", IMPORT_KEY])
@@ -516,7 +517,7 @@ fn account_and_setup_help_explain_public_reads_and_secret_handling() {
         .args(["account", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Public account reads"))
+        .stdout(predicate::str::contains("Read account data"))
         .stdout(predicate::str::contains("do not require a signer"))
         .stdout(predicate::str::contains(
             "wallets can also be selected by name, id, or address",
@@ -1039,7 +1040,7 @@ fn account_set_default_and_remove_without_accounts_have_clear_error() {
         set_default_json["error"]
             .as_str()
             .unwrap()
-            .contains("account set-default requires confirmation in machine-readable contexts")
+            .contains("without a wallet selector in non-interactive mode")
     );
 
     let remove_output = env
@@ -1056,7 +1057,7 @@ fn account_set_default_and_remove_without_accounts_have_clear_error() {
         remove_json["error"]
             .as_str()
             .unwrap()
-            .contains("account remove requires confirmation in machine-readable contexts")
+            .contains("without a wallet selector in non-interactive mode")
     );
 
     let set_default_selector_output = env
@@ -1105,8 +1106,8 @@ fn account_remove_json_requires_yes_before_prompting() {
 
     let output = env
         .account_command(TEST_ACCOUNT_PASSPHRASE)
-        .args(["--format", "json", "account", "remove"])
-        .write_stdin("main\nn\n")
+        .args(["--format", "json", "account", "remove", "main"])
+        .write_stdin("n\n")
         .assert()
         .code(13)
         .stderr(predicate::str::is_empty())
@@ -1119,7 +1120,7 @@ fn account_remove_json_requires_yes_before_prompting() {
         json["error"]
             .as_str()
             .unwrap()
-            .contains("account remove requires confirmation in machine-readable contexts")
+            .contains("without confirmation in non-interactive mode")
     );
 }
 

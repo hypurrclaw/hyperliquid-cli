@@ -189,7 +189,7 @@ fn test_no_args_success() {
         .assert()
         .success()
         .code(0)
-        .stdout(predicate::str::contains("hyperliquid-cli"));
+        .stdout(predicate::str::contains("Usage: hyperliquid"));
 }
 
 #[test]
