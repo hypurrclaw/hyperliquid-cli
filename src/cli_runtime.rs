@@ -547,7 +547,9 @@ async fn run_command(
         Some(Commands::Referral {
             subcommand: ReferralCommands::Status,
         }) => referral_status(&context, cli.format).await,
-        Some(Commands::Subscribe { subcommand }) => subscribe(&context, subcommand).await,
+        Some(Commands::Subscribe { subcommand }) => {
+            subscribe(&context, subcommand, cli.format).await
+        }
         _ => {
             // Placeholder for all other unimplemented commands
             Err(unimplemented_command_error())
@@ -1305,38 +1307,20 @@ fn validate_cli_inputs(cli: &Cli) -> Result<(), errors::CliError> {
 }
 
 fn validate_stream_bounds(cli: &Cli) -> Result<(), errors::CliError> {
-    if machine_context(cli) {
-        if snapshot_watch_requested_without_bound(&cli.command) {
-            validate_env_bound("HYPERLIQUID_WATCH_MAX_TICKS")?;
-            if snapshot_watch_requested_without_bound(&cli.command) {
-                return Err(errors::CliError::Unsupported(
-                    "JSON watch output must be bounded with --max-ticks <N> or HYPERLIQUID_WATCH_MAX_TICKS"
-                        .to_string(),
-                ));
-            }
-        }
-
-        if subscribe_stream_args(&cli.command).is_some() {
-            validate_env_bound("HYPERLIQUID_SUBSCRIBE_MAX_EVENTS")?;
-            if subscribe_requested_without_bound(&cli.command) {
-                return Err(errors::CliError::Unsupported(
-                    "JSON subscribe output must be bounded with --max-events <N>, --idle-timeout-ms <N>, or HYPERLIQUID_SUBSCRIBE_MAX_EVENTS"
-                        .to_string(),
-                ));
-            }
-        }
+    if !machine_context(cli) {
+        return Ok(());
+    }
+    if let Some(watch) = snapshot_watch_args(&cli.command).filter(|watch| watch.watch) {
+        hyperliquid_cli::stream::require_tick_bound(watch.max_ticks)?;
+    }
+    if let Some(stream) = subscribe_stream_args(&cli.command) {
+        hyperliquid_cli::stream::require_event_bound(stream)?;
     }
     Ok(())
 }
 
 fn machine_context(cli: &Cli) -> bool {
     cli.format == output::OutputFormat::Json || hyperliquid_cli::mode::agent_env()
-}
-
-fn snapshot_watch_requested_without_bound(command: &Option<Commands>) -> bool {
-    snapshot_watch_args(command).is_some_and(|watch| {
-        watch.watch && watch.max_ticks.is_none() && env_watch_max_ticks().is_none()
-    })
 }
 
 fn snapshot_watch_args(command: &Option<Commands>) -> Option<&SnapshotWatchArgs> {
@@ -1354,15 +1338,7 @@ fn snapshot_watch_args(command: &Option<Commands>) -> Option<&SnapshotWatchArgs>
     }
 }
 
-fn subscribe_requested_without_bound(command: &Option<Commands>) -> bool {
-    subscribe_stream_args(command).is_some_and(|stream| {
-        stream.max_events.is_none()
-            && stream.idle_timeout_ms.is_none()
-            && env_subscribe_max_events().is_none()
-    })
-}
-
-fn subscribe_stream_args(command: &Option<Commands>) -> Option<&SubscribeStreamArgs> {
+fn subscribe_stream_args(command: &Option<Commands>) -> Option<&StreamBoundArgs> {
     match command {
         Some(Commands::Subscribe { subcommand }) => match subcommand {
             SubscribeCommands::Trades { stream, .. }
@@ -1374,24 +1350,6 @@ fn subscribe_stream_args(command: &Option<Commands>) -> Option<&SubscribeStreamA
         },
         _ => None,
     }
-}
-
-fn env_watch_max_ticks() -> Option<usize> {
-    hyperliquid_cli::watch::max_count_from_env("HYPERLIQUID_WATCH_MAX_TICKS")
-        .filter(|value| *value > 0)
-}
-
-fn env_subscribe_max_events() -> Option<usize> {
-    hyperliquid_cli::watch::max_count_from_env("HYPERLIQUID_SUBSCRIBE_MAX_EVENTS")
-}
-
-fn validate_env_bound(name: &str) -> Result<(), errors::CliError> {
-    let Ok(raw) = std::env::var(name) else {
-        return Ok(());
-    };
-    raw.trim().parse::<usize>().map(|_| ()).map_err(|err| {
-        errors::CliError::Configuration(format!("{name} must be a non-negative integer: {err}"))
-    })
 }
 
 fn validate_asset_input(label: &str, value: &str) -> Result<(), errors::CliError> {
@@ -1976,36 +1934,21 @@ async fn watch_positions(
     .await
 }
 
-async fn subscribe(context: &AppContext, command: &SubscribeCommands) -> Result<(), anyhow::Error> {
-    match command {
+async fn subscribe(
+    context: &AppContext,
+    command: &SubscribeCommands,
+    format: output::OutputFormat,
+) -> Result<(), anyhow::Error> {
+    let (target, stream) = match command {
         SubscribeCommands::Trades { asset, stream } => {
             let resolver = load_asset_resolver(context).await?;
             let coin = resolve_subscription_coin(&resolver, asset)?;
-            hyperliquid_cli::watch::stream_subscription(
-                context.chain(),
-                Subscription::Trades { coin },
-                stream.max_events,
-                stream.idle_timeout(),
-                |message| subscription_event_matches(SubscribeEventKind::Trades, message),
-            )
-            .await
+            (SubscribeTarget::trades(coin), stream)
         }
         SubscribeCommands::Orderbook { asset, stream } => {
             let resolver = load_asset_resolver(context).await?;
             let coin = resolve_subscription_coin(&resolver, asset)?;
-            hyperliquid_cli::watch::stream_subscription(
-                context.chain(),
-                Subscription::L2Book {
-                    coin,
-                    n_sig_figs: None,
-                    mantissa: None,
-                    fast: false,
-                },
-                stream.max_events,
-                stream.idle_timeout(),
-                |message| subscription_event_matches(SubscribeEventKind::Orderbook, message),
-            )
-            .await
+            (SubscribeTarget::orderbook(coin), stream)
         }
         SubscribeCommands::Candles {
             asset,
@@ -2016,51 +1959,25 @@ async fn subscribe(context: &AppContext, command: &SubscribeCommands) -> Result<
                 .map_err(errors::CliError::Configuration)?;
             let resolver = load_asset_resolver(context).await?;
             let coin = resolve_subscription_coin(&resolver, asset)?;
-            hyperliquid_cli::watch::stream_subscription(
-                context.chain(),
-                Subscription::Candle {
-                    coin,
-                    interval: interval.clone(),
-                },
-                stream.max_events,
-                stream.idle_timeout(),
-                |message| subscription_event_matches(SubscribeEventKind::Candles, message),
-            )
-            .await
+            (SubscribeTarget::candles(coin, interval.clone()), stream)
         }
-        SubscribeCommands::AllMids { stream } => {
-            hyperliquid_cli::watch::stream_subscription(
-                context.chain(),
-                Subscription::AllMids { dex: None },
-                stream.max_events,
-                stream.idle_timeout(),
-                |message| subscription_event_matches(SubscribeEventKind::AllMids, message),
-            )
-            .await
-        }
+        SubscribeCommands::AllMids { stream } => (SubscribeTarget::all_mids(), stream),
         SubscribeCommands::OrderUpdates { stream } => {
             let user = context.resolve_signer()?.query_address();
-            hyperliquid_cli::watch::stream_subscription(
-                context.chain(),
-                Subscription::OrderUpdates { user },
-                stream.max_events,
-                stream.idle_timeout(),
-                |message| subscription_event_matches(SubscribeEventKind::OrderUpdates, message),
-            )
-            .await
+            (SubscribeTarget::order_updates(user), stream)
         }
         SubscribeCommands::Fills { stream } => {
             let user = context.resolve_signer()?.query_address();
-            hyperliquid_cli::watch::stream_subscription(
-                context.chain(),
-                Subscription::UserFills { user },
-                stream.max_events,
-                stream.idle_timeout(),
-                |message| subscription_event_matches(SubscribeEventKind::Fills, message),
-            )
-            .await
+            (SubscribeTarget::fills(user), stream)
         }
-    }
+    };
+    hyperliquid_cli::stream::stream_subscription(
+        context.chain(),
+        target,
+        StreamBounds::subscribe(stream),
+        format != output::OutputFormat::Json,
+    )
+    .await
 }
 
 fn resolve_subscription_coin(

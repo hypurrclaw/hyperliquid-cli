@@ -1,17 +1,10 @@
-//! Watch mode and WebSocket subscription helpers.
+//! Snapshot watch mode.
 //!
-//! Watch mode renders snapshots in-place using crossterm's alternate screen for
-//! human formats and emits newline-delimited JSON for `--format json`.
-//!
-//! Every stream here stops on SIGINT, SIGTERM, and SIGHUP: the loop ends, the
-//! terminal is restored, the current output line is complete, and the process
-//! exits `128 + signal`. A closed stdout (for example `| head`) ends the stream
-//! quietly with exit 0.
+//! Renders snapshots in-place using crossterm's alternate screen for human
+//! formats and emits newline-delimited JSON for `--format json`. Signal,
+//! closed-pipe and bound handling live in [`crate::stream`].
 
-use std::error::Error as StdError;
-use std::fmt;
-use std::future::Future;
-use std::io::{self, IsTerminal, Write};
+use std::io::{self, Write};
 use std::time::Duration;
 
 use crossterm::cursor;
@@ -21,138 +14,19 @@ use crossterm::terminal::{
     Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode,
     enable_raw_mode, size as terminal_size,
 };
-use futures::{Stream, StreamExt};
-use hypersdk::hypercore::{
-    self, Chain, Incoming, Subscription, UserEvent, WebSocket, ws::Event as WsEvent,
-};
+use futures::StreamExt;
+use hypersdk::hypercore::{Chain, Subscription, WebSocket, ws::Event as WsEvent};
 
 use crate::errors::CliError;
 use crate::output::{self, OutputFormat, TableData};
+use crate::stream::{
+    CONNECTION_LOST_NOTICE, EXIT_SIGINT, JSON_LINES_STDIN_NOTICE, JSON_LINES_STDOUT_NOTICE,
+    StreamBounds, StreamEnd, run_stream, stdin_is_tty, stdout_is_tty, write_stdout_line,
+};
+use crate::ws::websocket_for_chain;
 
 const WATCH_REFRESH_INTERVAL: Duration = Duration::from_secs(2);
 const KEY_POLL_INTERVAL: Duration = Duration::from_millis(150);
-
-/// Exit status for SIGHUP (`128 + 1`).
-const EXIT_SIGHUP: i32 = 129;
-/// Exit status for SIGINT and the Ctrl+C key (`128 + 2`).
-const EXIT_SIGINT: i32 = 130;
-/// Exit status for SIGTERM (`128 + 15`).
-const EXIT_SIGTERM: i32 = 143;
-
-const JSON_LINES_STDOUT_NOTICE: &str = "Streaming JSON lines because stdout isn't a terminal.";
-const JSON_LINES_STDIN_NOTICE: &str = "Streaming JSON lines because stdin isn't a terminal.";
-const CONNECTION_LOST_NOTICE: &str = "! Lost connection. Retrying automatically…";
-const STREAM_GAP_MESSAGE: &str = "Connection was lost and restored. Events may have been missed.";
-
-/// Stdout was closed by the reader (`| head`); the stream should end quietly.
-#[derive(Debug)]
-pub struct StdoutClosed;
-
-impl fmt::Display for StdoutClosed {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("stdout closed")
-    }
-}
-
-impl StdError for StdoutClosed {}
-
-/// Whether `err` is a closed-stdout condition rather than a real failure.
-pub fn is_stdout_closed(err: &anyhow::Error) -> bool {
-    err.downcast_ref::<StdoutClosed>().is_some()
-}
-
-fn map_write_error(err: io::Error) -> anyhow::Error {
-    if err.kind() == io::ErrorKind::BrokenPipe {
-        StdoutClosed.into()
-    } else {
-        err.into()
-    }
-}
-
-/// Write `line` plus a newline to `output` and flush. A broken pipe becomes [`StdoutClosed`].
-fn write_line<W: Write + ?Sized>(output: &mut W, line: &str) -> Result<(), anyhow::Error> {
-    output
-        .write_all(line.as_bytes())
-        .and_then(|()| output.write_all(b"\n"))
-        .and_then(|()| output.flush())
-        .map_err(map_write_error)
-}
-
-/// Write one complete line to stdout. A broken pipe becomes [`StdoutClosed`].
-pub fn write_stdout_line(line: &str) -> Result<(), anyhow::Error> {
-    write_line(&mut io::stdout().lock(), line)
-}
-
-/// Stop signals a stream reacts to.
-pub struct ShutdownSignals {
-    #[cfg(unix)]
-    interrupt: tokio::signal::unix::Signal,
-    #[cfg(unix)]
-    terminate: tokio::signal::unix::Signal,
-    #[cfg(unix)]
-    hangup: tokio::signal::unix::Signal,
-}
-
-impl ShutdownSignals {
-    /// Register SIGINT, SIGTERM, and SIGHUP handlers.
-    #[cfg(unix)]
-    pub fn install() -> Result<Self, anyhow::Error> {
-        use tokio::signal::unix::{SignalKind, signal};
-
-        let register = |kind: SignalKind, name: &str| {
-            signal(kind).map_err(|err| {
-                CliError::Internal(anyhow::anyhow!("failed to install {name} handler: {err}"))
-            })
-        };
-        Ok(Self {
-            interrupt: register(SignalKind::interrupt(), "SIGINT")?,
-            terminate: register(SignalKind::terminate(), "SIGTERM")?,
-            hangup: register(SignalKind::hangup(), "SIGHUP")?,
-        })
-    }
-
-    #[cfg(not(unix))]
-    pub fn install() -> Result<Self, anyhow::Error> {
-        Ok(Self {})
-    }
-
-    /// Wait for the first stop signal and return the matching exit status.
-    #[cfg(unix)]
-    pub async fn recv(&mut self) -> i32 {
-        tokio::select! {
-            Some(()) = self.interrupt.recv() => EXIT_SIGINT,
-            Some(()) = self.terminate.recv() => EXIT_SIGTERM,
-            Some(()) = self.hangup.recv() => EXIT_SIGHUP,
-            else => std::future::pending().await,
-        }
-    }
-
-    #[cfg(not(unix))]
-    pub async fn recv(&mut self) -> i32 {
-        match tokio::signal::ctrl_c().await {
-            Ok(()) => EXIT_SIGINT,
-            Err(_) => std::future::pending().await,
-        }
-    }
-}
-
-/// Flush the standard streams and exit with a signal status. Call after cleanup.
-pub fn exit_for_signal(code: i32) -> ! {
-    let _ = io::stdout().flush();
-    let _ = io::stderr().flush();
-    std::process::exit(code)
-}
-
-/// Subscription stream event families supported by the CLI.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SubscribeEventKind {
-    Trades,
-    Orderbook,
-    Candles,
-    AllMids,
-    OrderUpdates,
-    Fills,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum WatchEvent {
@@ -165,13 +39,6 @@ enum WatchEvent {
     KeyQuit,
     KeyInterrupt,
     Continue,
-}
-
-/// How a watch loop ended.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum WatchEnd {
-    Finished,
-    Signal(i32),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -200,21 +67,25 @@ struct TerminalGuard;
 
 impl TerminalGuard {
     fn enter() -> Result<Self, anyhow::Error> {
+        Self::try_enter().map_err(|err| {
+            CliError::Internal(anyhow::anyhow!(
+                "failed to initialize watch terminal: {err}"
+            ))
+            .into()
+        })
+    }
+
+    fn try_enter() -> Result<Self, io::Error> {
         enable_raw_mode()?;
         let guard = Self;
         let mut stdout = io::stdout();
-        match execute!(
+        execute!(
             stdout,
             EnterAlternateScreen,
             cursor::Hide,
             Clear(ClearType::All)
-        ) {
-            Ok(()) => Ok(guard),
-            Err(err) => {
-                drop(guard);
-                Err(err.into())
-            }
-        }
+        )?;
+        Ok(guard)
     }
 }
 
@@ -299,11 +170,11 @@ where
     F: FnMut() -> Fut,
     Fut: Future<Output = Result<T, anyhow::Error>>,
 {
-    let max_ticks = max_ticks
-        .or_else(|| max_count_from_env("HYPERLIQUID_WATCH_MAX_TICKS").filter(|value| *value > 0));
-    let stdin_is_tty = io::stdin().is_terminal();
-    let stdout_is_tty = io::stdout().is_terminal();
-    let render_mode = snapshot_watch_render_mode(format, max_ticks, stdin_is_tty, stdout_is_tty)?;
+    let bounds = StreamBounds::snapshot_watch(max_ticks);
+    let stdin_is_tty = stdin_is_tty();
+    let stdout_is_tty = stdout_is_tty();
+    let render_mode =
+        snapshot_watch_render_mode(format, bounds.max_items, stdin_is_tty, stdout_is_tty)?;
 
     // A human format that reaches the NDJSON path was asked for explicitly:
     // non-terminal stdout defaults to JSON before this point.
@@ -318,319 +189,43 @@ where
         );
     }
 
-    let mut signals = ShutdownSignals::install()?;
-    let ws = websocket_for_chain(chain);
-    for subscription in subscriptions {
-        ws.subscribe(subscription);
-    }
+    run_stream(async move {
+        let ws = websocket_for_chain(chain);
+        for subscription in subscriptions {
+            ws.subscribe(subscription);
+        }
 
-    let mut input = RealWatchInput::new(ws, matches!(render_mode, SnapshotWatchRenderMode::Tui(_)));
-    let mut output = StdoutWatchOutput;
+        let mut input =
+            RealWatchInput::new(ws, matches!(render_mode, SnapshotWatchRenderMode::Tui(_)));
+        let mut output = StdoutWatchOutput;
 
-    // The terminal guard drops at the end of its arm, before any exit below.
-    let end = match render_mode {
-        SnapshotWatchRenderMode::Ndjson => {
-            tokio::select! {
-                end = run_snapshot_watch_core(
+        match render_mode {
+            SnapshotWatchRenderMode::Ndjson => {
+                run_snapshot_watch_core(
                     title,
                     OutputFormat::Json,
-                    max_ticks,
+                    bounds.max_items,
                     refresh,
                     &mut input,
                     &mut output,
-                ) => end,
-                code = signals.recv() => Ok(WatchEnd::Signal(code)),
+                )
+                .await
             }
-        }
-        SnapshotWatchRenderMode::Tui(format) => {
-            let _terminal = enter_watch_terminal()?;
-            tokio::select! {
-                end = run_snapshot_watch_core(
+            SnapshotWatchRenderMode::Tui(format) => {
+                let _terminal = TerminalGuard::enter()?;
+                run_snapshot_watch_core(
                     title,
                     format,
-                    max_ticks,
+                    bounds.max_items,
                     refresh,
                     &mut input,
                     &mut output,
-                ) => end,
-                code = signals.recv() => Ok(WatchEnd::Signal(code)),
+                )
+                .await
             }
         }
-    };
-
-    match end {
-        Ok(WatchEnd::Finished) => Ok(()),
-        Ok(WatchEnd::Signal(code)) => exit_for_signal(code),
-        Err(err) if is_stdout_closed(&err) => Ok(()),
-        Err(err) => Err(err),
-    }
-}
-
-/// Stream a WebSocket subscription to stdout as NDJSON.
-pub async fn stream_subscription<F>(
-    chain: Chain,
-    subscription: Subscription,
-    max_events: Option<usize>,
-    idle_timeout: Option<Duration>,
-    event_matches: F,
-) -> Result<(), anyhow::Error>
-where
-    F: Fn(&Incoming) -> bool,
-{
-    if !io::stdout().is_terminal() && explicit_human_format_requested() {
-        eprintln!("{JSON_LINES_STDOUT_NOTICE}");
-    }
-
-    let mut signals = ShutdownSignals::install()?;
-    let mut ws = websocket_for_chain(chain);
-    let subscription_label = subscription.to_string();
-    ws.subscribe(subscription);
-
-    let max_events = max_events.or_else(|| max_count_from_env("HYPERLIQUID_SUBSCRIBE_MAX_EVENTS"));
-    let mut stdout = io::stdout();
-    let result = tokio::select! {
-        result = stream_subscription_events(
-            &subscription_label,
-            max_events,
-            idle_timeout,
-            event_matches,
-            &mut ws,
-            &mut stdout,
-        ) => result,
-        code = signals.recv() => exit_for_signal(code),
-    };
-
-    match result {
-        Err(err) if is_stdout_closed(&err) => Ok(()),
-        other => other,
-    }
-}
-
-/// Whether `--format`/`-f` or `HYPERLIQUID_FORMAT` explicitly asked for a human format.
-fn explicit_human_format_requested() -> bool {
-    requested_human_format(
-        std::env::args().skip(1),
-        std::env::var("HYPERLIQUID_FORMAT").ok().as_deref(),
-    )
-}
-
-fn requested_human_format(args: impl IntoIterator<Item = String>, env: Option<&str>) -> bool {
-    fn is_format_name(value: &str) -> bool {
-        matches!(
-            value.trim().to_ascii_lowercase().as_str(),
-            "pretty" | "table" | "json"
-        )
-    }
-
-    let mut flag_value: Option<String> = None;
-    let mut args = args.into_iter();
-    while let Some(arg) = args.next() {
-        if arg == "--" {
-            break;
-        }
-        if arg == "--format" || arg == "-f" {
-            flag_value = args.next();
-        } else if let Some(value) = arg.strip_prefix("--format=") {
-            flag_value = Some(value.to_string());
-        } else if let Some(value) = arg.strip_prefix("-f=") {
-            flag_value = Some(value.to_string());
-        } else if let Some(value) = arg.strip_prefix("-f")
-            && is_format_name(value)
-        {
-            flag_value = Some(value.to_string());
-        }
-    }
-
-    let raw = flag_value.or_else(|| env.map(str::to_string));
-    raw.is_some_and(|value| {
-        matches!(
-            value.trim().to_ascii_lowercase().as_str(),
-            "pretty" | "table"
-        )
     })
-}
-
-/// Stream pre-built WebSocket events to a writer as subscription NDJSON.
-///
-/// This is the deterministic core behind [`stream_subscription`]. Production
-/// passes the real Hyperliquid WebSocket stream, while tests can pass a fake
-/// stream of [`WsEvent`] values and a byte buffer.
-///
-/// A disconnect prints a stderr notice when stdout is a terminal. When the
-/// connection comes back, one `{"type":"warning","reason":"stream_gap"}` line
-/// marks the point where events may have been missed.
-pub async fn stream_subscription_events<S, F, W>(
-    subscription_label: &str,
-    max_events: Option<usize>,
-    idle_timeout: Option<Duration>,
-    event_matches: F,
-    events: &mut S,
-    output: &mut W,
-) -> Result<(), anyhow::Error>
-where
-    S: Stream<Item = WsEvent> + Unpin + ?Sized,
-    F: Fn(&Incoming) -> bool,
-    W: Write + ?Sized,
-{
-    write_subscription_line(
-        output,
-        &serde_json::json!({
-            "type": "subscribed",
-            "subscription": subscription_label,
-        }),
-    )?;
-
-    if max_events == Some(0) {
-        return Ok(());
-    }
-
-    let mut emitted_events = 0usize;
-    let mut gap_pending = false;
-    if let Some(idle_timeout) = idle_timeout {
-        let idle_sleep = tokio::time::sleep(idle_timeout);
-        tokio::pin!(idle_sleep);
-
-        loop {
-            tokio::select! {
-                _ = &mut idle_sleep => {
-                    return Err(subscription_idle_timeout_error(idle_timeout).into());
-                }
-                event = events.next() => {
-                    let Some(event) = event else {
-                        return Err(subscription_closed_error().into());
-                    };
-
-                    if handle_subscription_event(
-                        event,
-                        subscription_label,
-                        &event_matches,
-                        &mut gap_pending,
-                        output,
-                    )? {
-                        emitted_events += 1;
-                        if max_events.is_some_and(|max| emitted_events >= max) {
-                            return Ok(());
-                        }
-                        idle_sleep.as_mut().reset(tokio::time::Instant::now() + idle_timeout);
-                    }
-                }
-            }
-        }
-    }
-
-    while let Some(event) = events.next().await {
-        if handle_subscription_event(
-            event,
-            subscription_label,
-            &event_matches,
-            &mut gap_pending,
-            output,
-        )? {
-            emitted_events += 1;
-            if max_events.is_some_and(|max| emitted_events >= max) {
-                return Ok(());
-            }
-        }
-    }
-
-    Err(subscription_closed_error().into())
-}
-
-/// Apply one WebSocket event to the stream. Returns whether an event line was written.
-fn handle_subscription_event<F, W>(
-    event: WsEvent,
-    subscription_label: &str,
-    event_matches: &F,
-    gap_pending: &mut bool,
-    output: &mut W,
-) -> Result<bool, anyhow::Error>
-where
-    F: Fn(&Incoming) -> bool,
-    W: Write + ?Sized,
-{
-    match event {
-        WsEvent::Message(message) if event_matches(&message) => {
-            write_subscription_line(
-                output,
-                &serde_json::json!({
-                    "type": "event",
-                    "subscription": subscription_label,
-                    "data": message,
-                }),
-            )?;
-            Ok(true)
-        }
-        WsEvent::Message(_) => Ok(false),
-        WsEvent::Disconnected => {
-            if !*gap_pending {
-                *gap_pending = true;
-                if io::stdout().is_terminal() {
-                    eprintln!("{CONNECTION_LOST_NOTICE}");
-                }
-            }
-            Ok(false)
-        }
-        WsEvent::Connected => {
-            if *gap_pending {
-                *gap_pending = false;
-                // Control line: written as-is so --select cannot drop the gap marker.
-                write_line(
-                    output,
-                    &serde_json::to_string(&serde_json::json!({
-                        "type": "warning",
-                        "reason": "stream_gap",
-                        "subscription": subscription_label,
-                        "message": STREAM_GAP_MESSAGE,
-                    }))?,
-                )?;
-            }
-            Ok(false)
-        }
-    }
-}
-
-/// Return whether an incoming WebSocket message belongs to a subscribe command.
-pub fn subscription_event_matches(kind: SubscribeEventKind, message: &Incoming) -> bool {
-    match kind {
-        SubscribeEventKind::Trades => matches!(message, Incoming::Trades(_)),
-        SubscribeEventKind::Orderbook => matches!(message, Incoming::L2Book(_)),
-        SubscribeEventKind::Candles => matches!(message, Incoming::Candle(_)),
-        SubscribeEventKind::AllMids => matches!(message, Incoming::AllMids { .. }),
-        SubscribeEventKind::OrderUpdates => matches!(message, Incoming::OrderUpdates(_)),
-        SubscribeEventKind::Fills => matches!(
-            message,
-            Incoming::UserFills { .. } | Incoming::UserEvents(UserEvent::Fills { .. })
-        ),
-    }
-}
-
-fn write_subscription_line<W: Write + ?Sized>(
-    output: &mut W,
-    value: &serde_json::Value,
-) -> Result<(), anyhow::Error> {
-    let line = if output::json_projection_options_enabled() {
-        let value = output::apply_current_json_stream_options(value.clone());
-        serde_json::to_string(&value)?
-    } else {
-        serde_json::to_string(value)?
-    };
-    write_line(output, &line)
-}
-
-fn subscription_closed_error() -> CliError {
-    CliError::Unavailable("WebSocket closed before receiving subscription events.".to_string())
-}
-
-fn subscription_idle_timeout_error(idle_timeout: Duration) -> CliError {
-    CliError::Timeout(format!(
-        "Timed out waiting for subscription events after {}.",
-        crate::output::format::duration(idle_timeout)
-    ))
-}
-
-/// Render a [`TableData`] value as a compact single NDJSON line.
-pub fn ndjson_line(data: &dyn TableData) -> Result<String, serde_json::Error> {
-    output::render_json_compact(data)
+    .await
 }
 
 async fn run_snapshot_watch_core<T, F, Fut, I, O>(
@@ -640,7 +235,7 @@ async fn run_snapshot_watch_core<T, F, Fut, I, O>(
     mut refresh: F,
     input: &mut I,
     output: &mut O,
-) -> Result<WatchEnd, anyhow::Error>
+) -> Result<StreamEnd, anyhow::Error>
 where
     T: TableData,
     F: FnMut() -> Fut,
@@ -656,19 +251,19 @@ where
     loop {
         let snapshot = refresh().await?;
         if format == OutputFormat::Json {
-            output.emit_json(&ndjson_line(&snapshot)?)?;
+            output.emit_json(&output::render_json_compact(&snapshot)?)?;
         } else {
             output.render_tui(title, &snapshot, format, connection_lost)?;
         }
 
         rendered_ticks += 1;
         if max_ticks.is_some_and(|max| rendered_ticks >= max) {
-            return Ok(WatchEnd::Finished);
+            return Ok(StreamEnd::Finished);
         }
 
         match input.next_event().await? {
-            WatchEvent::KeyQuit => return Ok(WatchEnd::Finished),
-            WatchEvent::KeyInterrupt => return Ok(WatchEnd::Signal(EXIT_SIGINT)),
+            WatchEvent::KeyQuit => return Ok(StreamEnd::Finished),
+            WatchEvent::KeyInterrupt => return Ok(StreamEnd::Signal(EXIT_SIGINT)),
             WatchEvent::ConnectionLost => connection_lost = true,
             WatchEvent::ConnectionRestored => connection_lost = false,
             WatchEvent::Timer
@@ -678,15 +273,6 @@ where
             | WatchEvent::Continue => {}
         }
     }
-}
-
-fn enter_watch_terminal() -> Result<TerminalGuard, anyhow::Error> {
-    TerminalGuard::enter().map_err(|err| {
-        CliError::Internal(anyhow::anyhow!(
-            "failed to initialize watch terminal: {err}"
-        ))
-        .into()
-    })
 }
 
 fn snapshot_watch_render_mode(
@@ -794,20 +380,6 @@ async fn try_read_key_event() -> Result<Option<KeyEvent>, anyhow::Error> {
     .map_err(|err| anyhow::anyhow!("watch keyboard task failed: {err}"))?
     .map_err(|err| anyhow::anyhow!("failed to read watch keyboard input: {err}"))
 }
-
-fn websocket_for_chain(chain: Chain) -> WebSocket {
-    match chain {
-        Chain::Mainnet => hypercore::mainnet_ws(),
-        Chain::Testnet => hypercore::testnet_ws(),
-    }
-}
-
-pub fn max_count_from_env(name: &str) -> Option<usize> {
-    std::env::var(name)
-        .ok()
-        .and_then(|raw| raw.trim().parse::<usize>().ok())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -817,30 +389,6 @@ mod tests {
         Arc,
         atomic::{AtomicUsize, Ordering},
     };
-
-    struct JsonOnlyData;
-
-    impl TableData for JsonOnlyData {
-        fn headers(&self) -> Vec<&str> {
-            vec!["Message"]
-        }
-
-        fn rows(&self) -> Vec<Vec<String>> {
-            vec![vec!["ok".to_string()]]
-        }
-
-        fn to_json_value(&self) -> serde_json::Value {
-            serde_json::json!({"message": "ok"})
-        }
-    }
-
-    #[test]
-    fn ndjson_line_is_single_compact_json_object() {
-        let line = ndjson_line(&JsonOnlyData).unwrap();
-
-        assert_eq!(line, r#"{"message":"ok"}"#);
-        assert!(!line.contains('\n'));
-    }
 
     #[test]
     fn snapshot_watch_render_mode_keeps_tui_for_interactive_terminals() {
@@ -1199,7 +747,7 @@ mod tests {
         .await
         .unwrap();
 
-        assert_eq!(end, WatchEnd::Signal(130));
+        assert_eq!(end, StreamEnd::Signal(130));
     }
 
     #[tokio::test]
@@ -1220,86 +768,7 @@ mod tests {
         .await
         .unwrap();
 
-        assert_eq!(end, WatchEnd::Finished);
+        assert_eq!(end, StreamEnd::Finished);
         assert_eq!(counter.load(Ordering::SeqCst), 3);
-    }
-
-    #[test]
-    fn broken_pipe_write_becomes_stdout_closed() {
-        struct ClosedPipe;
-        impl Write for ClosedPipe {
-            fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
-                Err(io::ErrorKind::BrokenPipe.into())
-            }
-            fn flush(&mut self) -> io::Result<()> {
-                Ok(())
-            }
-        }
-
-        let err = write_line(&mut ClosedPipe, "{}").unwrap_err();
-        assert!(is_stdout_closed(&err));
-    }
-
-    #[test]
-    fn other_write_errors_stay_errors() {
-        struct Failing;
-        impl Write for Failing {
-            fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
-                Err(io::Error::other("disk full"))
-            }
-            fn flush(&mut self) -> io::Result<()> {
-                Ok(())
-            }
-        }
-
-        let err = write_line(&mut Failing, "{}").unwrap_err();
-        assert!(!is_stdout_closed(&err));
-        assert!(err.to_string().contains("disk full"));
-    }
-
-    #[test]
-    fn explicit_human_format_detection_follows_flag_then_env() {
-        let args = |items: &[&str]| {
-            items
-                .iter()
-                .map(|item| item.to_string())
-                .collect::<Vec<_>>()
-        };
-
-        assert!(requested_human_format(
-            args(&["--format", "table", "mids"]),
-            None
-        ));
-        assert!(requested_human_format(args(&["-f", "pretty"]), None));
-        assert!(requested_human_format(args(&["--format=table"]), None));
-        assert!(requested_human_format(args(&["-ftable"]), None));
-        assert!(!requested_human_format(args(&["--format", "json"]), None));
-        assert!(!requested_human_format(args(&["mids"]), None));
-        assert!(requested_human_format(args(&["mids"]), Some("table")));
-        // An explicit flag wins over the environment.
-        assert!(!requested_human_format(
-            args(&["-f", "json"]),
-            Some("table")
-        ));
-        assert!(!requested_human_format(args(&["mids"]), Some("json")));
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn shutdown_signals_map_to_128_plus_signal() {
-        let mut signals = ShutdownSignals::install().unwrap();
-        let pid = std::process::id().to_string();
-
-        for (name, expected) in [("-HUP", 129), ("-TERM", 143), ("-INT", 130)] {
-            let status = std::process::Command::new("kill")
-                .args([name, &pid])
-                .status()
-                .unwrap();
-            assert!(status.success());
-            let code = tokio::time::timeout(Duration::from_secs(5), signals.recv())
-                .await
-                .expect("signal should arrive");
-            assert_eq!(code, expected, "{name}");
-        }
     }
 }

@@ -11,11 +11,10 @@ use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
 use chrono::Utc;
-use futures::StreamExt;
 use hypersdk::Decimal;
 use hypersdk::hypercore::{
-    self, AssetContext, BookLevel, Candle, CandleInterval, Chain, FundingRate, HttpClient,
-    Incoming, L2Book, Subscription, ws::Event,
+    AssetContext, BookLevel, Candle, CandleInterval, Chain, FundingRate, HttpClient, Incoming,
+    L2Book, Subscription,
 };
 use serde::Serialize;
 
@@ -23,6 +22,7 @@ use crate::command_context::CommandContext;
 use crate::commands::{AssetResolver, ResolvedAsset, map_api_error};
 use crate::errors::CliError;
 use crate::output::{OutputFormat, TableData};
+use crate::ws::{Awaited, first_matching_message};
 
 const WEBSOCKET_TIMEOUT: Duration = Duration::from_secs(15);
 const VALID_INTERVALS: &str = "1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 8h, 12h, 1d, 3d, 1w, 1M";
@@ -801,72 +801,47 @@ fn resolve_perp_coin(resolver: &AssetResolver, coin: &str) -> Result<String, Cli
 }
 
 async fn fetch_l2_book(chain: Chain, coin: &str) -> Result<L2Book, CliError> {
-    let mut ws = websocket_for_chain(chain);
-    ws.subscribe(Subscription::L2Book {
-        coin: coin.to_string(),
-        n_sig_figs: None,
-        mantissa: None,
-        fast: false,
-    });
-
-    tokio::time::timeout(WEBSOCKET_TIMEOUT, async {
-        while let Some(event) = ws.next().await {
-            if let Event::Message(Incoming::L2Book(book)) = event
-                && book.coin.eq_ignore_ascii_case(coin)
-            {
-                return Ok(book);
-            }
-        }
-
-        Err(CliError::Unavailable(
-            "WebSocket closed before receiving an order book snapshot.".to_string(),
-        ))
-    })
+    first_matching_message(
+        chain,
+        Subscription::L2Book {
+            coin: coin.to_string(),
+            n_sig_figs: None,
+            mantissa: None,
+            fast: false,
+        },
+        WEBSOCKET_TIMEOUT,
+        &Awaited {
+            closed: "an order book snapshot",
+            timed_out: "order book snapshot",
+        },
+        |message| match message {
+            Incoming::L2Book(book) if book.coin.eq_ignore_ascii_case(coin) => Some(book),
+            _ => None,
+        },
+    )
     .await
-    .map_err(|_| {
-        CliError::Unavailable(
-            "Timed out waiting for Hyperliquid order book snapshot. Check your network connection."
-                .to_string(),
-        )
-    })?
 }
 
 async fn fetch_active_asset_ctx(chain: Chain, coin: &str) -> Result<AssetContext, CliError> {
-    let mut ws = websocket_for_chain(chain);
-    ws.subscribe(Subscription::ActiveAssetCtx {
-        coin: coin.to_string(),
-    });
-
-    tokio::time::timeout(WEBSOCKET_TIMEOUT, async {
-        while let Some(event) = ws.next().await {
-            if let Event::Message(Incoming::ActiveAssetCtx {
+    first_matching_message(
+        chain,
+        Subscription::ActiveAssetCtx {
+            coin: coin.to_string(),
+        },
+        WEBSOCKET_TIMEOUT,
+        &Awaited {
+            closed: "funding context",
+            timed_out: "funding context",
+        },
+        |message| match message {
+            Incoming::ActiveAssetCtx {
                 coin: event_coin,
                 ctx,
-            }) = event
-                && event_coin.eq_ignore_ascii_case(coin)
-            {
-                return Ok(ctx);
-            }
-        }
-
-        Err(CliError::Unavailable(
-            "WebSocket closed before receiving funding context.".to_string(),
-        ))
-    })
+            } if event_coin.eq_ignore_ascii_case(coin) => Some(ctx),
+            _ => None,
+        },
+    )
     .await
-    .map_err(|_| {
-        CliError::Unavailable(
-            "Timed out waiting for Hyperliquid funding context. Check your network connection."
-                .to_string(),
-        )
-    })?
-}
-
-fn websocket_for_chain(chain: Chain) -> hypercore::WebSocket {
-    match chain {
-        Chain::Mainnet => hypercore::mainnet_ws(),
-        Chain::Testnet => hypercore::testnet_ws(),
-    }
 }
 
 fn parse_selected_fields(select: &str) -> Vec<String> {

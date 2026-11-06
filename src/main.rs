@@ -23,7 +23,7 @@ use hyperliquid_cli::dry_run::{
 use hyperliquid_cli::errors;
 use hyperliquid_cli::output;
 use hyperliquid_cli::resolvers::{DefaultSignerFallback, SignerResolverInput};
-use hyperliquid_cli::watch::{SubscribeEventKind, subscription_event_matches};
+use hyperliquid_cli::stream::{StreamBoundArgs, StreamBounds, SubscribeTarget};
 
 #[cfg(test)]
 mod cli_contract_tests;
@@ -873,7 +873,7 @@ enum SubscribeCommands {
         #[arg(long)]
         asset: String,
         #[command(flatten)]
-        stream: SubscribeStreamArgs,
+        stream: StreamBoundArgs,
     },
     /// Stream L2 order book updates
     Orderbook {
@@ -881,7 +881,7 @@ enum SubscribeCommands {
         #[arg(long)]
         asset: String,
         #[command(flatten)]
-        stream: SubscribeStreamArgs,
+        stream: StreamBoundArgs,
     },
     /// Stream candle updates
     Candles {
@@ -892,22 +892,22 @@ enum SubscribeCommands {
         #[arg(long, default_value = "1m")]
         interval: String,
         #[command(flatten)]
-        stream: SubscribeStreamArgs,
+        stream: StreamBoundArgs,
     },
     /// Stream all mid price updates
     AllMids {
         #[command(flatten)]
-        stream: SubscribeStreamArgs,
+        stream: StreamBoundArgs,
     },
     /// Stream order status updates (authenticated)
     OrderUpdates {
         #[command(flatten)]
-        stream: SubscribeStreamArgs,
+        stream: StreamBoundArgs,
     },
     /// Stream fill events (authenticated)
     Fills {
         #[command(flatten)]
-        stream: SubscribeStreamArgs,
+        stream: StreamBoundArgs,
     },
 }
 
@@ -919,22 +919,6 @@ struct SnapshotWatchArgs {
     /// Stop after rendering this many watch snapshots (useful for automation)
     #[arg(long, value_name = "TICKS", requires = "watch", value_parser = parse_positive_usize)]
     max_ticks: Option<usize>,
-}
-
-#[derive(Args, Debug, Clone, Default)]
-struct SubscribeStreamArgs {
-    /// Stop after emitting this many matching events (useful for automation)
-    #[arg(long)]
-    max_events: Option<usize>,
-    /// Stop if no matching events are emitted within this many milliseconds
-    #[arg(long, value_name = "MILLISECONDS", value_parser = clap::value_parser!(u64).range(1..))]
-    idle_timeout_ms: Option<u64>,
-}
-
-impl SubscribeStreamArgs {
-    fn idle_timeout(&self) -> Option<Duration> {
-        self.idle_timeout_ms.map(Duration::from_millis)
-    }
 }
 
 fn parse_positive_usize(raw: &str) -> Result<usize, String> {

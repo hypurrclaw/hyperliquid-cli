@@ -18,7 +18,9 @@
 - `src/output/` — pretty/table/JSON rendering, color theme, JSON projection.
 - `src/commands/` — one module per command domain.
 - `src/auth.rs`, `src/config.rs`, `src/ows.rs` — wallet/config/account storage.
-- `src/watch.rs` — streaming/watch support.
+- `src/stream.rs` — streaming runtime: run until bound/signal/closed pipe, stream bounds (`StreamBoundArgs`, env fallback, validation), NDJSON line emitter with JSON projection, `subscribe` targets.
+- `src/watch.rs` — snapshot watch mode (TUI and NDJSON).
+- `src/ws.rs` — WebSocket construction and one-shot reads.
 - `tests/` — integration tests with `assert_cmd` and `wiremock`.
 
 ## Development Setup
