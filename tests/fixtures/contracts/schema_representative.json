@@ -528,6 +528,19 @@
           "short": null
         },
         {
+          "arg_type": "boolean",
+          "default": null,
+          "description": "Place the replacement even if the cancel fails. When off, the replacement must be a non-trigger ALO order or a non-executable GTC order, so set this to modify trigger orders.",
+          "enum_values": [],
+          "id": "always_place",
+          "input_kind": "boolean",
+          "long": "always-place",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        },
+        {
           "arg_type": "string",
           "default": null,
           "description": "Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id.",
@@ -571,6 +584,11 @@
           }
         ],
         "properties": {
+          "always_place": {
+            "description": "Place the replacement even if the cancel fails. When off, the replacement must be a non-trigger ALO order or a non-executable GTC order, so set this to modify trigger orders.",
+            "input_kind": "boolean",
+            "type": "boolean"
+          },
           "cloid": {
             "description": "0x-prefixed 16-byte client order id.",
             "input_kind": "identifier",

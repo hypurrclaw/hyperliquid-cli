@@ -43,12 +43,16 @@ mod hip3;
 mod planning;
 mod queries;
 mod rendering;
+mod trailing_stop;
 mod validation;
 
 pub use bracket::{bracket, bracket_dry_run_plan, validate_bracket_args};
 pub use chase::{chase, chase_dry_run_plan};
 pub use hip3::{
     Hip3MarginPlan, execute_hip3_margin_transfer, hip3_dex_from_coin, plan_hip3_margin_transfer,
+};
+pub use trailing_stop::{
+    TrailingStopArgs, trailing_stop, trailing_stop_dry_run_plan, validate_trailing_stop_args,
 };
 
 pub use args::*;
@@ -1950,7 +1954,7 @@ fn order_type_placement(
             tpsl: TpSl::Sl,
         }),
         OrderType::TrailingStopMarket => Err(CliError::Unsupported(
-            "orders modify can't change a Trailing Stop Market order. Cancel it with `hyperliquid orders cancel <OID>`, then place a new trailing stop from the Hyperliquid app; this CLI has no trailing-stop command."
+            "orders modify can't change a Trailing Stop Market order. Cancel it with `hyperliquid orders cancel <OID>`, then place a new one with `hyperliquid orders trailing-stop`."
                 .to_string(),
         )),
         OrderType::TwapSlice => Err(CliError::Unsupported(

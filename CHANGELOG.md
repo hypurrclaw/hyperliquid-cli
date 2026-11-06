@@ -43,6 +43,12 @@ Trading and consent:
 - `--keystore` reads `HYPERLIQUID_KEYSTORE_PASSWORD`. `--payload-file -` reads multi-line JSON from stdin.
 - Dry-run envelopes add `network` and the resolved `signer` (or `signer_warning`); pretty and table dry-runs list the arguments.
 
+Trading:
+
+- Added `orders trailing-stop`, Hyperliquid's native perp trailing stop (live since 2026-09-21). The exchange tracks the mark price and fires a market order when it retraces from its best level by `--retracement-pct` or `--retracement-px`; `--activation-price` delays tracking and `--reduce-only` limits it to closing. It supports `--dex`, `--on-behalf-of`, `--dry-run` (`would_execute: "trailing_stop"`), and signs through every signer. Mainnet prompts before placing and `--testnet` does not; machine contexts need `--yes`. Spot and outcome markets are rejected with exit `2`. The JSON receipt carries `oid`, and `orders open` shows the stop as `TrailingStopMarket`.
+- Added `orders modify --always-place`. It sends `a: true` on the modify action, which places the replacement even if the cancel fails and lets trigger orders be modified. Without it the replacement must be a non-trigger ALO order or a non-executable GTC order, and the action is unchanged. Modify dry-runs report `always_place`.
+- `orders modify` on a trailing stop now points to `orders trailing-stop` instead of the Hyperliquid app.
+
 Streams:
 
 - `watch`, `subscribe`, and `watch risk` exit `130`, `143`, or `129` on SIGINT, SIGTERM, or SIGHUP, restore the terminal, and never leave a partial JSON line. A closed stdout ends them quietly with exit `0`.

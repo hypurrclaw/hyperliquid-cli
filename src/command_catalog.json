@@ -2907,6 +2907,97 @@
       "ows_signer": "experimental_feature_gated"
     },
     {
+      "command": "hyperliquid orders trailing-stop",
+      "group": "trade",
+      "auth_required": true,
+      "dangerous": true,
+      "description": "Place a native trailing stop on a perp market. It tracks the mark price and fires a market order once the mark retraces from its best level since activation. Dry-run first. Retry: check_open_orders — a second trailing stop can duplicate a working one. Mainnet orders prompt for confirmation unless --yes is passed; --testnet orders run without a prompt.",
+      "one_of_required": [
+        [
+          "retracement_pct"
+        ],
+        [
+          "retracement_px"
+        ]
+      ],
+      "args": [
+        {
+          "id": "coin",
+          "long": "coin",
+          "required": true,
+          "description": "Perpetual coin, for example BTC. Spot and outcome markets are not supported.",
+          "input_kind": "market_symbol"
+        },
+        {
+          "id": "dex",
+          "long": "dex",
+          "description": "HIP-3 DEX name.",
+          "input_kind": "venue_selector"
+        },
+        {
+          "id": "side",
+          "long": "side",
+          "required": true,
+          "enum_values": [
+            "buy",
+            "sell"
+          ],
+          "description": "Order side. A sell closes a long and trails the highest mark price; a buy closes a short and trails the lowest."
+        },
+        {
+          "id": "size",
+          "long": "size",
+          "required": true,
+          "description": "Base-asset size.",
+          "input_kind": "amount"
+        },
+        {
+          "id": "retracement_pct",
+          "long": "retracement-pct",
+          "description": "Retracement from the best mark price as a percent, above 0 and below 100. Use this or --retracement-px."
+        },
+        {
+          "id": "retracement_px",
+          "long": "retracement-px",
+          "description": "Retracement from the best mark price as a price distance, above 0. Use this or --retracement-pct.",
+          "input_kind": "price"
+        },
+        {
+          "id": "activation_price",
+          "long": "activation-price",
+          "description": "Mark price at which the stop starts tracking. Omit to start tracking immediately.",
+          "input_kind": "price"
+        },
+        {
+          "id": "reduce_only",
+          "long": "reduce-only",
+          "arg_type": "boolean",
+          "description": "Only reduce an existing perpetual position.",
+          "input_kind": "boolean"
+        },
+        {
+          "id": "on_behalf_of",
+          "long": "on-behalf-of",
+          "description": "Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id.",
+          "input_kind": "acting_account_selector"
+        },
+        {
+          "id": "yes",
+          "long": "yes",
+          "short": "y",
+          "arg_type": "boolean",
+          "description": "Skip the mainnet confirmation prompt for deliberate automation. Testnet orders never prompt.",
+          "input_kind": "boolean"
+        }
+      ],
+      "lifecycle": "live_mutating",
+      "risk": "funds_movement",
+      "dry_run": "optional",
+      "raw_payload": "dry_run_only",
+      "confirmation": "prompt",
+      "ows_signer": "experimental_feature_gated"
+    },
+    {
       "command": "hyperliquid orders cancel <ORDER_ID>",
       "group": "trade",
       "auth_required": true,
@@ -3025,6 +3116,13 @@
           "long": "size",
           "description": "Replacement size.",
           "input_kind": "amount"
+        },
+        {
+          "id": "always_place",
+          "long": "always-place",
+          "arg_type": "boolean",
+          "description": "Place the replacement even if the cancel fails. When off, the replacement must be a non-trigger ALO order or a non-executable GTC order, so set this to modify trigger orders.",
+          "input_kind": "boolean"
         },
         {
           "id": "on_behalf_of",

@@ -595,6 +595,16 @@ enum OrderCommands {
                       hyperliquid --format json orders tpsl --coin ETH --take-profit +10% --stop-loss -5% --yes"
     )]
     Tpsl(hyperliquid_cli::commands::orders::TpslArgs),
+    #[command(
+        about = "Place a native trailing stop on a perp market",
+        long_about = "Place a native trailing stop on a perp market.\n\n\
+                      The stop tracks the mark price and fires a market order once the mark retraces from its best level since activation by --retracement-pct or --retracement-px. A sell trails the highest mark (closes a long); a buy trails the lowest (closes a short). The trigger never moves back. --activation-price delays tracking until the mark reaches it.\n\n\
+                      Retry: check open orders first. A second trailing stop can duplicate a working one.\n\n\
+                      Examples:\n  \
+                      hyperliquid --format json --dry-run orders trailing-stop --coin BTC --side sell --size 0.01 --retracement-pct 5 --reduce-only\n  \
+                      hyperliquid --format json orders trailing-stop --coin ETH --side sell --size 0.5 --retracement-px 50 --activation-price 3500 --yes"
+    )]
+    TrailingStop(hyperliquid_cli::commands::orders::TrailingStopArgs),
     /// Cancel an order by ID
     Cancel(hyperliquid_cli::commands::orders::CancelArgs),
     /// Cancel all open orders

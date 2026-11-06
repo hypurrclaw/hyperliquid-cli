@@ -945,3 +945,100 @@ fn orders_modify_requires_price_or_size() {
             "--price, --trigger-price, or --size",
         ));
 }
+
+async fn modify_exchange_action(server: &MockServer) -> serde_json::Value {
+    let requests = server.received_requests().await.unwrap();
+    let exchange_requests: Vec<_> = requests
+        .iter()
+        .filter(|request| request.url.path() == "/exchange")
+        .collect();
+    assert_eq!(exchange_requests.len(), 1, "expected exactly one modify");
+    let body: serde_json::Value = serde_json::from_slice(&exchange_requests[0].body).unwrap();
+    body["action"].clone()
+}
+
+#[tokio::test]
+async fn orders_modify_always_place_sets_a_true_on_the_batch_modify() {
+    let env = IsolatedHome::new();
+    let server = mock_order_management_server(
+        Some(basic_order_with_type("BTC", 12345, None, "Stop Market")),
+        vec![],
+        vec![serde_json::json!({"resting": {"oid": 12345, "cloid": null}})],
+        "order",
+    )
+    .await;
+
+    env.command()
+        .env(API_OVERRIDE_ENV, server.uri())
+        .env(PRIVATE_KEY_ENV, VALID_PRIVATE_KEY)
+        .args([
+            "orders",
+            "modify",
+            "12345",
+            "--trigger-price",
+            "49000",
+            "--always-place",
+            "--testnet",
+        ])
+        .assert()
+        .success();
+
+    let action = modify_exchange_action(&server).await;
+    assert_eq!(action["type"], "batchModify");
+    assert_eq!(action["a"], true);
+}
+
+#[tokio::test]
+async fn orders_modify_omits_a_from_the_action_by_default() {
+    let env = IsolatedHome::new();
+    let server = mock_order_management_server(
+        Some(basic_order("BTC", 12345, None)),
+        vec![],
+        vec![serde_json::json!({"resting": {"oid": 12345, "cloid": null}})],
+        "order",
+    )
+    .await;
+
+    env.command()
+        .env(API_OVERRIDE_ENV, server.uri())
+        .env(PRIVATE_KEY_ENV, VALID_PRIVATE_KEY)
+        .args(["orders", "modify", "12345", "--price", "51000", "--testnet"])
+        .assert()
+        .success();
+
+    let action = modify_exchange_action(&server).await;
+    assert_eq!(action["type"], "batchModify");
+    assert!(
+        action.get("a").is_none(),
+        "`a` must be omitted when false: {action}"
+    );
+}
+
+#[test]
+fn orders_modify_dry_run_reports_always_place() {
+    let env = IsolatedHome::new();
+    for (extra, expected) in [(Some("--always-place"), true), (None, false)] {
+        let mut args = vec![
+            "--format",
+            "json",
+            "--dry-run",
+            "orders",
+            "modify",
+            "12345",
+            "--price",
+            "51000",
+        ];
+        args.extend(extra);
+        let output = env
+            .command()
+            .env(PRIVATE_KEY_ENV, VALID_PRIVATE_KEY)
+            .args(args)
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let json: serde_json::Value = serde_json::from_slice(&output).unwrap();
+        assert_eq!(json["args"]["always_place"], expected);
+    }
+}

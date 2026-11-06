@@ -21,6 +21,7 @@ The order family is the largest and most safety-critical surface in the CLI. Eve
 | `orders scale` | Deterministic ladder of limit orders | supported | required unless `-y` |
 | `orders batch-create` | Submit a JSON batch (max 500) | supported | required unless `-y` |
 | `orders tpsl` | Position-attached TP/SL pair | supported | required unless `-y` |
+| `orders trailing-stop` | Native perp trailing stop: tracks the mark price and fires a market order on retracement | supported | required on live mainnet unless `-y` |
 | `orders cancel <OID>` | Cancel one order by OID | supported | not required; `-y` is **not** accepted |
 | `orders cancel-all` | Cancel all open orders (optionally filtered by coin) | supported | required unless `-y` |
 | `orders modify` | Modify an existing order | supported | required unless `-y` |

@@ -322,6 +322,9 @@ async fn run_command(
             subcommand: OrderCommands::Tpsl(args),
         }) => create_tpsl(&context, args, cli.format, cli.dry_run, payload.as_ref()).await,
         Some(Commands::Orders {
+            subcommand: OrderCommands::TrailingStop(args),
+        }) => trailing_stop_order(&context, args, cli.format, cli.dry_run, payload.as_ref()).await,
+        Some(Commands::Orders {
             subcommand: OrderCommands::Cancel(args),
         }) => cancel_order(&context, args, cli.format, cli.dry_run, payload.as_ref()).await,
         Some(Commands::Orders {
@@ -881,6 +884,7 @@ pub(super) const TESTNET_UNPROMPTED_COMMANDS: &[&str] = &[
     "orders scale",
     "orders batch-create",
     "orders tpsl",
+    "orders trailing-stop",
     "orders twap-create",
     "orders schedule-cancel",
     "orders chase",
@@ -1145,6 +1149,15 @@ fn validate_cli_inputs(cli: &Cli) -> Result<(), errors::CliError> {
                 }
                 if let Some(cloid) = args.cloid.as_deref() {
                     validate_resource_id("cloid", cloid)?;
+                }
+            }
+            OrderCommands::TrailingStop(args) => {
+                validate_asset_input("coin", &args.coin)?;
+                if let Some(dex) = args.dex.as_deref() {
+                    validate_resource_id("dex", dex)?;
+                }
+                if let Some(on_behalf_of) = args.on_behalf_of.as_deref() {
+                    validate_resource_id("on-behalf-of selector", on_behalf_of)?;
                 }
             }
             OrderCommands::Cancel(args) => {
@@ -3081,6 +3094,51 @@ async fn create_twap(
     let signer = resolved.selected_signer();
     let api_base_url = context.api_base_url();
     hyperliquid_cli::commands::orders::twap_create(
+        order_submission_context(context, &api_base_url, &signer),
+        &resolver,
+        args,
+        vault_address,
+        format,
+    )
+    .await
+}
+
+async fn trailing_stop_order(
+    context: &AppContext,
+    args: &hyperliquid_cli::commands::orders::TrailingStopArgs,
+    format: output::OutputFormat,
+    dry_run: bool,
+    payload: Option<&serde_json::Value>,
+) -> Result<(), anyhow::Error> {
+    hyperliquid_cli::commands::orders::validate_trailing_stop_args(args)?;
+    let client = context.http_client();
+    let resolver = load_trading_resolver(context).await?;
+    let coin_query = qualify_dex_asset(args.dex.as_deref(), &args.coin);
+    let (resolver, _) = resolver_with_loaded_hip3_perp(&client, resolver, &coin_query).await?;
+    let dry_run_plan =
+        hyperliquid_cli::commands::orders::trailing_stop_dry_run_plan(&resolver, args)?;
+    let vault_address = resolve_optional_acting_account_target(args.on_behalf_of.as_deref())?;
+    let vault_address_string = vault_address.map(|address| address.to_string());
+    if dry_run {
+        let (signer, acting_as, vault_address_string) =
+            dry_run_vault_signing_addresses(context, vault_address_string);
+        return print_dry_run(
+            dry_run_plan.command(),
+            dry_run_signed_details(
+                dry_run_plan.would_execute(),
+                dry_run_plan.into_args(),
+                payload,
+                signer,
+                acting_as,
+                vault_address_string,
+            ),
+            format,
+        );
+    }
+    let resolved = context.resolve_signer()?;
+    let signer = resolved.selected_signer();
+    let api_base_url = context.api_base_url();
+    hyperliquid_cli::commands::orders::trailing_stop(
         order_submission_context(context, &api_base_url, &signer),
         &resolver,
         args,

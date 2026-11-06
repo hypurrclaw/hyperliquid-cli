@@ -6565,6 +6565,187 @@
     {
       "aliases": [],
       "auth_required": true,
+      "command": "hyperliquid orders trailing-stop",
+      "command_path": [
+        "orders",
+        "trailing-stop"
+      ],
+      "confirmation": "prompt",
+      "dangerous": true,
+      "description": "Place a native trailing stop on a perp market. It tracks the mark price and fires a market order once the mark retraces from its best level since activation. Dry-run first. Retry: check_open_orders — a second trailing stop can duplicate a working one. Mainnet orders prompt for confirmation unless --yes is passed; --testnet orders run without a prompt.",
+      "dry_run": "optional",
+      "group": "trade",
+      "handler": {
+        "dispatch": "legacy_fallback",
+        "fallbacks": [
+          "cli_dispatch"
+        ],
+        "id": null,
+        "purity": {
+          "direct_stdio": true,
+          "local_state": true,
+          "process_global_cli_state": true,
+          "process_global_output": true,
+          "prompts": true,
+          "signs_or_submits": true
+        }
+      },
+      "inputs": [
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Perpetual coin, for example BTC. Spot and outcome markets are not supported.",
+          "enum_values": [],
+          "id": "coin",
+          "kind": "market_symbol",
+          "long": "coin",
+          "multiple": false,
+          "positional_index": null,
+          "required": true,
+          "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "HIP-3 DEX name.",
+          "enum_values": [],
+          "id": "dex",
+          "kind": "venue_selector",
+          "long": "dex",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Order side. A sell closes a long and trails the highest mark price; a buy closes a short and trails the lowest.",
+          "enum_values": [
+            "buy",
+            "sell"
+          ],
+          "id": "side",
+          "kind": null,
+          "long": "side",
+          "multiple": false,
+          "positional_index": null,
+          "required": true,
+          "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Base-asset size.",
+          "enum_values": [],
+          "id": "size",
+          "kind": "amount",
+          "long": "size",
+          "multiple": false,
+          "positional_index": null,
+          "required": true,
+          "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Retracement from the best mark price as a percent, above 0 and below 100. Use this or --retracement-px.",
+          "enum_values": [],
+          "id": "retracement_pct",
+          "kind": null,
+          "long": "retracement-pct",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Retracement from the best mark price as a price distance, above 0. Use this or --retracement-pct.",
+          "enum_values": [],
+          "id": "retracement_px",
+          "kind": "price",
+          "long": "retracement-px",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Mark price at which the stop starts tracking. Omit to start tracking immediately.",
+          "enum_values": [],
+          "id": "activation_price",
+          "kind": "price",
+          "long": "activation-price",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        },
+        {
+          "arg_type": "boolean",
+          "default": null,
+          "description": "Only reduce an existing perpetual position.",
+          "enum_values": [],
+          "id": "reduce_only",
+          "kind": "boolean",
+          "long": "reduce-only",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        },
+        {
+          "arg_type": "string",
+          "default": null,
+          "description": "Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id.",
+          "enum_values": [],
+          "id": "on_behalf_of",
+          "kind": "acting_account_selector",
+          "long": "on-behalf-of",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        },
+        {
+          "arg_type": "boolean",
+          "default": null,
+          "description": "Skip the mainnet confirmation prompt for deliberate automation. Testnet orders never prompt.",
+          "enum_values": [],
+          "id": "yes",
+          "kind": "boolean",
+          "long": "yes",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": "y"
+        }
+      ],
+      "lifecycle": "live_mutating",
+      "mutability": "live_mutating",
+      "one_of_required": [
+        [
+          "retracement_pct"
+        ],
+        [
+          "retracement_px"
+        ]
+      ],
+      "output_contract": "command_result_or_dry_run_envelope",
+      "ows_signer": "experimental_feature_gated",
+      "raw_payload": "dry_run_only",
+      "risk": "funds_movement",
+      "transport": [
+        "cli_process"
+      ]
+    },
+    {
+      "aliases": [],
+      "auth_required": true,
       "command": "hyperliquid orders cancel <ORDER_ID>",
       "command_path": [
         "orders",
@@ -6824,6 +7005,19 @@
           "id": "size",
           "kind": "amount",
           "long": "size",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        },
+        {
+          "arg_type": "boolean",
+          "default": null,
+          "description": "Place the replacement even if the cancel fails. When off, the replacement must be a non-trigger ALO order or a non-executable GTC order, so set this to modify trigger orders.",
+          "enum_values": [],
+          "id": "always_place",
+          "kind": "boolean",
+          "long": "always-place",
           "multiple": false,
           "positional_index": null,
           "required": false,

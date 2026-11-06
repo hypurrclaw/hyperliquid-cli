@@ -11,7 +11,11 @@ pub struct OrderDryRunPlan {
 }
 
 impl OrderDryRunPlan {
-    fn new(command: &'static str, would_execute: &'static str, args: serde_json::Value) -> Self {
+    pub(super) fn new(
+        command: &'static str,
+        would_execute: &'static str,
+        args: serde_json::Value,
+    ) -> Self {
         Self {
             command,
             would_execute,
@@ -1029,6 +1033,7 @@ pub fn modify_dry_run_plan(args: &ModifyArgs) -> Result<OrderDryRunPlan, CliErro
             "price": args.price.map(|value| value.to_string()),
             "trigger_price": args.trigger_price.map(|value| value.to_string()),
             "size": args.size.map(|value| value.to_string()),
+            "always_place": args.always_place,
         }),
     ))
 }
@@ -1163,7 +1168,7 @@ pub(crate) async fn prepare_modify_order_plan(
                 oid: identifier.to_status_identifier(),
                 order: replacement,
             }],
-            always_place: false,
+            always_place: args.always_place,
         }),
         confirmation: ModifyConfirmation {
             coin: resolver.display_coin(&order.coin),

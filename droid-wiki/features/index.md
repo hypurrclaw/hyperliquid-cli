@@ -6,7 +6,7 @@ Each feature page describes a user-facing capability — what commands exist, wh
 
 | Feature | Page | Top-level commands |
 |---------|------|--------------------|
-| Orders | [orders](orders.md) | `orders create / scale / batch-create / tpsl / cancel / cancel-all / modify / twap-create / twap-cancel / schedule-cancel / open / status / history` |
+| Orders | [orders](orders.md) | `orders create / scale / batch-create / tpsl / trailing-stop / cancel / cancel-all / modify / twap-create / twap-cancel / schedule-cancel / open / status / history` |
 | Transfers | [transfers](transfers.md) | `transfer spot-to-perp / perp-to-spot / send / send-asset / withdraw / spot-send` |
 | Subaccounts | [subaccounts](subaccounts.md) | `subaccount list / create / transfer / spot-transfer` |
 | Staking, vaults, borrow/lend | [staking-vaults-borrowlend](staking-vaults-borrowlend.md) | `staking *`, `vault *`, `borrowlend *` |

@@ -256,6 +256,21 @@ hyperliquid --format json watch risk --user USER --max-events 20
 
 `watch risk` is read-only. Chase and bracket are prompt-gated on mainnet; agent mode requires `--timeout` for chase and `--max-events` or `--idle-timeout-ms` for watch.
 
+### Trailing stop
+
+`orders trailing-stop` places a native perp trailing stop. The exchange tracks the **mark price** and fires a **market order** when the mark retraces from its best level since activation by `--retracement-pct` (above 0, below 100) or `--retracement-px`. A sell closes a long, a buy closes a short; the trigger never moves back. Pass exactly one retracement option. Perp and HIP-3 perp markets only. Dry-run first, show the user the args, then place it with `--yes` only after approval:
+
+```bash
+hyperliquid --format json --dry-run orders trailing-stop \
+  --coin BTC --side sell --size 0.01 --retracement-pct 5 --reduce-only
+hyperliquid --format json orders trailing-stop \
+  --coin BTC --side sell --size 0.01 --retracement-pct 5 --reduce-only --yes
+hyperliquid --format json orders trailing-stop \
+  --coin ETH --side sell --size 0.5 --retracement-px 50 --activation-price 3500 --yes
+```
+
+The receipt has `oid`; `orders open` lists the stop as `TrailingStopMarket`, and `orders cancel <OID>` removes it. A result of unknown outcome (exit `12`) means check `orders open` before placing another.
+
 ### Recover from a bad invocation
 
 Usage errors exit 2. The JSON `error` string includes a copy-paste next invocation — rerun that line, usually with `--dry-run` first:
@@ -282,7 +297,7 @@ Do not invent a second output language. Use `--select` / `--results-only` to pro
 | `search` | safe |
 | `watch risk` | safe |
 | `buy` / `sell` / `outcome-buy` / `outcome-sell` | **not** idempotent — check `orders open` / `positions list` first |
-| `orders tpsl` / `orders chase` / `orders bracket` | `check_open_orders` — a second run can duplicate working orders |
+| `orders tpsl` / `orders trailing-stop` / `orders chase` / `orders bracket` | `check_open_orders` — a second run can duplicate working orders |
 
 Do not retry `buy`, chase, or bracket blindly.
 

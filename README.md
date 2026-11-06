@@ -294,11 +294,12 @@ Signer and acting-account flags intentionally share the same selector grammar wh
 | `outcome-buy --coin <#N\|+N> --price <PX> --size <SIZE>` | Buy a HIP-4 outcome token. |
 | `outcome-sell --coin <#N\|+N> --price <PX> --size <SIZE>` | Sell a HIP-4 outcome token. |
 | `orders tpsl --coin <COIN> (--take-profit <PX\|+N%\|entry>\|--stop-loss <PX\|-N%\|entry>) [--grouping position-tpsl] [--side buy\|sell] [--size <SIZE>] [--margin-mode cross\|isolated] [--on-behalf-of <ACCOUNT_SELECTOR>]` | Create TP/SL orders attached to the current position. Percent and `entry` resolve against the position entry; `+N%` always moves in the position's favor (below entry for shorts). `--on-behalf-of` targets the acting subaccount/vault position. |
+| `orders trailing-stop --coin <COIN> --side buy\|sell --size <SIZE> (--retracement-pct <PERCENT>\|--retracement-px <PRICE>) [--activation-price <PRICE>] [--reduce-only] [--dex <DEX>] [--on-behalf-of <ACCOUNT_SELECTOR>] [-y]` | Place a native trailing stop on a perp market. It tracks the mark price and fires a market order once the mark retraces from its best level. |
 | `orders chase --coin <COIN> --side buy\|sell --size <SIZE> [--offset <BPS>] [--timeout <DURATION>] [--max-chase <BPS>] [-y]` | Bounded ALO requote loop that chases mid. Agent mode requires `--timeout`. |
 | `orders bracket --coin <COIN> --side buy\|sell --take-profit <PX\|+N%> --stop-loss <PX\|-N%> [--size <SIZE>\|--amount <USDC>] [--entry market\|limit] [-y]` | Place entry then arm TP/SL. Percent triggers resolve in the position's favor (`+N%` toward profit for both longs and shorts). Limit entries that do not fill in time are cancelled; any filled portion is protected (`entry_cancelled_protected` / `entry_cancelled`, exit 15). |
 | `orders cancel (ORDER_ID\|--cloid <CLOID>) [--on-behalf-of <ACCOUNT_SELECTOR>]` | Cancel by order ID or client order ID. `--on-behalf-of` manages an order for the acting subaccount/vault. |
 | `orders cancel-all [--coin <COIN>] [--dex <DEX>] [--on-behalf-of <ACCOUNT_SELECTOR>] [-y]` | Cancel all open orders, optionally filtered by coin or DEX. |
-| `orders modify (ORDER_ID\|--cloid <CLOID>) [--price <PRICE>] [--trigger-price <PRICE>] [--size <SIZE>] [--on-behalf-of <ACCOUNT_SELECTOR>]` | Modify an existing order. |
+| `orders modify (ORDER_ID\|--cloid <CLOID>) [--price <PRICE>] [--trigger-price <PRICE>] [--size <SIZE>] [--always-place] [--on-behalf-of <ACCOUNT_SELECTOR>]` | Modify an existing order. Without `--always-place` the replacement must be a non-trigger ALO order or a non-executable GTC order; add it to modify trigger orders or to place the replacement even if the cancel fails. |
 | `orders twap-create --coin <COIN> --side buy\|sell --size <SIZE> --duration <SECONDS> [--dex <DEX>] [--margin-mode cross\|isolated] [--on-behalf-of <ACCOUNT_SELECTOR>] [-y]` | Create a TWAP order. |
 | `orders twap-cancel <TWAP_ID> --coin <COIN> [--dex <DEX>] [--on-behalf-of <ACCOUNT_SELECTOR>]` | Cancel a TWAP order. |
 | `orders schedule-cancel (--in <DURATION>\|--clear) [--on-behalf-of <ACCOUNT_SELECTOR>] [-y]` | Configure or clear a dead man's switch. Mainnet set and clear flows prompt unless `--yes` is supplied. |
@@ -317,6 +318,22 @@ Signer and acting-account flags intentionally share the same selector grammar wh
 `api-wallets` is accepted as an alias for `api-wallet`.
 `subaccounts` is accepted as an alias for `subaccount`.
 `transfers` is accepted as an alias for `transfer`.
+
+#### Trailing stops
+
+`orders trailing-stop` places Hyperliquid's native trailing stop on perp and HIP-3 perp markets (spot and outcome markets are rejected). The exchange tracks the **mark price**: a sell closes a long and follows the highest mark, a buy closes a short and follows the lowest. When the mark retraces from that best level by `--retracement-pct` (above 0, below 100) or `--retracement-px` (a price distance), the exchange fires a **market order**. The trigger never moves back. Pass exactly one retracement option. `--activation-price` delays tracking until the mark reaches it; without it the stop starts tracking immediately. Use `--reduce-only` when the stop should only close a position.
+
+```bash
+# Preview, then place a 5% trailing stop that closes a long
+hyperliquid --format json --dry-run orders trailing-stop --coin BTC --side sell --size 0.01 --retracement-pct 5 --reduce-only
+hyperliquid orders trailing-stop --coin BTC --side sell --size 0.01 --retracement-pct 5 --reduce-only
+# Start tracking only once the mark reaches 3500
+hyperliquid orders trailing-stop --coin ETH --side sell --size 0.5 --retracement-px 50 --activation-price 3500
+# Remove it with the order ID from the receipt
+hyperliquid orders cancel <OID>
+```
+
+Mainnet prompts show the network, signer, acting account, coin, side, size, retracement, activation, and reduce-only before asking; `--testnet` places without a prompt, and JSON, CI, and agent runs need `--yes`. The receipt includes the `oid`, and `orders open` lists the stop as `TrailingStopMarket`. The CLI never retries a placement: if the result is unknown it exits `12`, so check `orders open` before placing another.
 
 Time-bounded account history commands accept RFC3339 timestamps and epoch milliseconds. The CLI sends milliseconds to Hyperliquid, for example:
 

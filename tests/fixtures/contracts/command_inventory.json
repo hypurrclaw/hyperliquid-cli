@@ -1832,6 +1832,35 @@
     },
     {
       "auth_required": true,
+      "command": "hyperliquid orders trailing-stop",
+      "command_path": [
+        "orders",
+        "trailing-stop"
+      ],
+      "confirmation": "prompt",
+      "dangerous": true,
+      "dry_run": "optional",
+      "group": "trade",
+      "input_kinds": {
+        "activation_price": "price",
+        "coin": "market_symbol",
+        "dex": "venue_selector",
+        "on_behalf_of": "acting_account_selector",
+        "reduce_only": "boolean",
+        "retracement_px": "price",
+        "size": "amount",
+        "yes": "boolean"
+      },
+      "mutability": "live_mutating",
+      "output_contract": "command_result_or_dry_run_envelope",
+      "raw_payload": "dry_run_only",
+      "risk": "funds_movement",
+      "transport": [
+        "cli_process"
+      ]
+    },
+    {
+      "auth_required": true,
       "command": "hyperliquid orders cancel <ORDER_ID>",
       "command_path": [
         "orders",
@@ -1891,6 +1920,7 @@
       "dry_run": "optional",
       "group": "trade",
       "input_kinds": {
+        "always_place": "boolean",
         "cloid": "identifier",
         "on_behalf_of": "acting_account_selector",
         "order_id": "identifier",
