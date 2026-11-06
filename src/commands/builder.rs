@@ -16,9 +16,7 @@ use serde::Serialize;
 
 use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, InputKind, arg};
 use crate::commands::actions;
-use crate::commands::support::{
-    default_dry_run_signing_context, print_dry_run_envelope, signed_action_dry_run_envelope,
-};
+use crate::commands::support::print_signed_dry_run;
 use crate::dry_run::ActionReversibility;
 use crate::errors::CliError;
 use crate::http_api::ApiClient;
@@ -408,7 +406,8 @@ fn approve_output_row(
         max_fee_rate: max_fee_rate.to_string(),
         max_fee_tenths_bps,
         network: chain.to_string(),
-        reversibility: format_reversibility(BuilderActionKind::ApproveFee.reversibility())
+        reversibility: (BuilderActionKind::ApproveFee.reversibility())
+            .as_str()
             .to_string(),
     }
 }
@@ -528,25 +527,10 @@ fn confirm_builder_approval(
     max_fee_rate: &str,
     max_fee_tenths_bps: u64,
 ) -> Result<(), CliError> {
-    crate::prompt::ensure_can_prompt(mode, "--yes")?;
     let question = format!(
         "Approve builder {builder} for max fee {max_fee_rate} ({max_fee_tenths_bps} tenths bps)?"
     );
-    if crate::prompt::confirm_warning(mode, &question, "--yes")? {
-        Ok(())
-    } else {
-        Err(CliError::Configuration(
-            "builder fee approval aborted".to_string(),
-        ))
-    }
-}
-
-fn format_reversibility(reversibility: ActionReversibility) -> &'static str {
-    match reversibility {
-        ActionReversibility::Reversible => "reversible",
-        ActionReversibility::PartiallyReversible => "partially_reversible",
-        ActionReversibility::Irreversible => "irreversible",
-    }
+    crate::prompt::consent(mode, "--yes", "", &question, "builder fee approval aborted")
 }
 
 pub const GROUP: GroupSpec =
@@ -640,15 +624,13 @@ impl CliCommand for BuilderApprove {
                 builder,
                 args,
             )?;
-            let envelope = signed_action_dry_run_envelope(
+            return print_signed_dry_run(
                 inv,
                 "builder approve",
                 "approve_builder_fee",
                 BuilderActionKind::ApproveFee.reversibility(),
                 preview_args,
-                default_dry_run_signing_context(inv),
             );
-            return print_dry_run_envelope(inv, envelope);
         }
         let resolved = inv.resolve_signer()?;
         if resolved.query_address() != resolved.address() {

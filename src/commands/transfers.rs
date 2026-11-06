@@ -7,7 +7,7 @@ use hypersdk::hypercore::{Chain, HttpClient, SpotToken};
 
 use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, InputKind, arg};
 use crate::commands::support::{
-    dry_run_signer_address, print_dry_run_envelope, transfer_dry_run_envelope,
+    dry_run_signer_address, print_transfer_dry_run, print_transfer_dry_run_as,
 };
 use crate::dry_run::DryRunSigningContext;
 use crate::signing::SelectedSigner;
@@ -645,26 +645,15 @@ async fn resolve_spot_token(client: &HttpClient, token: &str) -> Result<SpotToke
 }
 
 fn parse_address(input: &str, flag: &str) -> Result<Address, CliError> {
-    let stripped = input
-        .strip_prefix("0x")
-        .ok_or_else(|| invalid_address_error(flag))?;
-    if stripped.len() != 40 || !stripped.chars().all(|ch| ch.is_ascii_hexdigit()) {
-        return Err(invalid_address_error(flag));
-    }
-    if stripped.chars().all(|ch| ch == '0') {
-        return Err(CliError::Configuration(format!(
-            "{flag}: address must not be the zero address"
-        )));
-    }
-    input
-        .parse::<Address>()
-        .map_err(|_| invalid_address_error(flag))
-}
-
-fn invalid_address_error(flag: &str) -> CliError {
-    CliError::Configuration(format!(
-        "{flag}: address must be a 0x-prefixed 40-byte hex string"
-    ))
+    use crate::resolvers::{HexAddressError, parse_exact_hex_address};
+    parse_exact_hex_address(input, true).map_err(|err| match err {
+        HexAddressError::Zero => {
+            CliError::Configuration(format!("{flag}: address must not be the zero address"))
+        }
+        HexAddressError::Format => CliError::Configuration(format!(
+            "{flag}: address must be a 0x-prefixed 40-byte hex string"
+        )),
+    })
 }
 
 async fn class_transfer(
@@ -775,16 +764,8 @@ fn confirm_transfer(
     if yes {
         return Ok(());
     }
-    crate::prompt::ensure_can_prompt(mode, "--yes")?;
     let (preview, question) = prompt.rsplit_once('\n').unwrap_or(("", prompt));
-    if !preview.is_empty() {
-        eprintln!("{preview}");
-    }
-    if crate::prompt::confirm_warning(mode, question, "--yes")? {
-        Ok(())
-    } else {
-        Err(CliError::Configuration(abort_message.to_string()))
-    }
+    crate::prompt::consent(mode, "--yes", preview, question, abort_message)
 }
 
 fn external_transfer_prompt(summary: &str, context: TransferConfirmationContext) -> String {
@@ -811,17 +792,9 @@ Reversibility: {reversibility}
         asset = context.asset,
         amount = context.amount,
         fee_or_cap = context.fee_or_cap,
-        reversibility = format_reversibility(context.reversibility),
+        reversibility = (context.reversibility).as_str(),
         summary = summary,
     )
-}
-
-fn format_reversibility(reversibility: ActionReversibility) -> &'static str {
-    match reversibility {
-        ActionReversibility::Reversible => "reversible",
-        ActionReversibility::PartiallyReversible => "partially_reversible",
-        ActionReversibility::Irreversible => "irreversible",
-    }
 }
 
 fn print_transfer(
@@ -873,14 +846,13 @@ impl CliCommand for TransferSpotToPerp {
     async fn run(inv: &Invocation, args: &ClassTransferArgs) -> Result<(), anyhow::Error> {
         validate_class_transfer_args(args)?;
         if inv.dry_run() {
-            let envelope = transfer_dry_run_envelope(
+            return print_transfer_dry_run(
                 inv,
                 "transfer spot-to-perp",
                 TransferActionKind::SpotToPerp,
                 "transfer_spot_to_perp",
                 serde_json::json!({"amount": args.amount.to_string()}),
             );
-            return print_dry_run_envelope(inv, envelope);
         }
         let resolved = inv.resolve_signer()?;
         let signer = resolved.selected_signer();
@@ -912,14 +884,13 @@ impl CliCommand for TransferPerpToSpot {
     async fn run(inv: &Invocation, args: &ClassTransferArgs) -> Result<(), anyhow::Error> {
         validate_class_transfer_args(args)?;
         if inv.dry_run() {
-            let envelope = transfer_dry_run_envelope(
+            return print_transfer_dry_run(
                 inv,
                 "transfer perp-to-spot",
                 TransferActionKind::PerpToSpot,
                 "transfer_perp_to_spot",
                 serde_json::json!({"amount": args.amount.to_string()}),
             );
-            return print_dry_run_envelope(inv, envelope);
         }
         let resolved = inv.resolve_signer()?;
         let signer = resolved.selected_signer();
@@ -955,14 +926,13 @@ impl CliCommand for TransferSend {
     async fn run(inv: &Invocation, args: &SendArgs) -> Result<(), anyhow::Error> {
         validate_send_args(args)?;
         if inv.dry_run() {
-            let envelope = transfer_dry_run_envelope(
+            return print_transfer_dry_run(
                 inv,
                 "transfer send",
                 TransferActionKind::Send,
                 "send_usdc",
                 serde_json::json!({"to": args.to, "amount": args.amount.to_string()}),
             );
-            return print_dry_run_envelope(inv, envelope);
         }
         let resolved = inv.resolve_signer()?;
         send(
@@ -1010,19 +980,18 @@ impl CliCommand for TransferSpotSend {
         let args_json = spot_send_dry_run_args(client, args).await?;
         if inv.dry_run() {
             let signer = dry_run_signer_address(inv);
-            let envelope = transfer_dry_run_envelope(
+            return print_transfer_dry_run_as(
                 inv,
                 "transfer spot-send",
                 TransferActionKind::SpotSend,
                 "spot_send",
                 args_json,
-            )
-            .with_signing_context(DryRunSigningContext::new(
-                signer,
-                Some(args.to.clone()),
-                None,
-            ));
-            return print_dry_run_envelope(inv, envelope);
+                Some(DryRunSigningContext::new(
+                    signer,
+                    Some(args.to.clone()),
+                    None,
+                )),
+            );
         }
         let resolved = inv.resolve_signer()?;
         spot_send(inv, &resolved.selected_signer(), args).await
@@ -1072,19 +1041,18 @@ impl CliCommand for TransferSendAsset {
         let args_json = send_asset_dry_run_args(client, args).await?;
         if inv.dry_run() {
             let signer = dry_run_signer_address(inv);
-            let envelope = transfer_dry_run_envelope(
+            return print_transfer_dry_run_as(
                 inv,
                 "transfer send-asset",
                 TransferActionKind::SendAsset,
                 "send_asset",
                 args_json,
-            )
-            .with_signing_context(DryRunSigningContext::new(
-                signer,
-                Some(args.to.clone()),
-                None,
-            ));
-            return print_dry_run_envelope(inv, envelope);
+                Some(DryRunSigningContext::new(
+                    signer,
+                    Some(args.to.clone()),
+                    None,
+                )),
+            );
         }
         let resolved = inv.resolve_signer()?;
         send_asset(inv, &resolved.selected_signer(), args).await
@@ -1118,14 +1086,13 @@ impl CliCommand for TransferWithdraw {
     async fn run(inv: &Invocation, args: &WithdrawArgs) -> Result<(), anyhow::Error> {
         validate_withdraw_args(args)?;
         if inv.dry_run() {
-            let envelope = transfer_dry_run_envelope(
+            return print_transfer_dry_run(
                 inv,
                 "transfer withdraw",
                 TransferActionKind::Withdraw,
                 "withdraw_usdc",
                 serde_json::json!({"to": args.to, "amount": args.amount.to_string()}),
             );
-            return print_dry_run_envelope(inv, envelope);
         }
         let resolved = inv.resolve_signer()?;
         withdraw(

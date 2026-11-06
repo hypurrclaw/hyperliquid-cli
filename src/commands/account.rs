@@ -501,18 +501,17 @@ fn confirm_account_mode_change(
     mode: AbstractionModeArg,
     user: Address,
 ) -> Result<(), CliError> {
-    crate::prompt::ensure_can_prompt(prompt_mode, "--yes")?;
     let question = format!(
         "Set account abstraction for {user} to {}?",
         mode_cli_value(mode)
     );
-    if crate::prompt::confirm_warning(prompt_mode, &question, "--yes")? {
-        Ok(())
-    } else {
-        Err(CliError::Configuration(
-            "account abstraction update aborted".to_string(),
-        ))
-    }
+    crate::prompt::consent(
+        prompt_mode,
+        "--yes",
+        "",
+        &question,
+        "account abstraction update aborted",
+    )
 }
 
 fn validate_optional_time_range(start: Option<u64>, end: Option<u64>) -> Result<(), CliError> {

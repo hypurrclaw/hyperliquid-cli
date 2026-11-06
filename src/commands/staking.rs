@@ -4,15 +4,12 @@ use alloy::sol;
 use clap::Args;
 use hypersdk::hypercore::Chain;
 use hypersdk::{Address, Decimal};
-use rust_decimal::prelude::ToPrimitive;
 use serde::{Deserialize, Serialize};
 
 use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, InputKind, NoArgs, arg};
 use crate::commands::account::OptionalAddressArgs;
 use crate::commands::actions;
-use crate::commands::support::{
-    default_dry_run_signing_context, print_dry_run_envelope, signed_action_dry_run_envelope,
-};
+use crate::commands::support::print_signed_dry_run;
 use crate::dry_run::ActionReversibility;
 use crate::errors::CliError;
 use crate::http_api::ApiClient;
@@ -903,7 +900,8 @@ pub async fn link_staking_user(
             user: user.to_string(),
             is_finalize,
             network: chain.to_string(),
-            reversibility: format_reversibility(action_kind_for_link(is_finalize).reversibility())
+            reversibility: (action_kind_for_link(is_finalize).reversibility())
+                .as_str()
                 .to_string(),
             warning: STAKING_LINK_WARNING.to_string(),
         },
@@ -1049,19 +1047,13 @@ fn validate_link_user_address(address: &str) -> Result<Address, CliError> {
 }
 
 fn validate_amount_to_wei(amount: Decimal) -> Result<u64, CliError> {
-    if amount <= Decimal::ZERO {
-        return Err(CliError::Configuration(
-            "amount must be greater than zero".to_string(),
-        ));
-    }
-    let wei = amount * Decimal::from(HYPE_WEI_SCALE);
-    if wei.fract() != Decimal::ZERO {
-        return Err(CliError::Configuration(
-            "amount supports at most 8 decimal places".to_string(),
-        ));
-    }
-    wei.to_u64()
-        .ok_or_else(|| CliError::Configuration("amount is too large".to_string()))
+    crate::quantity::scaled_u64(
+        amount,
+        HYPE_WEI_SCALE,
+        CliError::Configuration("amount must be greater than zero".to_string()),
+        CliError::Configuration("amount supports at most 8 decimal places".to_string()),
+        CliError::Configuration("amount is too large".to_string()),
+    )
 }
 
 fn format_hype_wei(wei: u64) -> String {
@@ -1098,16 +1090,14 @@ fn action_kind_for_link(is_finalize: bool) -> StakingActionKind {
 
 fn confirm_staking_link(mode: &Mode, user: Address, is_finalize: bool) -> Result<(), CliError> {
     let phase = link_phase(is_finalize);
-    crate::prompt::ensure_can_prompt(mode, "--yes")?;
-    eprintln!("{STAKING_LINK_WARNING}");
     let question = format!("Submit staking link {phase} for user {user}?");
-    if crate::prompt::confirm_warning(mode, &question, "--yes")? {
-        Ok(())
-    } else {
-        Err(CliError::Configuration(
-            "staking-link confirmation required; action cancelled. Rerun with --yes for deliberate automation.".to_string(),
-        ))
-    }
+    crate::prompt::consent(
+        mode,
+        "--yes",
+        STAKING_LINK_WARNING,
+        &question,
+        "staking-link confirmation required; action cancelled. Rerun with --yes for deliberate automation.",
+    )
 }
 
 fn print_action_confirmation(
@@ -1125,21 +1115,13 @@ fn print_action_confirmation(
             network: context.chain.to_string(),
             signer: context.signer.address().to_string(),
             acting_as: context.signer.query_address().to_string(),
-            reversibility: format_reversibility(context.action_kind.reversibility()).to_string(),
+            reversibility: (context.action_kind.reversibility()).as_str().to_string(),
             amount,
             asset: "HYPE".to_string(),
             validator,
             note,
         },
     });
-}
-
-fn format_reversibility(reversibility: ActionReversibility) -> &'static str {
-    match reversibility {
-        ActionReversibility::Reversible => "reversible",
-        ActionReversibility::PartiallyReversible => "partially_reversible",
-        ActionReversibility::Irreversible => "irreversible",
-    }
 }
 
 pub const GROUP: GroupSpec = GroupSpec::new(&["staking"], "Manage staking");
@@ -1261,15 +1243,13 @@ impl CliCommand for StakingDelegate {
         if inv.dry_run() {
             let action_kind = StakingActionKind::Delegate;
             let args_json = delegate_dry_run_value(inv.remote()?.chain(), args, action_kind)?;
-            let envelope = signed_action_dry_run_envelope(
+            return print_signed_dry_run(
                 inv,
                 "staking delegate",
                 action_kind.would_execute(),
                 action_kind.reversibility(),
                 args_json,
-                default_dry_run_signing_context(inv),
             );
-            return print_dry_run_envelope(inv, envelope);
         }
         let resolved = inv.resolve_signer()?;
         let signer = resolved.selected_signer();
@@ -1303,15 +1283,13 @@ impl CliCommand for StakingUndelegate {
         if inv.dry_run() {
             let action_kind = StakingActionKind::Undelegate;
             let args_json = delegate_dry_run_value(inv.remote()?.chain(), args, action_kind)?;
-            let envelope = signed_action_dry_run_envelope(
+            return print_signed_dry_run(
                 inv,
                 "staking undelegate",
                 action_kind.would_execute(),
                 action_kind.reversibility(),
                 args_json,
-                default_dry_run_signing_context(inv),
             );
-            return print_dry_run_envelope(inv, envelope);
         }
         let resolved = inv.resolve_signer()?;
         let signer = resolved.selected_signer();
@@ -1339,15 +1317,13 @@ impl CliCommand for StakingDeposit {
         if inv.dry_run() {
             let action_kind = StakingActionKind::Deposit;
             let args_json = amount_dry_run_value(inv.remote()?.chain(), args, action_kind)?;
-            let envelope = signed_action_dry_run_envelope(
+            return print_signed_dry_run(
                 inv,
                 "staking deposit",
                 action_kind.would_execute(),
                 action_kind.reversibility(),
                 args_json,
-                default_dry_run_signing_context(inv),
             );
-            return print_dry_run_envelope(inv, envelope);
         }
         let resolved = inv.resolve_signer()?;
         let signer = resolved.selected_signer();
@@ -1375,15 +1351,13 @@ impl CliCommand for StakingWithdraw {
         if inv.dry_run() {
             let action_kind = StakingActionKind::Withdraw;
             let args_json = amount_dry_run_value(inv.remote()?.chain(), args, action_kind)?;
-            let envelope = signed_action_dry_run_envelope(
+            return print_signed_dry_run(
                 inv,
                 "staking withdraw",
                 action_kind.would_execute(),
                 action_kind.reversibility(),
                 args_json,
-                default_dry_run_signing_context(inv),
             );
-            return print_dry_run_envelope(inv, envelope);
         }
         let resolved = inv.resolve_signer()?;
         let signer = resolved.selected_signer();
@@ -1406,15 +1380,13 @@ impl CliCommand for StakingClaimRewards {
     async fn run(inv: &Invocation, _args: &NoArgs) -> Result<(), anyhow::Error> {
         if inv.dry_run() {
             let action_kind = StakingActionKind::ClaimRewards;
-            let envelope = signed_action_dry_run_envelope(
+            return print_signed_dry_run(
                 inv,
                 "staking claim-rewards",
                 action_kind.would_execute(),
                 action_kind.reversibility(),
                 claim_rewards_dry_run_value(inv.remote()?.chain()),
-                default_dry_run_signing_context(inv),
             );
-            return print_dry_run_envelope(inv, envelope);
         }
         let resolved = inv.resolve_signer()?;
         let signer = resolved.selected_signer();
@@ -1480,15 +1452,13 @@ async fn staking_link(
         } else {
             StakingActionKind::LinkInitiate
         };
-        let envelope = signed_action_dry_run_envelope(
+        return print_signed_dry_run(
             inv,
             &format!("staking link {phase}"),
             action_kind.would_execute(),
             action_kind.reversibility(),
             args_json,
-            default_dry_run_signing_context(inv),
         );
-        return print_dry_run_envelope(inv, envelope);
     }
     let resolved = inv.resolve_signer()?;
     let signer = resolved.selected_signer();

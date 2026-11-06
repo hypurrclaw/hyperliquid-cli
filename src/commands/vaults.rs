@@ -5,15 +5,12 @@ use hypersdk::hypercore::api::VaultTransfer;
 use hypersdk::hypercore::types::{Action, LeverageType};
 use hypersdk::hypercore::{AssetPosition, Chain};
 use hypersdk::{Address, Decimal};
-use rust_decimal::prelude::ToPrimitive;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, InputKind, arg};
 use crate::commands::actions;
-use crate::commands::support::{
-    default_dry_run_signing_context, print_dry_run_envelope, signed_action_dry_run_envelope,
-};
+use crate::commands::support::print_signed_dry_run;
 use crate::dry_run::ActionReversibility;
 use crate::errors::CliError;
 use crate::errors::from_sdk;
@@ -607,7 +604,7 @@ async fn transfer(
             network: chain.to_string(),
             signer: signer.address().to_string(),
             acting_as: signer.query_address().to_string(),
-            reversibility: format_reversibility(action_kind.reversibility()).to_string(),
+            reversibility: (action_kind.reversibility()).as_str().to_string(),
             vault_address: args.vault.clone(),
             amount: args.amount,
             asset: "USDC".to_string(),
@@ -891,47 +888,25 @@ impl From<AssetPosition> for VaultPositionRow {
 }
 
 fn parse_address(input: &str) -> Result<Address, CliError> {
-    let stripped = input.strip_prefix("0x").ok_or_else(invalid_address_error)?;
-    if stripped.len() != 40 || !stripped.chars().all(|ch| ch.is_ascii_hexdigit()) {
-        return Err(invalid_address_error());
-    }
-    if stripped.chars().all(|ch| ch == '0') {
-        return Err(CliError::Configuration(
-            "address must not be the zero address".to_string(),
-        ));
-    }
-    input
-        .parse::<Address>()
-        .map_err(|_| invalid_address_error())
-}
-
-fn invalid_address_error() -> CliError {
-    CliError::Configuration("address must be a 0x-prefixed 40-byte hex string".to_string())
-}
-
-fn format_reversibility(reversibility: ActionReversibility) -> &'static str {
-    match reversibility {
-        ActionReversibility::Reversible => "reversible",
-        ActionReversibility::PartiallyReversible => "partially_reversible",
-        ActionReversibility::Irreversible => "irreversible",
-    }
+    use crate::resolvers::{HexAddressError, parse_exact_hex_address};
+    parse_exact_hex_address(input, true).map_err(|err| match err {
+        HexAddressError::Zero => {
+            CliError::Configuration("address must not be the zero address".to_string())
+        }
+        HexAddressError::Format => {
+            CliError::Configuration("address must be a 0x-prefixed 40-byte hex string".to_string())
+        }
+    })
 }
 
 fn validate_usdc_amount(amount: Decimal) -> Result<u64, CliError> {
-    if amount <= Decimal::ZERO {
-        return Err(CliError::Configuration(
-            "amount must be greater than zero".to_string(),
-        ));
-    }
-    let micro_units = amount * Decimal::from(1_000_000_u64);
-    if micro_units.fract() != Decimal::ZERO {
-        return Err(CliError::Configuration(
-            "amount supports at most 6 decimal places".to_string(),
-        ));
-    }
-    micro_units
-        .to_u64()
-        .ok_or_else(|| CliError::Configuration("amount is too large".to_string()))
+    crate::quantity::scaled_u64(
+        amount,
+        1_000_000,
+        CliError::Configuration("amount must be greater than zero".to_string()),
+        CliError::Configuration("amount supports at most 6 decimal places".to_string()),
+        CliError::Configuration("amount is too large".to_string()),
+    )
 }
 
 pub const GROUP: GroupSpec = GroupSpec::new(&["vault"], "Query and fund vaults")
@@ -1060,15 +1035,13 @@ impl CliCommand for VaultDeposit {
                 args,
                 VaultTransferActionKind::Deposit,
             )?;
-            let envelope = signed_action_dry_run_envelope(
+            return print_signed_dry_run(
                 inv,
                 "vault deposit",
                 "deposit_usdc_to_vault",
                 VaultTransferActionKind::Deposit.reversibility(),
                 args_json,
-                default_dry_run_signing_context(inv),
             );
-            return print_dry_run_envelope(inv, envelope);
         }
         let resolved = inv.resolve_signer()?;
         deposit(inv, &resolved.selected_signer(), args).await
@@ -1103,15 +1076,13 @@ impl CliCommand for VaultWithdraw {
                 args,
                 VaultTransferActionKind::Withdraw,
             )?;
-            let envelope = signed_action_dry_run_envelope(
+            return print_signed_dry_run(
                 inv,
                 "vault withdraw",
                 "withdraw_usdc_from_vault",
                 VaultTransferActionKind::Withdraw.reversibility(),
                 args_json,
-                default_dry_run_signing_context(inv),
             );
-            return print_dry_run_envelope(inv, envelope);
         }
         let resolved = inv.resolve_signer()?;
         withdraw(inv, &resolved.selected_signer(), args).await

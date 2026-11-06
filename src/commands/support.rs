@@ -95,6 +95,51 @@ pub(crate) fn signed_action_dry_run_envelope(
         .with_signing_context(signing_context)
 }
 
+pub(crate) fn print_signed_dry_run(
+    inv: &Invocation,
+    command: &str,
+    would_execute: &str,
+    reversibility: ActionReversibility,
+    args: serde_json::Value,
+) -> Result<(), anyhow::Error> {
+    print_dry_run_envelope(
+        inv,
+        signed_action_dry_run_envelope(
+            inv,
+            command,
+            would_execute,
+            reversibility,
+            args,
+            default_dry_run_signing_context(inv),
+        ),
+    )
+}
+
+pub(crate) fn print_transfer_dry_run(
+    inv: &Invocation,
+    command: &str,
+    action: crate::commands::transfers::TransferActionKind,
+    would_execute: &str,
+    args: serde_json::Value,
+) -> Result<(), anyhow::Error> {
+    print_transfer_dry_run_as(inv, command, action, would_execute, args, None)
+}
+
+pub(crate) fn print_transfer_dry_run_as(
+    inv: &Invocation,
+    command: &str,
+    action: crate::commands::transfers::TransferActionKind,
+    would_execute: &str,
+    args: serde_json::Value,
+    signing: Option<DryRunSigningContext>,
+) -> Result<(), anyhow::Error> {
+    let mut envelope = transfer_dry_run_envelope(inv, command, action, would_execute, args);
+    if let Some(signing) = signing {
+        envelope = envelope.with_signing_context(signing);
+    }
+    print_dry_run_envelope(inv, envelope)
+}
+
 pub(crate) fn dry_run_signer_address(inv: &Invocation) -> Option<String> {
     dry_run_signing_addresses(inv).0
 }

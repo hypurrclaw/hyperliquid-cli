@@ -24,6 +24,18 @@ pub enum ActionReversibility {
     Irreversible,
 }
 
+impl ActionReversibility {
+    /// Snake-case label used in previews and receipt rows.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Reversible => "reversible",
+            Self::PartiallyReversible => "partially_reversible",
+            Self::Irreversible => "irreversible",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LiveSubmissionPolicy {

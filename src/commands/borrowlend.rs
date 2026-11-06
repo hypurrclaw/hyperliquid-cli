@@ -10,9 +10,7 @@ use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, InputKind, NoArgs,
 use crate::commands::account::OptionalAddressArgs;
 use crate::commands::actions;
 use crate::commands::spot_balances::{RawSpotBalance, user_spot_balances_raw};
-use crate::commands::support::{
-    default_dry_run_signing_context, print_dry_run_envelope, signed_action_dry_run_envelope,
-};
+use crate::commands::support::print_signed_dry_run;
 use crate::dry_run::ActionReversibility;
 use crate::errors::CliError;
 use crate::errors::from_sdk;
@@ -397,7 +395,7 @@ pub async fn action(
             max: args.max,
             network: chain.to_string(),
             signer: signer.address().to_string(),
-            reversibility: format_reversibility(operation.reversibility()).to_string(),
+            reversibility: (operation.reversibility()).as_str().to_string(),
         },
     });
     Ok(())
@@ -641,14 +639,6 @@ fn structured_unknown_request_error(body: &str) -> bool {
     status_is_error && info_request_type_is_unavailable(400, &value.to_string())
 }
 
-fn format_reversibility(reversibility: ActionReversibility) -> &'static str {
-    match reversibility {
-        ActionReversibility::Reversible => "reversible",
-        ActionReversibility::PartiallyReversible => "partially_reversible",
-        ActionReversibility::Irreversible => "irreversible",
-    }
-}
-
 impl From<RawSpotBalance> for UserBorrowLendPosition {
     fn from(balance: RawSpotBalance) -> Self {
         let (supplied, borrowed) = if balance.total < Decimal::ZERO {
@@ -670,17 +660,9 @@ impl From<RawSpotBalance> for UserBorrowLendPosition {
 }
 
 fn parse_address(input: &str) -> Result<Address, CliError> {
-    let stripped = input.strip_prefix("0x").ok_or_else(invalid_address_error)?;
-    if stripped.len() != 40 || !stripped.chars().all(|ch| ch.is_ascii_hexdigit()) {
-        return Err(invalid_address_error());
-    }
-    input
-        .parse::<Address>()
-        .map_err(|_| invalid_address_error())
-}
-
-fn invalid_address_error() -> CliError {
-    CliError::Configuration("address must be a 0x-prefixed 40-byte hex string".to_string())
+    crate::resolvers::parse_exact_hex_address(input, false).map_err(|_| {
+        CliError::Configuration("address must be a 0x-prefixed 40-byte hex string".to_string())
+    })
 }
 
 pub const GROUP: GroupSpec = GroupSpec::new(
@@ -808,15 +790,13 @@ async fn borrowlend_action(
 ) -> Result<(), anyhow::Error> {
     let preview = action_preview(inv.remote()?.api(), operation, args).await?;
     if inv.dry_run() {
-        let envelope = signed_action_dry_run_envelope(
+        return print_signed_dry_run(
             inv,
             &format!("borrowlend {}", operation.as_str()),
             &format!("{}_borrowlend", operation.as_str()),
             operation.reversibility(),
             preview,
-            default_dry_run_signing_context(inv),
         );
-        return print_dry_run_envelope(inv, envelope);
     }
 
     let resolved = inv.resolve_signer()?;

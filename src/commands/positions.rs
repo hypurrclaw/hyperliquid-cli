@@ -15,7 +15,6 @@ use crate::command_spec::{
 use crate::commands::support::{dry_run_signed_details, dry_run_signing_addresses, print_dry_run};
 use crate::signing::SelectedSigner;
 use crate::stream::SnapshotWatchArgs;
-use rust_decimal::prelude::ToPrimitive;
 use serde::Serialize;
 
 use crate::assets::AssetResolver;
@@ -482,26 +481,14 @@ fn resolve_perp_asset(resolver: &AssetResolver, coin: &str) -> Result<(String, u
     Ok((perp.display_name(), perp.index))
 }
 
-fn validate_positive(value: Decimal, name: &'static str) -> Result<(), CliError> {
-    if value <= Decimal::ZERO {
-        return Err(CliError::Configuration(format!(
-            "{name} must be greater than zero"
-        )));
-    }
-    Ok(())
-}
-
 fn usd_to_micro_units(value: Decimal, name: &'static str) -> Result<i64, CliError> {
-    validate_positive(value, name)?;
-    let scaled = value * Decimal::from(1_000_000_u64);
-    if scaled.fract() != Decimal::ZERO {
-        return Err(CliError::Configuration(format!(
-            "{name} supports at most 6 decimal places"
-        )));
-    }
-    scaled.to_i64().ok_or_else(|| {
-        CliError::Configuration(format!("{name} is too large for Hyperliquid micro-units"))
-    })
+    crate::quantity::scaled_i64(
+        value,
+        1_000_000,
+        CliError::Configuration(format!("{name} must be greater than zero")),
+        CliError::Configuration(format!("{name} supports at most 6 decimal places")),
+        CliError::Configuration(format!("{name} is too large for Hyperliquid micro-units")),
+    )
 }
 
 pub const GROUP: GroupSpec =

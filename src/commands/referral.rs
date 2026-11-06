@@ -7,9 +7,7 @@ use serde::Serialize;
 
 use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, NoArgs, OwsSupport, Risk, arg};
 use crate::commands::actions;
-use crate::commands::support::{
-    default_dry_run_signing_context, print_dry_run_envelope, signed_action_dry_run_envelope,
-};
+use crate::commands::support::print_signed_dry_run;
 use crate::dry_run::ActionReversibility;
 use crate::errors::CliError;
 use crate::invocation::Invocation;
@@ -225,7 +223,8 @@ pub async fn set(
             signer: signer.address().to_string(),
             query_address: signer.query_address().to_string(),
             code: code.to_string(),
-            reversibility: format_reversibility(ReferralActionKind::Set.reversibility())
+            reversibility: (ReferralActionKind::Set.reversibility())
+                .as_str()
                 .to_string(),
         },
     });
@@ -261,7 +260,8 @@ pub async fn register(
             signer: signer.address().to_string(),
             query_address: signer.query_address().to_string(),
             code: code.to_string(),
-            reversibility: format_reversibility(ReferralActionKind::Register.reversibility())
+            reversibility: (ReferralActionKind::Register.reversibility())
+                .as_str()
                 .to_string(),
         },
     });
@@ -363,14 +363,6 @@ fn display_optional(value: &Option<String>) -> String {
     value.clone().unwrap_or_else(|| "None".to_string())
 }
 
-fn format_reversibility(reversibility: ActionReversibility) -> &'static str {
-    match reversibility {
-        ActionReversibility::Reversible => "reversible",
-        ActionReversibility::PartiallyReversible => "partially_reversible",
-        ActionReversibility::Irreversible => "irreversible",
-    }
-}
-
 pub const GROUP: GroupSpec =
     GroupSpec::new(&["referral"], "Manage referral codes").aliases(&["referrals"]);
 
@@ -428,7 +420,7 @@ impl CliCommand for ReferralSet {
         validate_referral_code(code)?;
         if inv.dry_run() {
             let signer_context = inv.resolve_signer().ok();
-            let envelope = signed_action_dry_run_envelope(
+            return print_signed_dry_run(
                 inv,
                 "referral set",
                 "set_referral_code",
@@ -442,9 +434,7 @@ impl CliCommand for ReferralSet {
                     code,
                     ReferralActionKind::Set,
                 ),
-                default_dry_run_signing_context(inv),
             );
-            return print_dry_run_envelope(inv, envelope);
         }
         let resolved = inv.resolve_signer()?;
         let signer = resolved.selected_signer();
@@ -471,7 +461,7 @@ impl CliCommand for ReferralRegister {
         validate_referrer_code(code)?;
         if inv.dry_run() {
             let signer_context = inv.resolve_signer().ok();
-            let envelope = signed_action_dry_run_envelope(
+            return print_signed_dry_run(
                 inv,
                 "referral register",
                 "register_referrer_code",
@@ -485,9 +475,7 @@ impl CliCommand for ReferralRegister {
                     code,
                     ReferralActionKind::Register,
                 ),
-                default_dry_run_signing_context(inv),
             );
-            return print_dry_run_envelope(inv, envelope);
         }
         let resolved = inv.resolve_signer()?;
         let signer = resolved.selected_signer();

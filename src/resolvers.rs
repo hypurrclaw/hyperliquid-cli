@@ -83,26 +83,39 @@ enum ZeroAddressPolicy {
     Reject,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HexAddressError {
+    Format,
+    Zero,
+}
+
+/// Parse `value` as a 0x-prefixed 40-hex-digit address. Does not trim.
+pub fn parse_exact_hex_address(value: &str, reject_zero: bool) -> Result<Address, HexAddressError> {
+    let stripped = value.strip_prefix("0x").ok_or(HexAddressError::Format)?;
+    if stripped.len() != 40 || !stripped.chars().all(|ch| ch.is_ascii_hexdigit()) {
+        return Err(HexAddressError::Format);
+    }
+    if reject_zero && stripped.chars().all(|ch| ch == '0') {
+        return Err(HexAddressError::Zero);
+    }
+    value
+        .parse::<Address>()
+        .map_err(|_| HexAddressError::Format)
+}
+
 fn parse_explicit_address(
     value: &str,
     zero_policy: ZeroAddressPolicy,
 ) -> Result<Address, CliError> {
-    let trimmed = value.trim();
-    let stripped = trimmed.strip_prefix("0x").ok_or_else(|| {
-        CliError::Configuration("address must be a 0x-prefixed 40-byte hex string".to_string())
-    })?;
-    if stripped.len() != 40 || !stripped.chars().all(|ch| ch.is_ascii_hexdigit()) {
-        return Err(CliError::Configuration(
-            "address must be a 0x-prefixed 40-byte hex string".to_string(),
-        ));
-    }
-    if zero_policy == ZeroAddressPolicy::Reject && stripped.chars().all(|ch| ch == '0') {
-        return Err(CliError::Configuration(
-            "address must not be the zero address".to_string(),
-        ));
-    }
-    trimmed.parse::<Address>().map_err(|_| {
-        CliError::Configuration("address must be a 0x-prefixed 40-byte hex string".to_string())
+    parse_exact_hex_address(value.trim(), zero_policy == ZeroAddressPolicy::Reject).map_err(|err| {
+        match err {
+            HexAddressError::Zero => {
+                CliError::Configuration("address must not be the zero address".to_string())
+            }
+            HexAddressError::Format => CliError::Configuration(
+                "address must be a 0x-prefixed 40-byte hex string".to_string(),
+            ),
+        }
     })
 }
 

@@ -58,6 +58,29 @@ pub fn read_line(mode: &Mode, label: &str, input: &str) -> Result<String, CliErr
     Ok(line.trim_end_matches(['\r', '\n']).to_string())
 }
 
+/// Print `preview` when it is non-empty, then ask `question`.
+///
+/// A decline is `abort` as a configuration error. `bypass` is the flag named
+/// in the non-interactive error. Callers that already accepted `--yes` return
+/// before this runs.
+pub fn consent(
+    mode: &Mode,
+    bypass: &str,
+    preview: &str,
+    question: &str,
+    abort: &str,
+) -> Result<(), CliError> {
+    ensure_can_prompt(mode, bypass)?;
+    if !preview.is_empty() {
+        eprintln!("{preview}");
+    }
+    if confirm_warning(mode, question, bypass)? {
+        Ok(())
+    } else {
+        Err(CliError::Configuration(abort.to_string()))
+    }
+}
+
 /// Fail with a missing-input error when this run can't prompt.
 pub fn ensure_can_prompt(mode: &Mode, input: &str) -> Result<(), CliError> {
     match mode.prompt_blocker() {

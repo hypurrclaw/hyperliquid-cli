@@ -21,6 +21,7 @@ pub mod ows;
 pub mod paths;
 pub mod private_fs;
 pub mod prompt;
+pub mod quantity;
 pub mod resolvers;
 pub mod response_sanitization;
 pub mod settings;

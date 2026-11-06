@@ -8,9 +8,7 @@ use serde::Serialize;
 
 use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, InputKind, arg};
 use crate::commands::actions;
-use crate::commands::support::{
-    default_dry_run_signing_context, print_dry_run_envelope, signed_action_dry_run_envelope,
-};
+use crate::commands::support::print_signed_dry_run;
 use crate::dry_run::ActionReversibility;
 use crate::errors::CliError;
 use crate::invocation::Invocation;
@@ -323,7 +321,8 @@ pub async fn create(
             network: chain.to_string(),
             signer: signer_address,
             acting_as: signer.query_address().to_string(),
-            reversibility: format_reversibility(SubaccountActionKind::Create.reversibility())
+            reversibility: (SubaccountActionKind::Create.reversibility())
+                .as_str()
                 .to_string(),
             vault_address: None,
             subaccount: None,
@@ -381,7 +380,8 @@ pub async fn transfer(
             network: chain.to_string(),
             signer: signer_address,
             acting_as: signer.query_address().to_string(),
-            reversibility: format_reversibility(SubaccountActionKind::TransferUsdc.reversibility())
+            reversibility: (SubaccountActionKind::TransferUsdc.reversibility())
+                .as_str()
                 .to_string(),
             vault_address: None,
             subaccount: Some(subaccount.to_string()),
@@ -440,7 +440,8 @@ pub async fn spot_transfer(
             network: chain.to_string(),
             signer: signer_address,
             acting_as: signer.query_address().to_string(),
-            reversibility: format_reversibility(SubaccountActionKind::TransferSpot.reversibility())
+            reversibility: (SubaccountActionKind::TransferSpot.reversibility())
+                .as_str()
                 .to_string(),
             vault_address: None,
             subaccount: Some(subaccount.to_string()),
@@ -498,15 +499,7 @@ fn confirm_transfer(
     preview: &[String],
     abort_message: &'static str,
 ) -> Result<(), CliError> {
-    crate::prompt::ensure_can_prompt(mode, "--yes")?;
-    for line in preview {
-        eprintln!("{line}");
-    }
-    if crate::prompt::confirm_warning(mode, question, "--yes")? {
-        Ok(())
-    } else {
-        Err(CliError::Configuration(abort_message.to_string()))
-    }
+    crate::prompt::consent(mode, "--yes", &preview.join("\n"), question, abort_message)
 }
 
 fn consent_preview(chain: Chain, signer: &SelectedSigner, subaccount: Address) -> Vec<String> {
@@ -519,14 +512,6 @@ fn consent_preview(chain: Chain, signer: &SelectedSigner, subaccount: Address) -
 
 fn print_action(inv: &Invocation, row: SubaccountActionConfirmation) {
     inv.print(&SubaccountActionOutput { rows: vec![row] });
-}
-
-fn format_reversibility(reversibility: ActionReversibility) -> &'static str {
-    match reversibility {
-        ActionReversibility::Reversible => "reversible",
-        ActionReversibility::PartiallyReversible => "partially_reversible",
-        ActionReversibility::Irreversible => "irreversible",
-    }
 }
 
 pub const GROUP: GroupSpec = GroupSpec::new(&["subaccount"], "Manage subaccounts")
@@ -582,15 +567,13 @@ impl CliCommand for SubaccountCreate {
     async fn run(inv: &Invocation, args: &CreateArgs) -> Result<(), anyhow::Error> {
         validate_create_args(args)?;
         if inv.dry_run() {
-            let envelope = signed_action_dry_run_envelope(
+            return print_signed_dry_run(
                 inv,
                 "subaccount create",
                 "create_subaccount",
                 SubaccountActionKind::Create.reversibility(),
                 create_dry_run_value(inv.remote()?.chain(), args),
-                default_dry_run_signing_context(inv),
             );
-            return print_dry_run_envelope(inv, envelope);
         }
         let resolved = inv.resolve_signer()?;
         create(inv, &resolved.selected_signer(), args).await
@@ -620,15 +603,13 @@ impl CliCommand for SubaccountTransfer {
         validate_transfer_args(args)?;
         let subaccount = inv.resolve_acting_account(&args.subaccount)?;
         if inv.dry_run() {
-            let envelope = signed_action_dry_run_envelope(
+            return print_signed_dry_run(
                 inv,
                 "subaccount transfer",
                 "subaccount_usdc_transfer",
                 SubaccountActionKind::TransferUsdc.reversibility(),
                 transfer_dry_run_value(inv.remote()?.chain(), subaccount, args)?,
-                default_dry_run_signing_context(inv),
             );
-            return print_dry_run_envelope(inv, envelope);
         }
         let resolved = inv.resolve_signer()?;
         transfer(inv, &resolved.selected_signer(), subaccount, args).await
@@ -659,15 +640,13 @@ impl CliCommand for SubaccountSpotTransfer {
         validate_spot_transfer_args(args)?;
         let subaccount = inv.resolve_acting_account(&args.subaccount)?;
         if inv.dry_run() {
-            let envelope = signed_action_dry_run_envelope(
+            return print_signed_dry_run(
                 inv,
                 "subaccount spot-transfer",
                 "subaccount_spot_transfer",
                 SubaccountActionKind::TransferSpot.reversibility(),
                 spot_transfer_dry_run_value(inv.remote()?.chain(), subaccount, args)?,
-                default_dry_run_signing_context(inv),
             );
-            return print_dry_run_envelope(inv, envelope);
         }
         let resolved = inv.resolve_signer()?;
         spot_transfer(inv, &resolved.selected_signer(), subaccount, args).await
