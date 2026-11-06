@@ -85,6 +85,25 @@ pub async fn watch_risk(
         .into());
     }
 
+    // Alerts are written whole by a synchronous call, so stopping on a signal
+    // between awaits never leaves a partial line.
+    let mut signals = crate::watch::ShutdownSignals::install()?;
+    let result = tokio::select! {
+        result = watch_risk_loop(client, user, args, format) => result,
+        code = signals.recv() => crate::watch::exit_for_signal(code),
+    };
+    match result {
+        Err(err) if crate::watch::is_stdout_closed(&err) => Ok(()),
+        other => other,
+    }
+}
+
+async fn watch_risk_loop(
+    client: &HttpClient,
+    user: Address,
+    args: &WatchRiskArgs,
+    format: OutputFormat,
+) -> Result<(), anyhow::Error> {
     let enabled = enabled_rules(args);
     let mut emitted = 0usize;
     let mut last_sizes: HashMap<String, Decimal> = HashMap::new();
@@ -168,14 +187,13 @@ pub async fn watch_risk(
             if alert.severity < args.min_severity {
                 continue;
             }
-            match format {
+            let written = match format {
                 OutputFormat::Json => {
-                    println!("{}", serde_json::to_string(&alert)?);
+                    crate::watch::write_stdout_line(&serde_json::to_string(&alert)?)
                 }
-                _ => {
-                    output::print_data(&AlertTable(alert), format, Duration::from_millis(0));
-                }
-            }
+                _ => crate::watch::write_stdout_line(&output::render(&AlertTable(alert), format)),
+            };
+            written?;
             emitted += 1;
             last_output = Instant::now();
             if let Some(max) = args.max_events
@@ -191,13 +209,7 @@ pub async fn watch_risk(
 }
 
 fn agent_mode() -> bool {
-    !std::io::stdout().is_terminal()
-        || std::env::var("HYPERLIQUID_AGENT").is_ok_and(|value| {
-            matches!(
-                value.trim().to_ascii_lowercase().as_str(),
-                "1" | "true" | "yes" | "on"
-            )
-        })
+    !std::io::stdout().is_terminal() || crate::mode::agent_env()
 }
 struct RiskSnapshot<'a> {
     positions: &'a [hypersdk::hypercore::types::AssetPosition],
