@@ -8,6 +8,9 @@
 // Run with: cargo test --test config_resolution
 
 use assert_cmd::Command;
+#[allow(dead_code)]
+mod support;
+
 use std::fs;
 use tempfile::TempDir;
 
@@ -73,7 +76,7 @@ fn test_missing_config_no_crash() {
         .arg("--version")
         .assert()
         .success()
-        .stdout(predicates::str::contains("hyperliquid"));
+        .stdout(predicates::str::contains(env!("CARGO_PKG_VERSION")));
 }
 
 #[test]
@@ -164,8 +167,24 @@ fn test_cli_private_key_config_fallback() {
         .stdout(predicates::str::contains(expected_address(FILE_KEY)));
 }
 
-#[test]
-fn test_cli_testnet_flag_overrides_env_and_config() {
+/// Run `status` against a local mock API and return the network the
+/// invocation resolved, as reported in its JSON document.
+async fn resolved_network(command: &mut Command) -> String {
+    let server = support::mock_market_server().await;
+    let output = command
+        .env("HYPERLIQUID_API_BASE_URL", server.uri())
+        .args(["--no-update-check", "--format", "json", "status"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let json: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    json["network"].as_str().unwrap().to_string()
+}
+
+#[tokio::test]
+async fn test_cli_testnet_flag_overrides_env_and_config() {
     let (_tmp, home_dir, xdg_config_home) = create_temp_home();
     write_config_files(
         &home_dir,
@@ -173,22 +192,17 @@ fn test_cli_testnet_flag_overrides_env_and_config() {
         &serde_json::json!({ "network": "mainnet" }),
     );
 
-    Command::cargo_bin("hyperliquid")
-        .unwrap()
+    let mut command = Command::cargo_bin("hyperliquid").unwrap();
+    command
         .env("HOME", &home_dir)
         .env("XDG_CONFIG_HOME", &xdg_config_home)
         .env("HYPERLIQUID_NETWORK", "mainnet")
-        .arg("--testnet")
-        .assert()
-        .success()
-        .stdout(predicates::str::contains("Network: testnet"))
-        .stdout(predicates::str::contains(
-            "https://api.hyperliquid-testnet.xyz",
-        ));
+        .arg("--testnet");
+    assert_eq!(resolved_network(&mut command).await, "testnet");
 }
 
-#[test]
-fn test_cli_network_env_overrides_config() {
+#[tokio::test]
+async fn test_cli_network_env_overrides_config() {
     let (_tmp, home_dir, xdg_config_home) = create_temp_home();
     write_config_files(
         &home_dir,
@@ -196,18 +210,16 @@ fn test_cli_network_env_overrides_config() {
         &serde_json::json!({ "network": "mainnet" }),
     );
 
-    Command::cargo_bin("hyperliquid")
-        .unwrap()
+    let mut command = Command::cargo_bin("hyperliquid").unwrap();
+    command
         .env("HOME", &home_dir)
         .env("XDG_CONFIG_HOME", &xdg_config_home)
-        .env("HYPERLIQUID_NETWORK", "testnet")
-        .assert()
-        .success()
-        .stdout(predicates::str::contains("Network: testnet"));
+        .env("HYPERLIQUID_NETWORK", "testnet");
+    assert_eq!(resolved_network(&mut command).await, "testnet");
 }
 
-#[test]
-fn test_cli_network_env_mainnet_overrides_config_testnet() {
+#[tokio::test]
+async fn test_cli_network_env_mainnet_overrides_config_testnet() {
     let (_tmp, home_dir, xdg_config_home) = create_temp_home();
     write_config_files(
         &home_dir,
@@ -215,19 +227,16 @@ fn test_cli_network_env_mainnet_overrides_config_testnet() {
         &serde_json::json!({ "network": "testnet" }),
     );
 
-    Command::cargo_bin("hyperliquid")
-        .unwrap()
+    let mut command = Command::cargo_bin("hyperliquid").unwrap();
+    command
         .env("HOME", &home_dir)
         .env("XDG_CONFIG_HOME", &xdg_config_home)
-        .env("HYPERLIQUID_NETWORK", "mainnet")
-        .assert()
-        .success()
-        .stdout(predicates::str::contains("Network: mainnet"))
-        .stdout(predicates::str::contains("https://api.hyperliquid.xyz"));
+        .env("HYPERLIQUID_NETWORK", "mainnet");
+    assert_eq!(resolved_network(&mut command).await, "mainnet");
 }
 
-#[test]
-fn test_cli_network_config_fallback() {
+#[tokio::test]
+async fn test_cli_network_config_fallback() {
     let (_tmp, home_dir, xdg_config_home) = create_temp_home();
     write_config_files(
         &home_dir,
@@ -235,14 +244,12 @@ fn test_cli_network_config_fallback() {
         &serde_json::json!({ "network": "testnet" }),
     );
 
-    Command::cargo_bin("hyperliquid")
-        .unwrap()
+    let mut command = Command::cargo_bin("hyperliquid").unwrap();
+    command
         .env("HOME", &home_dir)
         .env("XDG_CONFIG_HOME", &xdg_config_home)
-        .env_remove("HYPERLIQUID_NETWORK")
-        .assert()
-        .success()
-        .stdout(predicates::str::contains("Network: testnet"));
+        .env_remove("HYPERLIQUID_NETWORK");
+    assert_eq!(resolved_network(&mut command).await, "testnet");
 }
 
 #[test]
@@ -288,6 +295,7 @@ fn test_cli_malformed_existing_config_returns_configuration_error() {
         .env("XDG_CONFIG_HOME", &xdg_config_home)
         .env_remove("HYPERLIQUID_PRIVATE_KEY")
         .env_remove("HYPERLIQUID_NETWORK")
+        .arg("status")
         .assert()
         .failure()
         .code(2)
@@ -309,6 +317,7 @@ fn test_cli_invalid_config_network_returns_configuration_error() {
         .env("HOME", &home_dir)
         .env("XDG_CONFIG_HOME", &xdg_config_home)
         .env_remove("HYPERLIQUID_NETWORK")
+        .arg("status")
         .assert()
         .failure()
         .code(2)
@@ -317,8 +326,8 @@ fn test_cli_invalid_config_network_returns_configuration_error() {
         .stdout(predicates::str::contains("bogus"));
 }
 
-#[test]
-fn test_cli_testnet_flag_overrides_invalid_network_sources() {
+#[tokio::test]
+async fn test_cli_testnet_flag_overrides_invalid_network_sources() {
     let (_tmp, home_dir, xdg_config_home) = create_temp_home();
     write_config_files(
         &home_dir,
@@ -326,33 +335,26 @@ fn test_cli_testnet_flag_overrides_invalid_network_sources() {
         &serde_json::json!({ "network": "bogus" }),
     );
 
-    Command::cargo_bin("hyperliquid")
-        .unwrap()
+    let mut command = Command::cargo_bin("hyperliquid").unwrap();
+    command
         .env("HOME", &home_dir)
         .env("XDG_CONFIG_HOME", &xdg_config_home)
         .env("HYPERLIQUID_NETWORK", "bogus")
-        .arg("--testnet")
-        .assert()
-        .success()
-        .stdout(predicates::str::contains("Network: testnet"))
-        .stdout(predicates::str::contains(
-            "https://api.hyperliquid-testnet.xyz",
-        ));
+        .arg("--testnet");
+    assert_eq!(resolved_network(&mut command).await, "testnet");
 }
 
-#[test]
-fn test_cli_missing_config_remains_non_fatal() {
+#[tokio::test]
+async fn test_cli_missing_config_remains_non_fatal() {
     let (_tmp, home_dir, xdg_config_home) = create_temp_home();
 
-    Command::cargo_bin("hyperliquid")
-        .unwrap()
+    let mut command = Command::cargo_bin("hyperliquid").unwrap();
+    command
         .env("HOME", &home_dir)
         .env("XDG_CONFIG_HOME", &xdg_config_home)
         .env_remove("HYPERLIQUID_PRIVATE_KEY")
-        .env_remove("HYPERLIQUID_NETWORK")
-        .assert()
-        .success()
-        .stdout(predicates::str::contains("Network: mainnet"));
+        .env_remove("HYPERLIQUID_NETWORK");
+    assert_eq!(resolved_network(&mut command).await, "mainnet");
 }
 
 // ── Unit-level tests for config module (in-process) ──────────────────

@@ -873,7 +873,7 @@ fn orders_schedule_cancel_requires_yes_in_json_machine_context() {
         json["error"]
             .as_str()
             .unwrap()
-            .contains("requires confirmation")
+            .contains("without confirmation in non-interactive mode")
     );
 }
 
@@ -898,7 +898,7 @@ fn orders_schedule_cancel_clear_requires_yes_in_agent_context() {
         json["error"]
             .as_str()
             .unwrap()
-            .contains("requires confirmation")
+            .contains("without confirmation in non-interactive mode")
     );
 }
 

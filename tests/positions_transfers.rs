@@ -325,7 +325,7 @@ async fn transfer_confirmation_prompts_are_yellow_only_in_pretty() {
         .assert()
         .code(13)
         .stdout(predicate::str::contains(
-            "requires confirmation in machine-readable contexts",
+            "without confirmation in non-interactive mode",
         ))
         .stdout(predicate::str::contains("\u{1b}[").not());
 }

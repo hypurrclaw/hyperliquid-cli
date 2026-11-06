@@ -205,7 +205,7 @@ Canonical top-level aliases accepted by the CLI:
 | `-f, --format pretty\|table\|json` | Output format. Effective default is `pretty` on a TTY and JSON for non-TTY stdout or `HYPERLIQUID_AGENT=1`; explicit `--format` wins over `HYPERLIQUID_FORMAT`. |
 | `--private-key <PRIVATE_KEY>` | Sign with a raw private key. Overrides environment and config. |
 | `--keystore <PATH>` | Sign with a Foundry-compatible keystore file. |
-| `--keystore-password <PASSWORD>` | Keystore password. Prefer safer secret sources for humans. |
+| `--keystore-password <PASSWORD>` | Keystore password. Prefer `HYPERLIQUID_KEYSTORE_PASSWORD`: command-line options appear in process lists. |
 | `--account <SELECTOR>` | Stored wallet alias, id, or address to use as the signer. Conflicts with other signer flags. |
 | `--ows-signer <SELECTOR>` | OWS wallet selector (name or id). Accepts `0x` addresses for identity/dry-run plumbing. Alias: `--wallet`. Conflicts with local signer flags. |
 | `--testnet` | Route API calls and signed actions to Hyperliquid testnet. |
@@ -215,7 +215,9 @@ Canonical top-level aliases accepted by the CLI:
 | `--dry-run` | Validate and preview mutating commands without side effects. |
 | `--payload-json <JSON>` / `--payload-file <PATH\|->` | Provide raw JSON payload context for mutating dry-runs. |
 | `--no-update-check` | Disable release update checks for this invocation. |
-| `-h, --help` / `-V, --version` | Print help or version information. |
+| `--non-interactive` | Never prompt. Commands fail with the missing input named. `CI`, `HYPERLIQUID_AGENT`, JSON output, and `--payload-file -` also disable prompts. |
+| `--no-color` | Disable color. `NO_COLOR` does the same; `FORCE_COLOR` forces color on. |
+| `-h, --help` / `-v, --version` | Print help or version at any depth. With JSON output, `--version` prints `{"version":"X"}`. |
 
 ### Market data
 
@@ -427,6 +429,11 @@ Resolution order: CLI flags → environment variables → `~/.config/hyperliquid
 | `HYPERLIQUID_FEEDBACK_URL` | Runtime or build-time default endpoint for `hyperliquid feedback`. |
 | `HYPERLIQUID_NO_UPDATE_CHECK` | Disable release update checks when truthy. |
 | `NO_UPDATE_NOTIFIER` | Suppress the update notice and background release check when set to any non-empty value. Updates are also never announced in CI, agent, JSON, or non-TTY runs, and at most once every 24 hours. |
+| `HYPERLIQUID_KEYSTORE_PASSWORD` | Password for `--keystore`. |
+| `CI` | Treat the run as non-interactive: no prompts. |
+| `NO_COLOR` / `FORCE_COLOR` | Disable color with a non-empty `NO_COLOR`; force it on (or off with `0`/`false`) with `FORCE_COLOR`. |
+
+Boolean variables such as `HYPERLIQUID_AGENT` accept `1`, `true`, `yes`, `on`, `0`, `false`, `no`, and `off`. Any other value is a usage error (exit `2`). `hyperliquid --help` lists every variable.
 
 ## Develop
 

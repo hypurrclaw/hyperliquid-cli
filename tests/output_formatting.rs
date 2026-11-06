@@ -76,8 +76,10 @@ fn top_level_help_explains_dynamic_agent_json_default() {
         .arg("--help")
         .assert()
         .success()
-        .stdout(predicate::str::contains("json for non-TTY stdout"))
-        .stdout(predicate::str::contains("HYPERLIQUID_AGENT=1"))
+        .stdout(predicate::str::contains(
+            "json when stdout is not a terminal",
+        ))
+        .stdout(predicate::str::contains("HYPERLIQUID_AGENT"))
         .stdout(predicate::str::contains(
             "Unknown fields are omitted when the output shape is dynamic",
         ));
@@ -101,7 +103,7 @@ fn orders_create_help_surfaces_risk_and_dry_run() {
         .args(["orders", "create", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Risk: funds_movement"))
+        .stdout(predicate::str::contains("Risk: moves funds"))
         .stdout(predicate::str::contains("Dry-run: supported"))
         .stdout(predicate::str::contains("Confirmation:"));
 }

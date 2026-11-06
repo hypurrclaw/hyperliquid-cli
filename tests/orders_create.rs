@@ -2060,7 +2060,7 @@ async fn orders_create_mainnet_confirmation_abort_is_json_error() {
         .assert()
         .code(13)
         .stdout(predicate::str::contains(
-            "requires confirmation in machine-readable contexts",
+            "without confirmation in non-interactive mode",
         ))
         .stdout(predicate::str::contains("\"error\""))
         .stderr(predicate::str::is_empty());

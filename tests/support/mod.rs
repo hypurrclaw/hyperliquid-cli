@@ -261,7 +261,15 @@ impl IsolatedHome {
 }
 
 pub fn hyperliquid_command() -> Command {
-    Command::cargo_bin("hyperliquid").unwrap()
+    let mut command = Command::cargo_bin("hyperliquid").unwrap();
+    // The suite runs under CI and agent harnesses. Prompt and color behavior
+    // must come from each test, not from the surrounding environment.
+    command
+        .env_remove("CI")
+        .env_remove("HYPERLIQUID_AGENT")
+        .env_remove("NO_COLOR")
+        .env_remove("FORCE_COLOR");
+    command
 }
 
 #[allow(dead_code)]
