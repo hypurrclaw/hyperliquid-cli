@@ -359,11 +359,17 @@ fn copied_data_directory_alone_cannot_decrypt_stored_wallet_key() {
         .assert()
         .success();
 
+    // Without the vault there is no signer. Where the config directory is not
+    // under HOME (XDG on Linux), the original config still names a default
+    // wallet, which is reported as missing from the vault instead.
     env.account_command_for_paths_without_passphrase(&copied_home, &copied_data_home)
         .args(["wallet", "address"])
         .assert()
         .code(10)
-        .stderr(predicate::str::contains("Authentication required"));
+        .stderr(
+            predicate::str::contains("Authentication required")
+                .or(predicate::str::contains("isn't in the vault")),
+        );
 }
 
 #[test]
