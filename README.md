@@ -248,9 +248,9 @@ Canonical top-level aliases accepted by the CLI:
 | `wallet import-mnemonic [MNEMONIC] [--alias <ALIAS>]` | Import a wallet from a BIP-39 mnemonic phrase. |
 | `wallet list` | List all wallets in the OWS vault. |
 | `wallet rename <SELECTOR> <NEW_NAME>` | Rename a wallet. |
-| `wallet delete <SELECTOR>` | Delete a wallet. Prompts unless `-y`. |
+| `wallet delete <SELECTOR>` | Delete a wallet's encrypted key from the vault; this cannot be undone. Terminals must type the wallet name; piped runs answer y/N; machine runs need `-y`. |
 | `wallet export <SELECTOR> [-y]` | Export wallet secret (mnemonic or private key). |
-| `wallet reset [-y]` | Remove wallet configuration after confirmation. |
+| `wallet reset [-y]` | Delete the config file, clearing the default wallet, network, builder, and referral defaults. Wallets stay in the vault. |
 | `account fees [ADDRESS_OR_WALLET]` | Query fee schedule and volume context. |
 | `account fills [ADDRESS_OR_WALLET] [--start <TIME>] [--end <TIME>] [--aggregate-by-time]` | Query public fill history, optionally by time. |
 | `account ledger [ADDRESS_OR_WALLET] --start <TIME> [--end <TIME>]` | Query deposits, withdrawals, transfers, and other non-funding ledger updates. |
@@ -419,6 +419,7 @@ Resolution order: CLI flags → environment variables → `~/.config/hyperliquid
 | `HYPERLIQUID_WATCH_MAX_TICKS` | Default tick limit for snapshot watch mode. |
 | `HYPERLIQUID_SUBSCRIBE_MAX_EVENTS` | Default event limit for WebSocket subscribe commands in agent contexts. |
 | `OWS_PASSPHRASE` | Passphrase to unlock an encrypted OWS wallet. |
+| `HYPERLIQUID_KEYSTORE_PASSWORD` | Password for `--keystore`, read from the environment instead of argv. |
 | `HYPERLIQUID_OWS_VAULT_PATH` | Override the OWS vault path (default `~/.hyperliquid`). |
 | `HYPERLIQUID_API_BASE_URL` / `HYPERLIQUID_MAINNET_API_BASE_URL` / `HYPERLIQUID_TESTNET_API_BASE_URL` | Override API base URLs; all overrides are restricted to loopback/local test endpoints. |
 | `HYPERLIQUID_DEFAULT_BUILDER_ADDRESS` / `HYPERLIQUID_DEFAULT_BUILDER_FEE_RATE` | Runtime defaults for per-order builder fee parameters and setup suggestions. |

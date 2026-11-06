@@ -26,7 +26,9 @@ pub fn confirm(question: &str, bypass: &str) -> Result<bool, CliError> {
 pub fn read_line(label: &str, input: &str) -> Result<String, CliError> {
     ensure_can_prompt(input)?;
     let mut stderr = io::stderr().lock();
-    write!(stderr, "{label}").and_then(|()| stderr.flush()).map_err(io_error)?;
+    write!(stderr, "{label}")
+        .and_then(|()| stderr.flush())
+        .map_err(io_error)?;
     drop(stderr);
 
     let mut line = String::new();
@@ -36,6 +38,10 @@ pub fn read_line(label: &str, input: &str) -> Result<String, CliError> {
         return Err(CliError::MissingInput(format!(
             "Can't continue without {input}. Stdin ended before an answer was given."
         )));
+    }
+    if !stdin_is_terminal() {
+        // Piped answers aren't echoed, so end the prompt line ourselves.
+        eprintln!();
     }
     Ok(line.trim_end_matches(['\r', '\n']).to_string())
 }
@@ -55,8 +61,67 @@ pub fn is_yes(input: &str) -> bool {
     matches!(input.trim().to_ascii_lowercase().as_str(), "y" | "yes")
 }
 
+/// Whether stdin is an interactive terminal.
+#[must_use]
+pub fn stdin_is_terminal() -> bool {
+    use std::io::IsTerminal;
+    io::stdin().is_terminal()
+}
+
+/// Ask the user to type `expected` exactly. Anything else, including an empty
+/// line, declines. Use for destructive actions that can't be undone.
+pub fn confirm_typed(label: &str, expected: &str, bypass: &str) -> Result<bool, CliError> {
+    let answer = read_line(label, bypass)?;
+    Ok(answer.trim() == expected)
+}
+
+/// Read a secret without echoing it.
+///
+/// On a terminal the value is typed at a masked prompt, which needs a run that
+/// can prompt. Piped stdin supplies the secret directly: the first line, without
+/// its line ending. End of input is missing input.
+pub fn read_secret(label: &str, input: &str) -> Result<String, CliError> {
+    let value = if stdin_is_terminal() {
+        ensure_can_prompt(input)?;
+        write_label(label)?;
+        let value = rpassword::read_password().map_err(io_error)?;
+        eprintln!();
+        value
+    } else {
+        if mode::can_prompt() {
+            write_label(label)?;
+        }
+        let mut line = String::new();
+        let read = io::stdin().lock().read_line(&mut line).map_err(io_error)?;
+        if read == 0 {
+            if mode::can_prompt() {
+                eprintln!();
+            }
+            return Err(CliError::MissingInput(format!(
+                "Can't continue without {input}. Stdin ended before a value was given."
+            )));
+        }
+        line.trim_end_matches(['\r', '\n']).to_string()
+    };
+    if value.trim().is_empty() {
+        return Err(CliError::MissingInput(format!(
+            "Can't continue without {input}. The value was empty."
+        )));
+    }
+    Ok(value)
+}
+
+fn write_label(label: &str) -> Result<(), CliError> {
+    let mut stderr = io::stderr().lock();
+    write!(stderr, "{label}")
+        .and_then(|()| stderr.flush())
+        .map_err(io_error)
+}
+
 fn io_error(err: io::Error) -> CliError {
-    CliError::Internal(anyhow::anyhow!("couldn't use the terminal for a prompt: {err}"))
+    CliError::Internal(anyhow::anyhow!(
+        "couldn't use the terminal for a prompt: {err}"
+    ))
 }
 
 #[cfg(test)]

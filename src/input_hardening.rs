@@ -1,7 +1,7 @@
 //! Shared validation for agent-supplied identifiers and artifact paths.
 
 use std::fs;
-use std::io;
+use std::io::{self, Read};
 use std::path::{Component, Path};
 use std::sync::LazyLock;
 
@@ -123,7 +123,7 @@ pub fn read_json_file(path: &Path, policy: FilePolicy) -> Result<serde_json::Val
     let path_string = path.to_string_lossy();
     validate_file_path(&path_string, policy)?;
     let text = if path_string == "-" {
-        read_stdin_line(policy)?
+        read_stdin_payload(policy)?
     } else {
         let bytes = fs::read(path).map_err(|err| {
             CliError::Configuration(format!(
@@ -180,18 +180,26 @@ pub fn redact_sensitive_json(value: serde_json::Value) -> serde_json::Value {
     }
 }
 
-fn read_stdin_line(policy: FilePolicy) -> Result<String, CliError> {
-    let mut input = String::new();
-    io::stdin()
-        .read_line(&mut input)
+fn read_stdin_payload(policy: FilePolicy) -> Result<String, CliError> {
+    read_stdin_bounded(io::stdin().lock(), policy)
+}
+
+/// Read a payload from stdin to EOF, failing once it grows past the byte limit.
+fn read_stdin_bounded(reader: impl io::Read, policy: FilePolicy) -> Result<String, CliError> {
+    let mut bytes = Vec::new();
+    reader
+        .take(policy.max_bytes + 1)
+        .read_to_end(&mut bytes)
         .map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
-    if input.len() as u64 > policy.max_bytes {
+    if bytes.len() as u64 > policy.max_bytes {
         return Err(CliError::Configuration(format!(
             "{} input exceeds {} byte limit",
             policy.label, policy.max_bytes
         )));
     }
-    Ok(input)
+    String::from_utf8(bytes).map_err(|_| {
+        CliError::Configuration(format!("{} input must be valid UTF-8 JSON", policy.label))
+    })
 }
 
 fn file_subject(label: &str) -> String {
@@ -425,5 +433,26 @@ mod tests {
         let oversized = format!(r#"{{"note":"{}"}}"#, "x".repeat(MAX_JSON_STRING_BYTES + 1));
         let oversized_err = parse_json_text(&oversized, "payload").unwrap_err();
         assert!(oversized_err.to_string().contains("oversized string"));
+    }
+}
+
+#[cfg(test)]
+mod stdin_payload_tests {
+    use super::*;
+
+    #[test]
+    fn stdin_payload_reads_multiline_json_to_eof() {
+        let input = b"{\n  \"coin\": \"BTC\",\n  \"size\": \"1\"\n}\n".as_slice();
+        let text = read_stdin_bounded(input, FilePolicy::payload()).unwrap();
+        let value = parse_json_text(&text, "payload").unwrap();
+        assert_eq!(value["coin"], "BTC");
+    }
+
+    #[test]
+    fn stdin_payload_rejects_input_past_the_byte_limit() {
+        let policy = FilePolicy::payload();
+        let input = vec![b' '; policy.max_bytes as usize + 1];
+        let err = read_stdin_bounded(input.as_slice(), policy).unwrap_err();
+        assert!(err.to_string().contains("byte limit"));
     }
 }

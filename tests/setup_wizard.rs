@@ -42,12 +42,12 @@ async fn setup_create_wallet_saves_config_and_verifies_connection() {
     let output = env
         .account_command_with_server(TEST_ACCOUNT_PASSPHRASE, &server)
         .arg("setup")
-        .write_stdin("1\nn\n")
+        .write_stdin("1\nn\n\n\n")
         .assert()
         .success()
-        .stdout(predicate::str::contains("Welcome to Hyperliquid CLI setup"))
-        .stdout(predicate::str::contains("Create new wallet"))
-        .stdout(predicate::str::contains("Config saved"))
+        .stderr(predicate::str::contains("Welcome to Hyperliquid CLI setup"))
+        .stderr(predicate::str::contains("Create new wallet"))
+        .stderr(predicate::str::contains("Saved config"))
         .stdout(predicate::str::contains("Test query succeeded"))
         .stdout(predicate::str::contains("Setup complete"))
         .get_output()
@@ -101,10 +101,10 @@ async fn setup_yes_creates_wallet_and_persists_default_builder_and_referral() {
         .stdout(predicate::str::contains("Setup complete"))
         .stdout(predicate::str::contains("Default builder"))
         .stdout(predicate::str::contains("Default referral"))
-        .stdout(predicate::str::contains("Builder approval submitted"))
-        .stdout(predicate::str::contains("Choose an option").not())
-        .stdout(predicate::str::contains("Default builder address").not())
-        .stdout(predicate::str::contains("Default referral code").not());
+        .stderr(predicate::str::contains("Builder approval submitted"))
+        .stderr(predicate::str::contains("Choose an option").not())
+        .stderr(predicate::str::contains("Default builder address").not())
+        .stderr(predicate::str::contains("Default referral code").not());
 
     let config: Value = serde_json::from_str(&fs::read_to_string(env.config_file_path()).unwrap())
         .expect("setup -y should write valid config JSON");
@@ -142,7 +142,7 @@ async fn setup_yes_reports_builder_approval_failure_without_failing_setup() {
         .args(["setup", "-y"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Builder approval failed"))
+        .stderr(predicate::str::contains("Builder approval failed"))
         .stdout(predicate::str::contains("Setup complete"))
         .stdout(predicate::str::contains("approval failed"));
 
@@ -167,10 +167,11 @@ async fn setup_import_wallet_uses_hidden_prompt_path_and_stores_key_encrypted() 
         .write_stdin(format!("2\ny\n\n\n{IMPORT_KEY}\n"))
         .assert()
         .success()
-        .stdout(predicate::str::contains("Private key:"))
+        .stderr(predicate::str::contains("Private key:"))
         .stdout(predicate::str::contains("Test query succeeded"))
         .stdout(predicate::str::contains(&address))
-        .stdout(predicate::str::contains(IMPORT_KEY).not());
+        .stdout(predicate::str::contains(IMPORT_KEY).not())
+        .stderr(predicate::str::contains(IMPORT_KEY).not());
 
     let config_path = env.config_file_path();
     let config = fs::read_to_string(&config_path).unwrap();
@@ -234,7 +235,7 @@ async fn setup_selecting_testnet_verifies_against_testnet_endpoint() {
         &testnet_server,
     )
     .arg("setup")
-    .write_stdin("1\ny\n")
+    .write_stdin("1\ny\n\n\n")
     .assert()
     .success()
     .stdout(predicate::str::contains("Test query succeeded"));
@@ -264,7 +265,7 @@ async fn setup_selecting_mainnet_verifies_against_mainnet_endpoint() {
         &testnet_server,
     )
     .arg("setup")
-    .write_stdin("1\nn\n")
+    .write_stdin("1\nn\n\n\n")
     .assert()
     .success()
     .stdout(predicate::str::contains("Test query succeeded"));
