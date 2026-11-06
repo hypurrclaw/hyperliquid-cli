@@ -4,13 +4,13 @@
 //! - `hyperliquid outcomes list` — list active outcome market sides
 //! - `hyperliquid outcomes get <NOTATION>` — inspect an outcome side by `#N` or `+N`
 
-use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, arg};
 use clap::Args;
 use serde::{Deserialize, Serialize};
 
 use crate::assets::asset_id::{
     outcome_asset_id, outcome_coin, outcome_encoding, outcome_token, parse_outcome_notation,
 };
+use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, arg};
 use crate::errors::CliError;
 use crate::http_api::ApiClient;
 use crate::invocation::Invocation;

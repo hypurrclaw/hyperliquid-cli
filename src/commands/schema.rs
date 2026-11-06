@@ -1,19 +1,19 @@
 //! Machine-readable command schema output for agents.
 
-use crate::command_spec::{CliCommand, CommandSpec, OutputContract, arg};
 use clap::Args;
 use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::command_registry::{CommandContract, CommandRegistry, InputContract};
 use crate::command_spec::InputKind;
+use crate::command_spec::{CliCommand, CommandSpec, OutputContract, arg};
 use crate::errors::CliError;
 use crate::invocation::Invocation;
 use crate::output::TableData;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub struct CatalogArg {
+pub struct SchemaArg {
     id: String,
     long: Option<String>,
     short: Option<String>,
@@ -47,7 +47,7 @@ struct CommandSchema {
     output_contract: String,
     stream_bounds: Value,
     description: String,
-    args: Vec<CatalogArg>,
+    args: Vec<SchemaArg>,
     json_schema: Value,
 }
 
@@ -152,7 +152,7 @@ fn command_schema(command: &CommandContract) -> CommandSchema {
     let args = command
         .inputs
         .iter()
-        .map(CatalogArg::from)
+        .map(SchemaArg::from)
         .collect::<Vec<_>>();
     let json_schema = args_to_schema(&args, &command.one_of_required, metadata.clone());
     CommandSchema {
@@ -188,7 +188,7 @@ fn command_schema(command: &CommandContract) -> CommandSchema {
     }
 }
 
-impl From<&InputContract> for CatalogArg {
+impl From<&InputContract> for SchemaArg {
     fn from(input: &InputContract) -> Self {
         Self {
             id: input.id.clone(),
@@ -206,7 +206,7 @@ impl From<&InputContract> for CatalogArg {
     }
 }
 
-fn args_to_schema(args: &[CatalogArg], one_of_required: &[Vec<String>], metadata: Value) -> Value {
+fn args_to_schema(args: &[SchemaArg], one_of_required: &[Vec<String>], metadata: Value) -> Value {
     let mut properties = serde_json::Map::new();
     let mut required = Vec::new();
 

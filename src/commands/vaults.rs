@@ -1,9 +1,5 @@
 //! Vault public queries and authenticated vault transfers.
 
-use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, InputKind, arg};
-use crate::commands::support::{
-    default_dry_run_signing_context, print_dry_run_envelope, signed_action_dry_run_envelope,
-};
 use clap::{Args, ValueEnum};
 use hypersdk::hypercore::api::VaultTransfer;
 use hypersdk::hypercore::types::{Action, LeverageType};
@@ -13,7 +9,11 @@ use rust_decimal::prelude::ToPrimitive;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, InputKind, arg};
 use crate::commands::actions;
+use crate::commands::support::{
+    default_dry_run_signing_context, print_dry_run_envelope, signed_action_dry_run_envelope,
+};
 use crate::dry_run::ActionReversibility;
 use crate::errors::CliError;
 use crate::errors::from_sdk;

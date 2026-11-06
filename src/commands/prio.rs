@@ -1,14 +1,14 @@
 //! Gossip priority auction commands.
 
-use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, NoArgs, OwsSupport, arg};
-use crate::commands::support::{dry_run_details, print_dry_run};
 use clap::Args;
 use hypersdk::Decimal;
 use hypersdk::hypercore::types::{Action, GossipPriorityBid};
 use rust_decimal::prelude::FromPrimitive;
 use serde::Serialize;
 
+use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, NoArgs, OwsSupport, arg};
 use crate::commands::actions::{nonce_now, send_l1_action_raw};
+use crate::commands::support::{dry_run_details, print_dry_run};
 use crate::errors::CliError;
 use crate::errors::from_sdk;
 use crate::invocation::Invocation;

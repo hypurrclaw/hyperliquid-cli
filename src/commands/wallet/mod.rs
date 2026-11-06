@@ -9,15 +9,15 @@ mod output;
 
 pub use output::{AccountRow, AccountsOutput};
 
+use clap::Args;
+use ows_lib::types::WalletInfo;
+
+use crate::auth::{ResolvedSigner, SignerSelection, SignerSource};
 use crate::command_spec::{
     CliCommand, CommandSpec, DryRunPolicy, GroupSpec, InputKind, Lifecycle, NoArgs, OwsSupport,
     Risk, arg,
 };
 use crate::commands::support::print_dry_run;
-use clap::Args;
-use ows_lib::types::WalletInfo;
-
-use crate::auth::{ResolvedSigner, SignerSelection, SignerSource};
 use crate::commands::{builder, referral};
 use crate::config::Config;
 use crate::errors::CliError;

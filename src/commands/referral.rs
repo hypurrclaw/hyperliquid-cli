@@ -1,15 +1,15 @@
 //! Referral status and set-referrer commands.
 
-use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, NoArgs, OwsSupport, Risk, arg};
-use crate::commands::support::{
-    default_dry_run_signing_context, print_dry_run_envelope, signed_action_dry_run_envelope,
-};
 use clap::Args;
 use hypersdk::Address;
 use hypersdk::hypercore::Chain;
 use serde::Serialize;
 
+use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, NoArgs, OwsSupport, Risk, arg};
 use crate::commands::actions;
+use crate::commands::support::{
+    default_dry_run_signing_context, print_dry_run_envelope, signed_action_dry_run_envelope,
+};
 use crate::dry_run::ActionReversibility;
 use crate::errors::CliError;
 use crate::invocation::Invocation;

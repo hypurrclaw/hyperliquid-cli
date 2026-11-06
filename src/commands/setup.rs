@@ -4,11 +4,11 @@
 //! Every answer is collected, and a summary printed, before the first change to
 //! the vault or config.
 
-use crate::command_spec::{CliCommand, CommandSpec, InputKind, Lifecycle, OwsSupport, Risk, arg};
 use clap::Args;
 use hypersdk::Address;
 use serde::Serialize;
 
+use crate::command_spec::{CliCommand, CommandSpec, InputKind, Lifecycle, OwsSupport, Risk, arg};
 use crate::commands::{builder, referral, wallet};
 use crate::errors::CliError;
 use crate::errors::from_sdk;

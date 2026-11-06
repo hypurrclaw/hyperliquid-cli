@@ -1,10 +1,5 @@
 //! Authenticated position management commands.
 
-use crate::command_spec::{
-    CliCommand, CommandSpec, GroupSpec, InputKind, OwsSupport, Risk, StreamBound, arg,
-};
-use crate::commands::support::{dry_run_signed_details, dry_run_signing_addresses, print_dry_run};
-use crate::stream::SnapshotWatchArgs;
 use clap::Args;
 use hypersdk::Address;
 use hypersdk::Decimal;
@@ -14,7 +9,12 @@ use hypersdk::hypercore::api::UpdateLeverage;
 use hypersdk::hypercore::types::api::UpdateIsolatedMargin;
 use hypersdk::hypercore::types::{Action, AssetPosition, LeverageType};
 
+use crate::command_spec::{
+    CliCommand, CommandSpec, GroupSpec, InputKind, OwsSupport, Risk, StreamBound, arg,
+};
+use crate::commands::support::{dry_run_signed_details, dry_run_signing_addresses, print_dry_run};
 use crate::signing::SelectedSigner;
+use crate::stream::SnapshotWatchArgs;
 use rust_decimal::prelude::ToPrimitive;
 use serde::Serialize;
 

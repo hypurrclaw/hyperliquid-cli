@@ -3,13 +3,13 @@
 /// Commands:
 /// - `hyperliquid spot list` — list all spot markets
 /// - `hyperliquid spot get <PAIR>` — get details for a specific spot pair
-use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, InputKind, NoArgs, arg};
 use clap::Args;
 use hypersdk::Decimal;
 use hypersdk::hypercore::PriceTick;
 use serde::Serialize;
 
 use crate::assets::{SpotListing, load_spot_markets};
+use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, InputKind, NoArgs, arg};
 use crate::errors::CliError;
 use crate::http_api::ApiClient;
 use crate::invocation::Invocation;

@@ -1,11 +1,11 @@
 //! Raw exchange metadata command.
 
-use crate::command_spec::{CliCommand, CommandSpec, NoArgs};
 use hypersdk::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::assets::{SpotListing, load_spot_markets};
+use crate::command_spec::{CliCommand, CommandSpec, NoArgs};
 use crate::errors::CliError;
 use crate::http_api::ApiClient;
 use crate::invocation::Invocation;

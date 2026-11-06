@@ -16,8 +16,8 @@ use crate::command_spec::{
 };
 use crate::commands;
 
-/// `schema` lists commands in this order, the order the hand-written catalog had.
-/// Commands that are not listed follow in registration order.
+/// The order `schema` and the contract fixtures list commands in. A command that is
+/// not listed follows in registration order, so a new command needs no entry here.
 const SCHEMA_ORDER: &[&str] = &[
     "status",
     "meta",

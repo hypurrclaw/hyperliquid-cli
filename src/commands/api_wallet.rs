@@ -1,6 +1,5 @@
 //! API/agent wallet approval and management commands.
 
-use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, InputKind, OwsSupport, Risk, arg};
 use clap::Args;
 use hypersdk::Address;
 use hypersdk::hypercore::types::api::ApproveAgent;
@@ -9,6 +8,7 @@ use hypersdk::hypercore::{Chain, PrivateKeySigner};
 use serde::Serialize;
 
 use crate::auth;
+use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, InputKind, OwsSupport, Risk, arg};
 use crate::commands::actions;
 use crate::errors::CliError;
 use crate::errors::from_sdk;

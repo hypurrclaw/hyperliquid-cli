@@ -1,7 +1,5 @@
 //! Structured feedback submission command.
 
-use crate::command_spec::{CliCommand, CommandSpec, InputKind, Lifecycle, arg};
-use crate::input_hardening::validate_input_path;
 use std::io::Read;
 use std::time::Duration;
 
@@ -9,8 +7,10 @@ use clap::{ArgGroup, Args};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::command_spec::{CliCommand, CommandSpec, InputKind, Lifecycle, arg};
 use crate::errors::CliError;
 use crate::http_api;
+use crate::input_hardening::validate_input_path;
 use crate::invocation::Invocation;
 use crate::output::TableData;
 use crate::response_sanitization::labelled_untrusted_text;

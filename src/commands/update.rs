@@ -1,7 +1,8 @@
 //! `update`: replace this binary with the latest release.
 
-use crate::command_spec::{CliCommand, CommandSpec, DryRunPolicy, Lifecycle, NoArgs, Risk};
 use crate::invocation::Invocation;
+
+use crate::command_spec::{CliCommand, CommandSpec, DryRunPolicy, Lifecycle, NoArgs, Risk};
 
 pub struct Update;
 

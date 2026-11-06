@@ -2,7 +2,6 @@
 //!
 //! Looping, bounds, signals and line output belong to [`crate::stream`].
 
-use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, InputKind, arg};
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -13,6 +12,7 @@ use hypersdk::{Address, Decimal};
 use serde::Serialize;
 use serde_json::json;
 
+use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, InputKind, arg};
 use crate::errors::CliError;
 use crate::errors::from_sdk;
 use crate::invocation::Invocation;

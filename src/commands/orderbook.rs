@@ -7,8 +7,6 @@
 //! - `hyperliquid funding <COIN>` — show current and predicted funding
 //! - `hyperliquid mids` — show all mid prices
 
-use crate::command_spec::{CliCommand, CommandSpec, InputKind, StreamBound, arg};
-use crate::stream::SnapshotWatchArgs;
 use clap::Args;
 use std::time::Duration;
 
@@ -21,11 +19,13 @@ use hypersdk::hypercore::{
 use serde::Serialize;
 
 use crate::assets::{AssetResolver, Market};
+use crate::command_spec::{CliCommand, CommandSpec, InputKind, StreamBound, arg};
 use crate::commands::outcomes;
 use crate::errors::CliError;
 use crate::errors::from_sdk;
 use crate::invocation::Invocation;
 use crate::output::TableData;
+use crate::stream::SnapshotWatchArgs;
 use crate::ws::{Awaited, first_matching_message};
 
 const WEBSOCKET_TIMEOUT: Duration = Duration::from_secs(15);

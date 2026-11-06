@@ -4,7 +4,6 @@
 //! - `hyperliquid asset decode <ASSET_ID>` — explain the protocol asset IDs surfaced in exchange errors.
 //! - `hyperliquid asset search <QUERY>` — find assets by symbol, title, slug, notation, or ID.
 
-use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, InputKind, arg};
 use std::collections::BTreeSet;
 
 use clap::{Args, ValueEnum};
@@ -16,6 +15,7 @@ use crate::assets::asset_id::{
     self, AssetIdLayout, MAX_OUTCOME_SIDE, outcome_coin, outcome_token, split_outcome_encoding,
 };
 use crate::assets::{AssetResolver, Market};
+use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, InputKind, arg};
 use crate::commands::outcomes::parse_positive_usize;
 use crate::http_api::ApiClient;
 use crate::invocation::Invocation;

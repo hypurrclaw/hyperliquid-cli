@@ -1,10 +1,10 @@
 //! API health and rate-limit status command.
 
-use crate::command_spec::{CliCommand, CommandSpec, NoArgs};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
+use crate::command_spec::{CliCommand, CommandSpec, NoArgs};
 use crate::errors::from_sdk;
 use crate::invocation::Invocation;
 use crate::output::TableData;

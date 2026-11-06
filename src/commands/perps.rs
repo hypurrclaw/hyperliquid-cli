@@ -3,7 +3,6 @@
 /// Commands:
 /// - `hyperliquid perps list` — list all perpetual markets
 /// - `hyperliquid perps get <COIN>` — get details for a specific perpetual market
-use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, InputKind, arg};
 use clap::Args;
 use hypersdk::Decimal;
 use hypersdk::hypercore::PerpMarket;
@@ -12,6 +11,7 @@ use serde::Serialize;
 use crate::assets::{
     AssetQuery, find_perp_dex, load_hip3_market, parse_asset_query, qualify_dex_asset,
 };
+use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, InputKind, arg};
 use crate::errors::CliError;
 use crate::errors::from_sdk;
 use crate::invocation::Invocation;
