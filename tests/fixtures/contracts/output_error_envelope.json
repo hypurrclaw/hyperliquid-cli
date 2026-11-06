@@ -2,8 +2,12 @@
   "characterization": true,
   "error": {
     "category": "usage",
-    "error": "error: unexpected argument '--bogus' found\n\nUsage: hyperliquid wallet show [OPTIONS]\n\nFor more information, try '--help'.\n",
-    "exit_code": 2
+    "data": {
+      "usage": "Usage: hyperliquid wallet show [OPTIONS]\n\nFor more information, try '--help'."
+    },
+    "error": "unexpected argument '--bogus' found",
+    "exit_code": 2,
+    "reason": "invalid_arguments"
   },
   "review_required_to_update": true
 }

@@ -207,8 +207,11 @@ async fn setup_connection_failure_has_clear_error_and_nonzero_exit() {
         .write_stdin("1\nn\n")
         .assert()
         .code(12)
-        .stderr(predicate::str::contains("Unable to reach Hyperliquid API"))
-        .stderr(predicate::str::contains("Check your network connection"));
+        .stderr(predicate::str::contains(
+            "The Hyperliquid API failed to process the request.",
+        ))
+        .stderr(predicate::str::contains("HTTP 503"))
+        .stderr(predicate::str::contains("Check your network connection").not());
 
     assert!(
         env.config_file_candidates()

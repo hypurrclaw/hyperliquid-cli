@@ -3,16 +3,22 @@
 /// Label applied when raw protocol, exchange, or user-provided text is surfaced in an error.
 pub const UNTRUSTED_LABEL: &str = "[untrusted remote data]";
 
+/// Maximum characters kept from one untrusted text value.
+pub const MAX_UNTRUSTED_CHARS: usize = 300;
+
 /// Sanitize untrusted text while preserving enough content for debugging.
 ///
 /// JSON serialization already escapes strings, but error text is also shown in
-/// terminals and later consumed by agents. This removes ANSI/control sequences
-/// that can alter presentation while keeping ordinary whitespace readable.
+/// terminals and later consumed by agents. This removes ANSI/control sequences,
+/// bidirectional controls, and zero-width or other format characters that can
+/// alter presentation or hide content, collapses whitespace, and caps the
+/// result at [`MAX_UNTRUSTED_CHARS`] characters with a trailing `…`.
 #[must_use]
 pub fn sanitize_untrusted_text(input: &str) -> String {
     let without_ansi = strip_ansi_sequences(input);
-    without_ansi
+    let cleaned = without_ansi
         .chars()
+        .filter(|ch| !is_format_char(*ch))
         .map(|ch| match ch {
             '\n' | '\r' | '\t' => ' ',
             ch if ch.is_control() => ' ',
@@ -21,7 +27,49 @@ pub fn sanitize_untrusted_text(input: &str) -> String {
         .collect::<String>()
         .split_whitespace()
         .collect::<Vec<_>>()
-        .join(" ")
+        .join(" ");
+    truncate_chars(cleaned, MAX_UNTRUSTED_CHARS)
+}
+
+fn truncate_chars(text: String, max_chars: usize) -> String {
+    match text.char_indices().nth(max_chars) {
+        Some((byte_index, _)) => {
+            let mut truncated = text;
+            truncated.truncate(byte_index);
+            truncated.push('…');
+            truncated
+        }
+        None => text,
+    }
+}
+
+/// Unicode general category `Cf` (format) characters, including every bidi
+/// control and zero-width character.
+fn is_format_char(ch: char) -> bool {
+    matches!(
+        ch,
+        '\u{00AD}'
+            | '\u{0600}'..='\u{0605}'
+            | '\u{061C}'
+            | '\u{06DD}'
+            | '\u{070F}'
+            | '\u{0890}'..='\u{0891}'
+            | '\u{08E2}'
+            | '\u{180E}'
+            | '\u{200B}'..='\u{200F}'
+            | '\u{202A}'..='\u{202E}'
+            | '\u{2060}'..='\u{2064}'
+            | '\u{2066}'..='\u{206F}'
+            | '\u{FEFF}'
+            | '\u{FFF9}'..='\u{FFFB}'
+            | '\u{110BD}'
+            | '\u{110CD}'
+            | '\u{13430}'..='\u{1343F}'
+            | '\u{1BCA0}'..='\u{1BCA3}'
+            | '\u{1D173}'..='\u{1D17A}'
+            | '\u{E0001}'
+            | '\u{E0020}'..='\u{E007F}'
+    )
 }
 
 /// Return a consistently labelled representation of untrusted remote text.
@@ -91,5 +139,48 @@ mod tests {
             labelled_untrusted_text(text),
             "[untrusted remote data] before after link"
         );
+    }
+}
+
+#[cfg(test)]
+mod format_tests {
+    use super::*;
+
+    #[test]
+    fn strips_bidi_controls() {
+        let text = "pay \u{202E}evil\u{202C} \u{2066}now\u{2069}";
+        assert_eq!(sanitize_untrusted_text(text), "pay evil now");
+    }
+
+    #[test]
+    fn strips_zero_width_and_format_characters() {
+        let text = "in\u{200B}sti\u{200D}gate\u{FEFF} \u{2060}run\u{00AD}ner \u{E0041}tag";
+        assert_eq!(sanitize_untrusted_text(text), "instigate runner tag");
+    }
+
+    #[test]
+    fn caps_length_with_ellipsis() {
+        let long = "a".repeat(MAX_UNTRUSTED_CHARS + 50);
+        let out = sanitize_untrusted_text(&long);
+        assert_eq!(out.chars().count(), MAX_UNTRUSTED_CHARS + 1);
+        assert!(out.ends_with('…'));
+    }
+
+    #[test]
+    fn leaves_text_at_the_cap_untouched() {
+        let exact = "b".repeat(MAX_UNTRUSTED_CHARS);
+        assert_eq!(sanitize_untrusted_text(&exact), exact);
+    }
+
+    #[test]
+    fn truncates_on_char_boundaries() {
+        let long = "é".repeat(MAX_UNTRUSTED_CHARS + 5);
+        let out = sanitize_untrusted_text(&long);
+        assert_eq!(out.chars().count(), MAX_UNTRUSTED_CHARS + 1);
+    }
+
+    #[test]
+    fn keeps_ordinary_unicode_text() {
+        assert_eq!(sanitize_untrusted_text("ethér 日本語 ✓"), "ethér 日本語 ✓");
     }
 }

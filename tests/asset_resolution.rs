@@ -117,22 +117,19 @@ fn resolves_dex_token_to_hip3_asset_index() {
 }
 
 #[test]
-fn fuzzy_matching_returns_top_three_suggestions() {
+fn fuzzy_matching_returns_at_most_one_suggestion() {
     let names = ["BTC", "ETH", "BLUR", "BONK", "PURR/USDC"];
     let matches = suggestions("BT", names);
 
-    assert!(matches.len() <= 3);
-    assert_eq!(matches[0], "BTC");
-    assert!(matches.contains(&"BLUR".to_string()) || matches.contains(&"BONK".to_string()));
+    assert_eq!(matches, vec!["BTC".to_string()]);
 }
 
 #[test]
-fn fuzzy_matching_can_suggest_for_long_placeholder_coin_names() {
+fn fuzzy_matching_does_not_suggest_loose_matches_for_long_placeholder_names() {
     let names = ["BTC", "ETH", "BLUR", "BONK"];
     let matches = suggestions("INVALIDCOIN", names);
 
-    assert!(matches.len() <= 3);
-    assert!(matches.contains(&"BTC".to_string()));
+    assert!(matches.is_empty());
 }
 
 #[test]

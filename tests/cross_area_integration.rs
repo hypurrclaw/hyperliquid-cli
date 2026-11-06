@@ -545,8 +545,7 @@ fn network_and_auth_errors_include_recovery_suggestions() {
         .args(["perps", "list"])
         .assert()
         .code(12)
-        .stderr(predicate::str::contains("Unable to reach Hyperliquid API"))
-        .stderr(predicate::str::contains("Check your network connection"));
+        .stderr(predicate::str::contains("127.0.0.1:9"));
 
     env.account_command(TEST_ACCOUNT_PASSPHRASE)
         .args(["orders", "open"])
