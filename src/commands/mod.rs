@@ -731,7 +731,10 @@ impl AssetResolver {
     }
 }
 
-/// Return up to three close fuzzy matches by Levenshtein distance.
+/// Return at most one close fuzzy match by Levenshtein distance.
+///
+/// The match must be tight (see [`suggestion_threshold`]); a loose match is
+/// worse than none. Ties break by candidate order, then alphabetically.
 #[must_use]
 pub fn suggestions<I, S>(input: &str, candidates: I) -> Vec<String>
 where
@@ -739,14 +742,12 @@ where
     S: AsRef<str>,
 {
     let normalized_input = normalize_asset_name(input);
-    let strict_distance = strict_suggestion_threshold(&normalized_input);
     let max_distance = suggestion_threshold(&normalized_input);
 
-    let mut scored = candidates
+    candidates
         .into_iter()
         .enumerate()
-        .filter_map(|candidate| {
-            let (position, candidate) = candidate;
+        .filter_map(|(position, candidate)| {
             let candidate = candidate.as_ref().trim().to_string();
             if candidate.is_empty() {
                 return None;
@@ -754,75 +755,42 @@ where
 
             let normalized_candidate = normalize_asset_name(&candidate);
             let distance = levenshtein(&normalized_input, &normalized_candidate);
-            (distance <= max_distance
-                && is_rankable_suggestion(
-                    &normalized_input,
-                    &normalized_candidate,
-                    distance,
-                    strict_distance,
-                ))
+            is_rankable_suggestion(
+                &normalized_input,
+                &normalized_candidate,
+                distance,
+                max_distance,
+            )
             .then_some((distance, position, candidate))
         })
-        .collect::<Vec<_>>();
-
-    scored.sort_by(
-        |(left_distance, left_position, left), (right_distance, right_position, right)| {
-            left_distance
-                .cmp(right_distance)
-                .then_with(|| left_position.cmp(right_position))
-                .then_with(|| left.cmp(right))
-        },
-    );
-
-    let mut results = Vec::new();
-    for (_, _, candidate) in scored {
-        if !results
-            .iter()
-            .any(|existing: &String| eq_asset_name(existing, &candidate))
-        {
-            results.push(candidate);
-        }
-
-        if results.len() == 3 {
-            break;
-        }
-    }
-
-    results
+        .min_by(
+            |(left_distance, left_position, left), (right_distance, right_position, right)| {
+                left_distance
+                    .cmp(right_distance)
+                    .then_with(|| left_position.cmp(right_position))
+                    .then_with(|| left.cmp(right))
+            },
+        )
+        .map(|(_, _, candidate)| candidate)
+        .into_iter()
+        .collect()
 }
 
+/// Largest edit distance still worth suggesting: one edit per three characters
+/// (at least one, at most three).
 fn suggestion_threshold(input: &str) -> usize {
-    let input_len = input.len();
-    if input_len <= 2 {
-        3
-    } else if input_len >= 8 {
-        input_len - 1
-    } else {
-        3.max(input_len / 2)
-    }
-}
-
-fn strict_suggestion_threshold(input: &str) -> usize {
-    let input_len = input.len();
-    if input_len <= 2 {
-        3
-    } else {
-        3.max(input_len / 2)
-    }
+    (input.chars().count() / 3).clamp(1, 3)
 }
 
 fn is_rankable_suggestion(
     input: &str,
     candidate: &str,
     distance: usize,
-    strict_distance: usize,
+    max_distance: usize,
 ) -> bool {
-    if distance <= strict_distance {
-        return true;
-    }
-
-    let input_chars = input.chars().collect::<std::collections::HashSet<_>>();
-    input_chars.len() > 1 && candidate.chars().any(|ch| input_chars.contains(&ch))
+    distance <= max_distance
+        && distance < input.chars().count().max(1)
+        && candidate.chars().count() >= 2
 }
 
 fn eq_asset_name(left: &str, right: &str) -> bool {
@@ -834,41 +802,137 @@ fn normalize_asset_name(input: &str) -> String {
 }
 
 pub(crate) fn map_api_error(err: anyhow::Error) -> CliError {
-    match err.downcast::<hypersdk::hypercore::Error>() {
-        Ok(core_err) => CliError::from(core_err),
-        Err(err) => {
-            let raw_message = err.to_string();
-            let message = labelled_untrusted_text(&raw_message);
-            let lower = message.to_lowercase();
+    let err = match err.downcast::<CliError>() {
+        Ok(cli_err) => return cli_err,
+        Err(err) => err,
+    };
+    let err = match err.downcast::<hypersdk::hypercore::Error>() {
+        Ok(core_err) => return CliError::from(core_err),
+        Err(err) => err,
+    };
+    if let Some(request_err) = err.downcast_ref::<reqwest::Error>() {
+        return crate::errors::network_error(request_err, None);
+    }
 
-            if lower.contains("rate limit")
-                || lower.contains("rate-limit")
-                || lower.contains("too many requests")
-                || lower.contains("http 429")
-                || lower.contains("429 too many")
-            {
-                CliError::RateLimited
-            } else if lower.contains("timeout")
-                || lower.contains("timed out")
-                || lower.contains("error sending request")
-                || lower.contains("connection")
-                || lower.contains("dns")
-                || lower.contains("service unavailable")
-                || lower.contains("http 5")
-            {
-                CliError::Unavailable(format!(
-                    "Check your network connection while loading asset metadata. {message}"
-                ))
-            } else {
-                CliError::Internal(anyhow::anyhow!("{message}"))
-            }
-        }
+    let raw_message = err.to_string();
+    let lower = raw_message.to_lowercase();
+    if lower.contains("rate limit")
+        || lower.contains("rate-limit")
+        || lower.contains("too many requests")
+        || lower.contains("http 429")
+        || lower.contains("429 too many")
+    {
+        return CliError::RateLimited;
+    }
+
+    // `HTTP <status> body=<text>` is written by this CLI: the server answered,
+    // so a 5xx is an API failure, not a connectivity problem.
+    if let Some(status) = parse_http_status(&lower)
+        && (500..600).contains(&status)
+        && let Ok(code) = reqwest::StatusCode::from_u16(status)
+    {
+        let body = raw_message
+            .split_once("body=")
+            .map(|(_, body)| body)
+            .unwrap_or_default();
+        return CliError::api_status(code, body);
+    }
+
+    let transport_text = lower.split("body=").next().unwrap_or_default();
+    if let Some(cause) = transport_failure_cause(transport_text) {
+        return CliError::Unavailable(format!("Couldn't reach the Hyperliquid API. {cause}."));
+    }
+    CliError::Internal(anyhow::anyhow!("{}", labelled_untrusted_text(&raw_message)))
+}
+
+/// The three-digit status after `HTTP ` in lower-cased text.
+fn parse_http_status(lower: &str) -> Option<u16> {
+    let rest = &lower[lower.find("http ")? + "http ".len()..];
+    let digits = rest
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect::<String>();
+    (digits.len() == 3).then(|| digits.parse().ok()).flatten()
+}
+
+/// Name the transport failure described by locally generated error text.
+fn transport_failure_cause(lower: &str) -> Option<&'static str> {
+    if lower.contains("timeout") || lower.contains("timed out") {
+        Some("The request timed out")
+    } else if lower.contains("dns") {
+        Some("DNS lookup failed")
+    } else if lower.contains("connection refused") {
+        Some("Connection refused")
+    } else if lower.contains("error sending request")
+        || lower.contains("connection")
+        || lower.contains("service unavailable")
+    {
+        Some("The connection failed")
+    } else {
+        None
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn suggests_at_most_one_tight_match() {
+        let candidates = ["BTC", "LTC", "BCH", "FARTCOIN", "TON", "NFTI"];
+
+        assert_eq!(suggestions("BTCC", candidates), vec!["BTC"]);
+        assert_eq!(suggestions("ETHH", ["ETH", "ETC"]), vec!["ETH"]);
+        assert!(suggestions("NOTACOIN", candidates).is_empty());
+        assert!(suggestions("ZZZZZZZZ", candidates).is_empty());
+    }
+
+    #[test]
+    fn suggestion_ties_prefer_earlier_candidate() {
+        assert_eq!(suggestions("BTX", ["BTC", "BTT"]), vec!["BTC"]);
+    }
+
+    #[test]
+    fn suggestion_thresholds_stay_tight() {
+        assert_eq!(suggestion_threshold("BT"), 1);
+        assert_eq!(suggestion_threshold("BTCC"), 1);
+        assert_eq!(suggestion_threshold("NOTACOIN"), 2);
+        assert_eq!(suggestion_threshold("A".repeat(40).as_str()), 3);
+    }
+
+    #[test]
+    fn not_found_error_carries_one_suggestion() {
+        let resolver = AssetResolver::new(fixture_metadata("BTC", 0));
+        let err = resolver.not_found("BTCC", resolver.perp_candidate_names());
+
+        assert_eq!(err.exit_code(), 13);
+        assert_eq!(
+            err.to_string(),
+            "Couldn't find asset \"BTCC\". Did you mean BTC?"
+        );
+        assert_eq!(err.suggestion(), Some("BTC"));
+    }
+
+    #[test]
+    fn http_5xx_text_maps_to_api_status_not_network() {
+        let err = map_api_error(anyhow::anyhow!(
+            "HTTP 503 Service Unavailable body=connection pool exhausted"
+        ));
+
+        assert_eq!(err.exit_code(), 12);
+        assert!(matches!(err, CliError::ApiStatus { status: 503, .. }));
+        assert!(!err.to_string().contains("503"));
+        assert_eq!(
+            err.detail().as_deref(),
+            Some("HTTP 503 Service Unavailable")
+        );
+    }
+
+    #[test]
+    fn typed_cli_errors_pass_through_map_api_error() {
+        let err = map_api_error(anyhow::Error::new(CliError::AuthRequired));
+        assert!(matches!(err, CliError::AuthRequired));
+    }
 
     #[test]
     fn maps_metadata_request_errors_to_unavailable() {

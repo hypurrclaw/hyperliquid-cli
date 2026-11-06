@@ -26,7 +26,9 @@ pub fn confirm(question: &str, bypass: &str) -> Result<bool, CliError> {
 pub fn read_line(label: &str, input: &str) -> Result<String, CliError> {
     ensure_can_prompt(input)?;
     let mut stderr = io::stderr().lock();
-    write!(stderr, "{label}").and_then(|()| stderr.flush()).map_err(io_error)?;
+    write!(stderr, "{label}")
+        .and_then(|()| stderr.flush())
+        .map_err(io_error)?;
     drop(stderr);
 
     let mut line = String::new();
@@ -56,7 +58,9 @@ pub fn is_yes(input: &str) -> bool {
 }
 
 fn io_error(err: io::Error) -> CliError {
-    CliError::Internal(anyhow::anyhow!("couldn't use the terminal for a prompt: {err}"))
+    CliError::Internal(anyhow::anyhow!(
+        "couldn't use the terminal for a prompt: {err}"
+    ))
 }
 
 #[cfg(test)]

@@ -1450,12 +1450,11 @@ async fn orders_create_invalid_coin_exits_13_with_suggestion() {
         ])
         .assert()
         .code(13)
-        .stderr(predicate::str::contains("Did you mean"))
-        .stderr(predicate::str::contains("BTC"));
+        .stderr(predicate::str::contains("Did you mean BTC?"));
 }
 
 #[tokio::test]
-async fn orders_create_invalid_coin_placeholder_exits_13_with_suggestion() {
+async fn orders_create_invalid_coin_placeholder_exits_13_without_loose_suggestion() {
     let env = IsolatedHome::new();
     let server = mock_order_server(12345).await;
     env.command()
@@ -1475,9 +1474,10 @@ async fn orders_create_invalid_coin_placeholder_exits_13_with_suggestion() {
         ])
         .assert()
         .code(13)
-        .stderr(predicate::str::contains("\"INVALIDCOIN\" not found"))
-        .stderr(predicate::str::contains("Did you mean"))
-        .stderr(predicate::str::contains("BTC"));
+        .stderr(predicate::str::contains(
+            "Couldn't find asset \"INVALIDCOIN\".",
+        ))
+        .stderr(predicate::str::contains("Did you mean").not());
 }
 
 #[tokio::test]
@@ -1501,7 +1501,9 @@ async fn orders_create_invalid_coin_without_rankable_match_has_clean_not_found_e
         ])
         .assert()
         .code(13)
-        .stderr(predicate::str::contains("\"ZZZZZZZZ\" not found."))
+        .stderr(predicate::str::contains(
+            "Couldn't find asset \"ZZZZZZZZ\".",
+        ))
         .stderr(predicate::str::contains("Did you mean").not());
 }
 
