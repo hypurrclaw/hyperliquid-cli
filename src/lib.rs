@@ -22,5 +22,7 @@ pub mod prompt;
 pub mod resolvers;
 pub mod response_sanitization;
 pub mod signing;
+pub mod stream;
 pub mod update_check;
 pub mod watch;
+pub mod ws;
