@@ -4,14 +4,12 @@
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use hypersdk::hypercore::{self, Chain, Dex, HttpClient, PerpMarket, SpotMarket};
+use hypersdk::hypercore::{Chain, Dex, HttpClient, PerpMarket, SpotMarket};
 use serde::Deserialize;
 
 use crate::errors::CliError;
 use crate::errors::from_sdk;
-use crate::http_api::post_info_json;
-use crate::network::Network;
-use crate::settings::Settings;
+use crate::http_api::ApiClient;
 
 use super::asset_id;
 use super::market::{PerpAsset, SpotAsset};
@@ -36,9 +34,9 @@ impl AssetMetadata {
     /// Load default-dex perps and all spot markets through `hypersdk`.
     ///
     /// HIP-3 markets are not loaded here; they are looked up live on demand.
-    pub async fn load(client: &HttpClient) -> Result<Self, CliError> {
-        let default_perps = client.perps().await.map_err(from_sdk)?;
-        let spots = load_spot_markets(client)
+    pub async fn load(api: &ApiClient) -> Result<Self, CliError> {
+        let default_perps = api.sdk().perps().await.map_err(from_sdk)?;
+        let spots = load_spot_markets(api)
             .await?
             .into_iter()
             .map(spot_asset_from_listing)
@@ -59,7 +57,7 @@ impl AssetMetadata {
     ///
     /// A HIP-3 DEX whose metadata fails to load is skipped, so it resolves as
     /// "asset not found" rather than failing the whole load.
-    pub async fn load_raw(api_base_url: &str) -> Result<Self, CliError> {
+    pub async fn load_raw(api: &ApiClient) -> Result<Self, CliError> {
         #[derive(Deserialize)]
         struct MetaResponse {
             universe: Vec<MetaPerp>,
@@ -79,13 +77,13 @@ impl AssetMetadata {
             name: String,
         }
 
-        let meta = post_info_json::<MetaResponse>(
-            api_base_url,
-            &serde_json::json!({ "type": "meta" }),
-            "loading perpetual metadata",
-        )
-        .await?;
-        let spot_meta = load_raw_spot_meta(api_base_url).await?;
+        let meta = api
+            .info::<MetaResponse>(
+                &serde_json::json!({ "type": "meta" }),
+                "loading perpetual metadata",
+            )
+            .await?;
+        let spot_meta = load_raw_spot_meta(api).await?;
 
         let default_collateral = spot_meta.collateral_name(meta.collateral_token);
         let mut perps = meta
@@ -101,21 +99,21 @@ impl AssetMetadata {
             })
             .collect::<Vec<_>>();
 
-        if let Ok(dexes) = post_info_json::<Vec<Option<RawPerpDex>>>(
-            api_base_url,
-            &serde_json::json!({ "type": "perpDexs" }),
-            "loading HIP-3 DEX metadata",
-        )
-        .await
+        if let Ok(dexes) = api
+            .info::<Vec<Option<RawPerpDex>>>(
+                &serde_json::json!({ "type": "perpDexs" }),
+                "loading HIP-3 DEX metadata",
+            )
+            .await
         {
             for (dex_slot, dex) in dexes.into_iter().enumerate() {
                 let Some(dex) = dex else { continue };
-                let Ok(meta) = post_info_json::<MetaResponse>(
-                    api_base_url,
-                    &serde_json::json!({ "type": "meta", "dex": dex.name.clone() }),
-                    "loading HIP-3 perpetual metadata",
-                )
-                .await
+                let Ok(meta) = api
+                    .info::<MetaResponse>(
+                        &serde_json::json!({ "type": "meta", "dex": dex.name.clone() }),
+                        "loading HIP-3 perpetual metadata",
+                    )
+                    .await
                 else {
                     continue;
                 };
@@ -244,16 +242,13 @@ impl From<SpotMarket> for SpotListing {
 /// Load all spot markets through `hypersdk`, falling back to raw `spotMeta`
 /// (which skips entries with broken token references) when the SDK cannot
 /// decode it. A failed fallback reports the SDK error.
-pub async fn load_spot_markets(client: &HttpClient) -> Result<Vec<SpotListing>, CliError> {
-    match client.spot().await {
+pub async fn load_spot_markets(api: &ApiClient) -> Result<Vec<SpotListing>, CliError> {
+    match api.sdk().spot().await {
         Ok(markets) => Ok(markets.into_iter().map(SpotListing::from).collect()),
-        Err(spot_err) => {
-            let raw = async {
-                let api_url = raw_info_base_url(client)?;
-                Ok::<_, CliError>(load_raw_spot_meta(api_url.as_str()).await?.into_listings())
-            };
-            raw.await.map_err(|_| from_sdk(spot_err))
-        }
+        Err(spot_err) => load_raw_spot_meta(api)
+            .await
+            .map(RawSpotMeta::into_listings)
+            .map_err(|_| from_sdk(spot_err)),
     }
 }
 
@@ -317,26 +312,12 @@ impl RawSpotMeta {
     }
 }
 
-async fn load_raw_spot_meta(api_base_url: &str) -> Result<RawSpotMeta, CliError> {
-    post_info_json(
-        api_base_url,
+async fn load_raw_spot_meta(api: &ApiClient) -> Result<RawSpotMeta, CliError> {
+    api.info(
         &serde_json::json!({ "type": "spotMeta" }),
         "loading raw spot metadata",
     )
     .await
-}
-
-/// The `/info` base URL for a client's chain, honouring the API override.
-pub(crate) fn raw_info_base_url(client: &HttpClient) -> Result<reqwest::Url, CliError> {
-    let network = Network::from_chain(client.chain());
-
-    if let Some(api_base_url) = Settings::from_process().api_base_url_override(network)? {
-        Ok(api_base_url)
-    } else if client.chain().is_mainnet() {
-        Ok(hypercore::mainnet_url())
-    } else {
-        Ok(hypercore::testnet_url())
-    }
 }
 
 /// Find a HIP-3 DEX by name, case-insensitively.
@@ -409,16 +390,13 @@ impl MetadataCache {
     }
 
     /// Get fresh metadata from cache, or load it through `hypersdk`.
-    pub async fn get_or_load(
-        &self,
-        chain: Chain,
-        client: &HttpClient,
-    ) -> Result<AssetMetadata, CliError> {
+    pub async fn get_or_load(&self, api: &ApiClient) -> Result<AssetMetadata, CliError> {
+        let chain = api.chain();
         if let Some(metadata) = self.fresh_metadata_for_chain_at(chain, Instant::now()) {
             return Ok(metadata);
         }
 
-        let metadata = AssetMetadata::load(client).await?;
+        let metadata = AssetMetadata::load(api).await?;
         self.store_for_chain(chain, metadata.clone(), Instant::now());
         Ok(metadata)
     }

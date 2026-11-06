@@ -16,6 +16,7 @@ use crate::assets::asset_id::{
 };
 use crate::assets::{AssetResolver, Market};
 use crate::commands::outcomes::parse_positive_usize;
+use crate::http_api::ApiClient;
 use crate::invocation::Invocation;
 use crate::output::TableData;
 
@@ -345,13 +346,13 @@ impl TableData for AssetSearchOutput {
 
 pub async fn decode(inv: &Invocation, args: &AssetDecodeArgs) -> Result<(), anyhow::Error> {
     let remote = inv.remote()?;
-    let api_base_url = remote.api_base_url();
+    let api = remote.api();
     let mut decoded = decode_asset_id(args.asset_id, &remote.network().to_string());
 
     match decoded.kind {
-        AssetIdKind::Outcome => enrich_outcome(api_base_url, &mut decoded).await,
+        AssetIdKind::Outcome => enrich_outcome(api, &mut decoded).await,
         AssetIdKind::Perp | AssetIdKind::Spot | AssetIdKind::Hip3Perp => {
-            enrich_from_resolver(api_base_url, &mut decoded).await
+            enrich_from_resolver(api, &mut decoded).await
         }
     }
 
@@ -362,7 +363,7 @@ pub async fn decode(inv: &Invocation, args: &AssetDecodeArgs) -> Result<(), anyh
 pub async fn search(inv: &Invocation, args: &AssetSearchArgs) -> Result<(), anyhow::Error> {
     let remote = inv.remote()?;
     let rows = search_assets(
-        remote.api_base_url(),
+        remote.api(),
         &remote.network().to_string(),
         &args.query,
         args.venue,
@@ -422,7 +423,7 @@ fn decode_outcome_asset_id(asset_id: u64, encoding: u64, network: &str) -> Decod
 }
 
 async fn search_assets(
-    api_base_url: &str,
+    api: &ApiClient,
     network: &str,
     query: &str,
     venue: SearchVenueFilter,
@@ -430,14 +431,12 @@ async fn search_assets(
 ) -> Vec<DecodedAssetId> {
     let mut candidates = Vec::new();
 
-    let resolver = AssetResolver::load_raw(api_base_url).await.ok();
+    let resolver = AssetResolver::load_raw(api).await.ok();
     if let Some(resolver) = resolver.as_ref() {
         candidates.extend(search_resolver_assets(resolver, network));
     }
 
-    let outcome_rows = crate::commands::outcomes::outcome_side_rows(api_base_url)
-        .await
-        .ok();
+    let outcome_rows = crate::commands::outcomes::outcome_side_rows(api).await.ok();
     if let Some(rows) = outcome_rows.as_ref() {
         candidates.extend(rows.iter().cloned().filter_map(|row| {
             let asset_id = row.asset_id;
@@ -570,8 +569,8 @@ fn normalize_search_text(raw: &str) -> String {
     raw.trim().to_ascii_lowercase()
 }
 
-async fn enrich_from_resolver(api_base_url: &str, decoded: &mut DecodedAssetId) {
-    let Ok(resolver) = AssetResolver::load_raw(api_base_url).await else {
+async fn enrich_from_resolver(api: &ApiClient, decoded: &mut DecodedAssetId) {
+    let Ok(resolver) = AssetResolver::load_raw(api).await else {
         return;
     };
     enrich_from_loaded_resolver(&resolver, decoded);
@@ -610,7 +609,7 @@ pub fn enrich_from_loaded_resolver(resolver: &AssetResolver, decoded: &mut Decod
     }
 }
 
-async fn enrich_outcome(api_base_url: &str, decoded: &mut DecodedAssetId) {
+async fn enrich_outcome(api: &ApiClient, decoded: &mut DecodedAssetId) {
     if decoded.lookup_status == LookupStatus::InvalidId {
         return;
     }
@@ -618,7 +617,7 @@ async fn enrich_outcome(api_base_url: &str, decoded: &mut DecodedAssetId) {
     let Some(encoding) = decoded.encoding else {
         return;
     };
-    let Ok(rows) = crate::commands::outcomes::outcome_side_rows(api_base_url).await else {
+    let Ok(rows) = crate::commands::outcomes::outcome_side_rows(api).await else {
         return;
     };
     let Some(row) = rows.into_iter().find(|row| row.encoding == encoding) else {

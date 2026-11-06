@@ -185,8 +185,7 @@ pub fn from_anyhow(err: anyhow::Error) -> CliError {
 /// hypersdk 0.3 returns `anyhow::Error`. API failures carry a
 /// [`hypersdk::hypercore::ApiError`] (HTTP non-2xx arrives as
 /// `HTTP {status} body={text}`) and transport failures carry a
-/// `reqwest::Error`. Everything else is plain text, which also covers the
-/// `HTTP {status} body={text}` strings the commands' raw `/info` reads build.
+/// `reqwest::Error`. Everything else is plain text.
 /// Typed [`CliError`]s that were already attached are recovered unchanged.
 pub fn from_sdk(err: anyhow::Error) -> CliError {
     let err = match recover_typed(err) {

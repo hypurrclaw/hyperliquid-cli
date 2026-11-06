@@ -398,7 +398,7 @@ pub async fn candles(
     interval: CandleInterval,
     limit: usize,
 ) -> Result<(), anyhow::Error> {
-    let client = inv.remote()?.client();
+    let client = inv.remote()?.api().sdk();
     let resolver = inv.asset_resolver().await?;
     let snapshot = candles_snapshot(client, &resolver, coin, interval, limit).await?;
     inv.print(&snapshot);
@@ -453,7 +453,8 @@ pub async fn funding(inv: &Invocation, coin: &str) -> Result<(), anyhow::Error> 
     let start_time = end_time.saturating_sub(24 * 60 * 60 * 1000);
 
     let latest_history = remote
-        .client()
+        .api()
+        .sdk()
         .funding_history(coin.clone(), start_time, Some(end_time))
         .await
         .map_err(from_sdk)?
@@ -472,7 +473,7 @@ pub async fn funding(inv: &Invocation, coin: &str) -> Result<(), anyhow::Error> 
 /// Fetch and render all mid prices.
 pub async fn mids(inv: &Invocation) -> Result<(), anyhow::Error> {
     let selected = inv.session().json_options().selected_fields();
-    inv.print(&mids_snapshot(inv.remote()?.client(), selected).await?);
+    inv.print(&mids_snapshot(inv.remote()?.api().sdk(), selected).await?);
     Ok(())
 }
 

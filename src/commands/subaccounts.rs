@@ -295,15 +295,14 @@ pub async fn create(
 ) -> Result<(), anyhow::Error> {
     validate_create_args(args)?;
     let remote = inv.remote()?;
-    let (api_base_url, chain) = (remote.api_base_url(), remote.chain());
+    let (api, chain) = (remote.api(), remote.chain());
     let action = CreateSubaccountAction {
         action_type: "createSubAccount",
         name: args.name.trim().to_string(),
     };
 
     actions::send_raw_l1_json_action(
-        api_base_url,
-        chain,
+        api,
         signer,
         &action,
         actions::RawL1ActionMetadata::new(actions::nonce_now()),
@@ -343,7 +342,7 @@ pub async fn transfer(
 ) -> Result<(), anyhow::Error> {
     validate_transfer_args(args)?;
     let remote = inv.remote()?;
-    let (api_base_url, chain) = (remote.api_base_url(), remote.chain());
+    let (api, chain) = (remote.api(), remote.chain());
     let usd = usdc_to_wire_units(args.amount)?;
     if !args.yes {
         confirm_transfer(
@@ -361,8 +360,7 @@ pub async fn transfer(
         usd,
     };
     actions::send_raw_l1_json_action(
-        api_base_url,
-        chain,
+        api,
         signer,
         &action,
         actions::RawL1ActionMetadata::new(actions::nonce_now()),
@@ -402,7 +400,7 @@ pub async fn spot_transfer(
 ) -> Result<(), anyhow::Error> {
     validate_spot_transfer_args(args)?;
     let remote = inv.remote()?;
-    let (api_base_url, chain) = (remote.api_base_url(), remote.chain());
+    let (api, chain) = (remote.api(), remote.chain());
     if !args.yes {
         confirm_transfer(
             inv.mode(),
@@ -421,8 +419,7 @@ pub async fn spot_transfer(
         amount: amount.clone(),
     };
     actions::send_raw_l1_json_action(
-        api_base_url,
-        chain,
+        api,
         signer,
         &action,
         actions::RawL1ActionMetadata::new(actions::nonce_now()),

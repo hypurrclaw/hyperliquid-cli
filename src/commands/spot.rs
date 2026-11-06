@@ -5,11 +5,12 @@
 /// - `hyperliquid spot get <PAIR>` — get details for a specific spot pair
 use clap::Args;
 use hypersdk::Decimal;
-use hypersdk::hypercore::{HttpClient, PriceTick};
+use hypersdk::hypercore::PriceTick;
 use serde::Serialize;
 
 use crate::assets::{SpotListing, load_spot_markets};
 use crate::errors::CliError;
+use crate::http_api::ApiClient;
 use crate::invocation::Invocation;
 use crate::output::TableData;
 
@@ -142,19 +143,19 @@ impl TableData for SpotMarketDetailsOutput {
 
 /// Fetch and render all spot markets.
 pub async fn list(inv: &Invocation) -> Result<(), anyhow::Error> {
-    let markets = load_spot_market_rows(inv.remote()?.client()).await?;
+    let markets = load_spot_market_rows(inv.remote()?.api()).await?;
     inv.print(&SpotMarketsOutput::new(markets));
     Ok(())
 }
 
 /// Resolve, fetch, and render one spot market.
 pub async fn get(inv: &Invocation, pair: &str) -> Result<(), anyhow::Error> {
-    let client = inv.remote()?.client();
+    let api = inv.remote()?.api();
     let resolver = inv.asset_resolver().await?;
     let resolved = resolver.resolve_spot(pair).map_err(CliError::from)?;
     let (resolved_symbol, resolved_index) = (resolved.symbol, resolved.index);
 
-    let market = load_spot_market_rows(client)
+    let market = load_spot_market_rows(api)
         .await?
         .into_iter()
         .find(|market| {
@@ -168,8 +169,8 @@ pub async fn get(inv: &Invocation, pair: &str) -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-async fn load_spot_market_rows(client: &HttpClient) -> Result<Vec<SpotMarketRow>, CliError> {
-    Ok(load_spot_markets(client)
+async fn load_spot_market_rows(api: &ApiClient) -> Result<Vec<SpotMarketRow>, CliError> {
+    Ok(load_spot_markets(api)
         .await?
         .into_iter()
         .map(SpotMarketRow::from)

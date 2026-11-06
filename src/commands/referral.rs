@@ -7,7 +7,6 @@ use serde::Serialize;
 use crate::commands::actions;
 use crate::dry_run::ActionReversibility;
 use crate::errors::CliError;
-use crate::http_api::post_info_json;
 use crate::invocation::Invocation;
 use crate::output::TableData;
 use crate::settings::Settings;
@@ -177,14 +176,17 @@ struct RegisterReferrerAction<'a> {
 /// Query referral status for the authenticated user.
 pub async fn status(inv: &Invocation, user: Address) -> Result<(), anyhow::Error> {
     let user = user.to_string();
-    let raw = post_info(
-        inv.remote()?.api_base_url(),
-        &ReferralInfoRequest {
-            request_type: "referral",
-            user: &user,
-        },
-    )
-    .await?;
+    let raw = inv
+        .remote()?
+        .api()
+        .info::<serde_json::Value>(
+            &ReferralInfoRequest {
+                request_type: "referral",
+                user: &user,
+            },
+            "",
+        )
+        .await?;
     inv.print(&referral_status_from_value(user, &raw));
     Ok(())
 }
@@ -199,8 +201,7 @@ pub async fn set(
     let remote = inv.remote()?;
     let chain = remote.chain();
     actions::send_raw_l1_json_action(
-        remote.api_base_url(),
-        chain,
+        remote.api(),
         signer,
         &SetReferrerAction {
             action_type: "setReferrer",
@@ -236,8 +237,7 @@ pub async fn register(
     let remote = inv.remote()?;
     let chain = remote.chain();
     actions::send_raw_l1_json_action(
-        remote.api_base_url(),
-        chain,
+        remote.api(),
         signer,
         &RegisterReferrerAction {
             action_type: "registerReferrer",
@@ -346,13 +346,6 @@ fn validate_code(code: &str, max_len: usize, label: &str) -> Result<(), CliError
         )));
     }
     Ok(())
-}
-
-async fn post_info(
-    api_base_url: &str,
-    request: &impl Serialize,
-) -> Result<serde_json::Value, CliError> {
-    post_info_json(api_base_url, request, "").await
 }
 
 fn string_field(raw: &serde_json::Value, field: &str) -> Option<String> {

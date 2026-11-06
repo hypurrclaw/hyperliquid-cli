@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::commands::actions;
 use crate::dry_run::ActionReversibility;
 use crate::errors::CliError;
-use crate::http_api::post_info_json;
+use crate::http_api::ApiClient;
 use crate::invocation::Invocation;
 use crate::mode::Mode;
 use crate::output::{self, JsonValueOutput, TableData};
@@ -552,11 +552,11 @@ impl TableData for LinkStakingOutput {
 
 /// Show staking balance, delegations, and reward summary for an address.
 pub async fn summary(inv: &Invocation, address: &str) -> Result<(), anyhow::Error> {
-    let api_base_url = inv.remote()?.api_base_url();
+    let api = inv.remote()?.api();
     validate_address(address)?;
-    let summary = delegator_summary(api_base_url, address).await?;
-    let delegations = delegations(api_base_url, address).await?;
-    let rewards = rewards_rows(api_base_url, address).await?;
+    let summary = delegator_summary(api, address).await?;
+    let delegations = delegations(api, address).await?;
+    let rewards = rewards_rows(api, address).await?;
     let pending_rewards = rewards.iter().map(|row| row.total_amount).sum();
     inv.print(&StakingSummaryOutput {
         address: address.to_string(),
@@ -570,14 +570,17 @@ pub async fn summary(inv: &Invocation, address: &str) -> Result<(), anyhow::Erro
 
 /// List validator summaries.
 pub async fn validators(inv: &Invocation) -> Result<(), anyhow::Error> {
-    let rows = post_info::<Vec<ValidatorSummary>>(
-        inv.remote()?.api_base_url(),
-        &InfoRequest {
-            request_type: "validatorSummaries",
-            user: None,
-        },
-    )
-    .await?;
+    let rows = inv
+        .remote()?
+        .api()
+        .info::<Vec<ValidatorSummary>>(
+            &InfoRequest {
+                request_type: "validatorSummaries",
+                user: None,
+            },
+            "",
+        )
+        .await?;
     inv.print(&ValidatorsOutput { rows });
     Ok(())
 }
@@ -585,7 +588,7 @@ pub async fn validators(inv: &Invocation) -> Result<(), anyhow::Error> {
 /// Show staking reward rows for an address.
 pub async fn rewards(inv: &Invocation, address: &str) -> Result<(), anyhow::Error> {
     validate_address(address)?;
-    let rows = rewards_rows(inv.remote()?.api_base_url(), address).await?;
+    let rows = rewards_rows(inv.remote()?.api(), address).await?;
     inv.print(&RewardsOutput { rows });
     Ok(())
 }
@@ -593,15 +596,17 @@ pub async fn rewards(inv: &Invocation, address: &str) -> Result<(), anyhow::Erro
 /// Show staking delegation and withdrawal history for an address.
 pub async fn history(inv: &Invocation, address: &str) -> Result<(), anyhow::Error> {
     validate_address(address)?;
-    let value = post_info_json::<serde_json::Value>(
-        inv.remote()?.api_base_url(),
-        &InfoRequest {
-            request_type: "delegatorHistory",
-            user: Some(address),
-        },
-        "loading staking history",
-    )
-    .await?;
+    let value = inv
+        .remote()?
+        .api()
+        .info::<serde_json::Value>(
+            &InfoRequest {
+                request_type: "delegatorHistory",
+                user: Some(address),
+            },
+            "loading staking history",
+        )
+        .await?;
     inv.print(&JsonValueOutput::new(value, "No staking history."));
     Ok(())
 }
@@ -631,7 +636,7 @@ pub async fn deposit(
     args: &AmountArgs,
 ) -> Result<(), anyhow::Error> {
     let remote = inv.remote()?;
-    let (api_base_url, chain) = (remote.api_base_url(), remote.chain());
+    let (api, chain) = (remote.api(), remote.chain());
     let wei = validate_amount_to_wei(args.amount)?;
     let nonce = actions::nonce_now();
     let signature_chain_id = chain.arbitrum_id().to_string();
@@ -650,7 +655,7 @@ pub async fn deposit(
         nonce,
     };
     actions::send_user_signed_json_action(
-        api_base_url,
+        api,
         serde_json::to_value(action).map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?,
         nonce,
         signature,
@@ -678,7 +683,7 @@ pub async fn withdraw(
     args: &AmountArgs,
 ) -> Result<(), anyhow::Error> {
     let remote = inv.remote()?;
-    let (api_base_url, chain) = (remote.api_base_url(), remote.chain());
+    let (api, chain) = (remote.api(), remote.chain());
     let wei = validate_amount_to_wei(args.amount)?;
     let nonce = actions::nonce_now();
     let signature_chain_id = chain.arbitrum_id().to_string();
@@ -697,7 +702,7 @@ pub async fn withdraw(
         nonce,
     };
     actions::send_user_signed_json_action(
-        api_base_url,
+        api,
         serde_json::to_value(action).map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?,
         nonce,
         signature,
@@ -721,10 +726,9 @@ pub async fn withdraw(
 /// Claim available staking rewards.
 pub async fn claim_rewards(inv: &Invocation, signer: &SelectedSigner) -> Result<(), anyhow::Error> {
     let remote = inv.remote()?;
-    let (api_base_url, chain) = (remote.api_base_url(), remote.chain());
+    let (api, chain) = (remote.api(), remote.chain());
     actions::send_raw_l1_json_action(
-        api_base_url,
-        chain,
+        api,
         signer,
         &ClaimRewardsAction {
             action_type: "claimRewards",
@@ -857,7 +861,7 @@ pub async fn link_staking_user(
         confirm_staking_link(inv.mode(), user, is_finalize)?;
     }
     let remote = inv.remote()?;
-    let (api_base_url, chain) = (remote.api_base_url(), remote.chain());
+    let (api, chain) = (remote.api(), remote.chain());
 
     let nonce = actions::nonce_now();
     let signature_chain_id = chain.arbitrum_id().to_string();
@@ -877,7 +881,7 @@ pub async fn link_staking_user(
         nonce,
     };
     actions::send_user_signed_json_action(
-        api_base_url,
+        api,
         serde_json::to_value(action).map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?,
         nonce,
         signature,
@@ -925,7 +929,7 @@ async fn token_delegate(
     is_undelegate: bool,
 ) -> Result<(), anyhow::Error> {
     let remote = inv.remote()?;
-    let (api_base_url, chain) = (remote.api_base_url(), remote.chain());
+    let (api, chain) = (remote.api(), remote.chain());
     let validator = validate_validator_address(&args.validator)?;
     let wei = validate_amount_to_wei(args.amount)?;
     let nonce = actions::nonce_now();
@@ -949,7 +953,7 @@ async fn token_delegate(
         nonce,
     };
     actions::send_user_signed_json_action(
-        api_base_url,
+        api,
         serde_json::to_value(action).map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?,
         nonce,
         signature,
@@ -980,47 +984,37 @@ async fn token_delegate(
     Ok(())
 }
 
-async fn delegator_summary(
-    api_base_url: &str,
-    address: &str,
-) -> Result<DelegatorSummary, CliError> {
-    post_info(
-        api_base_url,
+async fn delegator_summary(api: &ApiClient, address: &str) -> Result<DelegatorSummary, CliError> {
+    api.info(
         &InfoRequest {
             request_type: "delegatorSummary",
             user: Some(address),
         },
+        "",
     )
     .await
 }
 
-async fn delegations(api_base_url: &str, address: &str) -> Result<Vec<DelegationRow>, CliError> {
-    post_info(
-        api_base_url,
+async fn delegations(api: &ApiClient, address: &str) -> Result<Vec<DelegationRow>, CliError> {
+    api.info(
         &InfoRequest {
             request_type: "delegations",
             user: Some(address),
         },
+        "",
     )
     .await
 }
 
-async fn rewards_rows(api_base_url: &str, address: &str) -> Result<Vec<RewardRow>, CliError> {
-    post_info(
-        api_base_url,
+async fn rewards_rows(api: &ApiClient, address: &str) -> Result<Vec<RewardRow>, CliError> {
+    api.info(
         &InfoRequest {
             request_type: "delegatorRewards",
             user: Some(address),
         },
+        "",
     )
     .await
-}
-
-async fn post_info<T: for<'de> Deserialize<'de>>(
-    api_base_url: &str,
-    request: &impl Serialize,
-) -> Result<T, CliError> {
-    post_info_json(api_base_url, request, "").await
 }
 
 fn validate_address(address: &str) -> Result<Address, CliError> {

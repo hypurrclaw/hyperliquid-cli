@@ -1,18 +1,17 @@
 //! Borrow/lend public market data commands.
 
 use clap::Args;
-use hypersdk::hypercore::{Chain, HttpClient};
+use hypersdk::hypercore::HttpClient;
 use hypersdk::{Address, Decimal};
 use rust_decimal::prelude::ToPrimitive;
 use serde::{Deserialize, Serialize};
 
-use crate::assets::raw_info_base_url;
 use crate::commands::actions;
-use crate::commands::spot_balances::{RawSpotBalance, user_spot_balances_raw_from_url};
+use crate::commands::spot_balances::{RawSpotBalance, user_spot_balances_raw};
 use crate::dry_run::ActionReversibility;
+use crate::errors::CliError;
 use crate::errors::from_sdk;
-use crate::errors::{CliError, http_response_indicates_rate_limit};
-use crate::http_api::{decode_json, ensure_success_response, post_info_raw};
+use crate::http_api::ApiClient;
 use crate::invocation::Invocation;
 use crate::output::{self, TableData};
 use crate::signing::SelectedSigner;
@@ -273,7 +272,7 @@ impl TableData for BorrowLendActionOutput {
 /// Show reserve states for all borrow/lend tokens.
 pub async fn rates(inv: &Invocation) -> Result<(), anyhow::Error> {
     let remote = inv.remote()?;
-    let rows = reserve_rows(remote.client(), remote.api_base_url()).await?;
+    let rows = reserve_rows(remote.api()).await?;
     inv.print(&ReserveOutput { rows });
     Ok(())
 }
@@ -281,8 +280,8 @@ pub async fn rates(inv: &Invocation) -> Result<(), anyhow::Error> {
 /// Show reserve state for a single token.
 pub async fn get(inv: &Invocation, token: &str) -> Result<(), anyhow::Error> {
     let remote = inv.remote()?;
-    let token = resolve_spot_token(remote.client(), token).await?;
-    let row = match live_reserve_row(remote.api_base_url(), token.index, token.name.clone()).await {
+    let token = resolve_spot_token(remote.api().sdk(), token).await?;
+    let row = match live_reserve_row(remote.api(), token.index, token.name.clone()).await {
         Ok(row) => row,
         Err(BorrowLendInfoError::EndpointUnavailable) => unavailable_reserve_row(token),
         Err(BorrowLendInfoError::Cli(err)) => return Err(err.into()),
@@ -294,9 +293,9 @@ pub async fn get(inv: &Invocation, token: &str) -> Result<(), anyhow::Error> {
 
 /// Show public borrow/lend state for a user.
 pub async fn user(inv: &Invocation, address: &str) -> Result<(), anyhow::Error> {
-    let api_url = raw_info_base_url(inv.remote()?.client())?;
+    let api = inv.remote()?.api();
     let user = parse_address(address)?;
-    let balances = user_spot_balances_raw_from_url(api_url.as_str(), user).await?;
+    let balances = user_spot_balances_raw(api, user).await?;
     let positions = balances
         .into_iter()
         .filter(|balance| balance.token.is_some())
@@ -312,13 +311,13 @@ pub async fn user(inv: &Invocation, address: &str) -> Result<(), anyhow::Error> 
 }
 
 pub async fn action_preview(
-    client: &HttpClient,
-    chain: Chain,
+    api: &ApiClient,
     operation: BorrowLendOperation,
     args: &ActionArgs,
 ) -> Result<serde_json::Value, CliError> {
+    let chain = api.chain();
     validate_action_args(operation, args)?;
-    let token = resolve_spot_token(client, &args.token).await?;
+    let token = resolve_spot_token(api.sdk(), &args.token).await?;
     let wei = borrowlend_wei(args, token.wei_decimals)?;
     Ok(serde_json::json!({
         "operation": operation.as_str(),
@@ -358,7 +357,7 @@ pub async fn action(
     args: &ActionArgs,
 ) -> Result<(), anyhow::Error> {
     let remote = inv.remote()?;
-    let client = remote.client();
+    let client = remote.api().sdk();
     let chain = remote.chain();
     validate_action_args(operation, args)?;
     let token = resolve_spot_token(client, &args.token).await?;
@@ -373,8 +372,7 @@ pub async fn action(
         amount: amount.clone(),
     };
     actions::send_raw_l1_json_action(
-        remote.api_base_url(),
-        chain,
+        remote.api(),
         signer,
         &action,
         actions::RawL1ActionMetadata::new(actions::nonce_now()),
@@ -426,13 +424,12 @@ pub fn validate_action_args(
     Ok(())
 }
 
-async fn reserve_rows(
-    client: &HttpClient,
-    api_base_url: &str,
-) -> Result<Vec<ReserveRow>, CliError> {
-    let mut rows = match live_reserve_rows(client, api_base_url).await {
+async fn reserve_rows(api: &ApiClient) -> Result<Vec<ReserveRow>, CliError> {
+    let mut rows = match live_reserve_rows(api).await {
         Ok(rows) => rows,
-        Err(BorrowLendInfoError::EndpointUnavailable) => unavailable_reserve_rows(client).await?,
+        Err(BorrowLendInfoError::EndpointUnavailable) => {
+            unavailable_reserve_rows(api.sdk()).await?
+        }
         Err(BorrowLendInfoError::Cli(err)) => return Err(err),
     };
 
@@ -445,16 +442,11 @@ async fn reserve_rows(
     Ok(rows)
 }
 
-async fn live_reserve_rows(
-    client: &HttpClient,
-    api_base_url: &str,
-) -> Result<Vec<ReserveRow>, BorrowLendInfoError> {
-    let reserve_states = post_info::<Vec<(u32, RawReserveState)>>(
-        api_base_url,
-        &BorrowLendInfoRequest::AllReserveStates,
-    )
-    .await?;
-    let token_names = token_names_by_index(client).await?;
+async fn live_reserve_rows(api: &ApiClient) -> Result<Vec<ReserveRow>, BorrowLendInfoError> {
+    let reserve_states =
+        post_info::<Vec<(u32, RawReserveState)>>(api, &BorrowLendInfoRequest::AllReserveStates)
+            .await?;
+    let token_names = token_names_by_index(api.sdk()).await?;
 
     Ok(reserve_states
         .into_iter()
@@ -471,12 +463,12 @@ async fn live_reserve_rows(
 }
 
 async fn live_reserve_row(
-    api_base_url: &str,
+    api: &ApiClient,
     token_index: u32,
     token_name: String,
 ) -> Result<ReserveRow, BorrowLendInfoError> {
     let reserve_state = post_info::<RawReserveState>(
-        api_base_url,
+        api,
         &BorrowLendInfoRequest::ReserveState { token: token_index },
     )
     .await?;
@@ -599,24 +591,14 @@ impl From<CliError> for BorrowLendInfoError {
 }
 
 async fn post_info<T: for<'de> Deserialize<'de>>(
-    api_base_url: &str,
+    api: &ApiClient,
     request: &BorrowLendInfoRequest,
 ) -> Result<T, BorrowLendInfoError> {
-    let response = post_info_raw(api_base_url, request).await?;
-    let status = response.status;
-    let body = response.body;
-
-    if http_response_indicates_rate_limit(status.as_u16(), &body) {
-        return Err(CliError::rate_limited().into());
-    }
-
-    if info_request_type_is_unavailable(status.as_u16(), &body) {
+    let reply = api.info_raw(request).await?;
+    if info_request_type_is_unavailable(reply.status().as_u16(), reply.body()) {
         return Err(BorrowLendInfoError::EndpointUnavailable);
     }
-
-    ensure_success_response(status, &body)?;
-
-    decode_json::<T>(&body, "borrow/lend").map_err(Into::into)
+    reply.decode("borrow/lend").map_err(Into::into)
 }
 
 fn info_request_type_is_unavailable(status_code: u16, body: &str) -> bool {

@@ -213,7 +213,7 @@ pub async fn watch_risk(
     user: Address,
     args: &WatchRiskArgs,
 ) -> Result<(), anyhow::Error> {
-    let client = inv.remote()?.client();
+    let client = inv.remote()?.api().sdk();
     let session = inv.session();
     let bounds = StreamBounds::watch_risk(&args.stream);
     if stream::piped_or_agent() && !bounds.is_bounded() {

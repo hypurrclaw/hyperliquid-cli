@@ -28,7 +28,7 @@ use crate::commands::{actions, builder};
 use crate::errors::from_sdk;
 
 use crate::errors::CliError;
-use crate::http_api::post_info_json;
+use crate::http_api::ApiClient;
 use crate::input_hardening::{FilePolicy, read_json_file};
 use crate::invocation::Invocation;
 use crate::mode::Mode;
@@ -204,15 +204,13 @@ impl OrderIdentifier {
 #[derive(Clone, Copy)]
 pub struct OrderExecutionContext<'a> {
     pub submission: OrderSubmissionContext<'a>,
-    pub client: &'a HttpClient,
     pub resolver: &'a AssetResolver,
 }
 
 #[derive(Clone, Copy)]
 pub struct OrderSubmissionContext<'a> {
     pub inv: &'a Invocation,
-    pub api_base_url: &'a str,
-    pub chain: Chain,
+    pub api: &'a ApiClient,
     pub signer: &'a SelectedSigner,
     pub require_mainnet_confirmation: bool,
 }
@@ -224,7 +222,8 @@ pub async fn create(
     vault_address: Option<Address>,
     emit_output: bool,
 ) -> Result<(), anyhow::Error> {
-    let plan = prepare_create_order_plan(context.client, context.resolver, args).await?;
+    let plan =
+        prepare_create_order_plan(context.submission.api.sdk(), context.resolver, args).await?;
     let user = vault_address.unwrap_or_else(|| context.submission.signer.query_address());
     match plan.submission {
         CreateOrderSubmission::NormalTpsl(prepared) => {
@@ -248,8 +247,7 @@ pub async fn create(
             execute_hip3_helper(context, user, &helper).await?;
 
             let statuses = place_tpsl_batch(
-                context.submission.api_base_url,
-                context.submission.chain,
+                context.submission.api,
                 context.submission.signer,
                 prepared.batch.clone(),
                 vault_address,
@@ -285,14 +283,7 @@ async fn plan_hip3_helper(
     let Some(dex) = hip3_dex_from_coin(coin, None) else {
         return Ok(None);
     };
-    plan_hip3_margin_transfer(
-        context.client,
-        context.submission.api_base_url,
-        user,
-        Some(dex.as_str()),
-        notional,
-    )
-    .await
+    plan_hip3_margin_transfer(context.submission.api, user, Some(dex.as_str()), notional).await
 }
 
 /// Disclose a planned HIP-3 margin helper transfer before order confirmation.
@@ -370,8 +361,7 @@ async fn place_prepared_single(
     };
     let statuses = if let Some(builder) = prepared.builder.clone() {
         place_builder_order_batch_raw(
-            context.submission.api_base_url,
-            context.submission.chain,
+            context.submission.api,
             context.submission.signer,
             batch,
             builder,
@@ -380,8 +370,7 @@ async fn place_prepared_single(
         .await?
     } else {
         place_order_batch_raw(
-            context.submission.api_base_url,
-            context.submission.chain,
+            context.submission.api,
             context.submission.signer,
             batch,
             vault_address,
@@ -397,7 +386,8 @@ pub async fn scale(
     args: &ScaleArgs,
     vault_address: Option<Address>,
 ) -> Result<(), anyhow::Error> {
-    let prepared = prepare_scale_batch(context.client, context.resolver, args).await?;
+    let prepared =
+        prepare_scale_batch(context.submission.api.sdk(), context.resolver, args).await?;
     if context.submission.require_mainnet_confirmation && !args.yes {
         let target = ConsentTarget::new(context.submission, vault_address, None);
         if !confirm_mainnet_order_batch("scale", &prepared, &target)? {
@@ -420,8 +410,13 @@ pub async fn batch_create(
     orders: Vec<BatchCreateOrder>,
     vault_address: Option<Address>,
 ) -> Result<(), anyhow::Error> {
-    let plan =
-        prepare_batch_create_order_plan(context.client, context.resolver, args, orders).await?;
+    let plan = prepare_batch_create_order_plan(
+        context.submission.api.sdk(),
+        context.resolver,
+        args,
+        orders,
+    )
+    .await?;
     let prepared = plan.prepared;
     if context.submission.require_mainnet_confirmation && !args.yes {
         let target = ConsentTarget::new(context.submission, vault_address, None);
@@ -444,8 +439,7 @@ async fn place_order_batch(
     vault_address: Option<Address>,
 ) -> Result<Vec<OrderConfirmation>, CliError> {
     let statuses = place_order_batch_raw(
-        context.submission.api_base_url,
-        context.submission.chain,
+        context.submission.api,
         context.submission.signer,
         prepared.batch.clone(),
         vault_address,
@@ -473,7 +467,8 @@ pub async fn tpsl(
 ) -> Result<(), anyhow::Error> {
     let user = vault_address.unwrap_or_else(|| context.submission.signer.query_address());
     let prepared =
-        prepare_position_tpsl_batch(context.client, context.resolver, user, args).await?;
+        prepare_position_tpsl_batch(context.submission.api.sdk(), context.resolver, user, args)
+            .await?;
     if context.submission.require_mainnet_confirmation && !args.yes {
         let target = ConsentTarget::new(context.submission, vault_address, None);
         if !confirm_mainnet_tpsl_batch(&prepared, &target)? {
@@ -486,8 +481,7 @@ pub async fn tpsl(
     }
 
     let statuses = place_tpsl_batch(
-        context.submission.api_base_url,
-        context.submission.chain,
+        context.submission.api,
         context.submission.signer,
         prepared.batch.clone(),
         vault_address,
@@ -596,11 +590,12 @@ pub async fn cancel(
         .submission
         .signer
         .ensure_can_attempt_live_signing()?;
-    let plan = prepare_cancel_order_plan(context.client, context.resolver, user, args).await?;
+    let plan =
+        prepare_cancel_order_plan(context.submission.api.sdk(), context.resolver, user, args)
+            .await?;
     let nonce = Utc::now().timestamp_millis() as u64;
     let response = actions::send_l1_action_raw(
-        context.submission.api_base_url,
-        context.submission.chain,
+        context.submission.api,
         context.submission.signer,
         plan.action,
         nonce,
@@ -633,7 +628,9 @@ pub async fn cancel_all(
         .submission
         .signer
         .ensure_can_attempt_live_signing()?;
-    let plan = prepare_cancel_all_orders_plan(context.client, context.resolver, user, args).await?;
+    let plan =
+        prepare_cancel_all_orders_plan(context.submission.api.sdk(), context.resolver, user, args)
+            .await?;
 
     if plan.cancelled_orders != 0 {
         let target = ConsentTarget::new(context.submission, vault_address, None);
@@ -649,8 +646,7 @@ pub async fn cancel_all(
         };
         let nonce = Utc::now().timestamp_millis() as u64;
         let response = actions::send_l1_action_raw(
-            context.submission.api_base_url,
-            context.submission.chain,
+            context.submission.api,
             context.submission.signer,
             action,
             nonce,
@@ -702,11 +698,12 @@ pub async fn modify(
         .submission
         .signer
         .ensure_can_attempt_live_signing()?;
-    let plan = prepare_modify_order_plan(context.client, context.resolver, user, args).await?;
+    let plan =
+        prepare_modify_order_plan(context.submission.api.sdk(), context.resolver, user, args)
+            .await?;
     let nonce = Utc::now().timestamp_millis() as u64;
     let response = actions::send_l1_action_raw(
-        context.submission.api_base_url,
-        context.submission.chain,
+        context.submission.api,
         context.submission.signer,
         plan.action,
         nonce,
@@ -749,8 +746,7 @@ pub async fn twap_create(
         .into());
     }
     let response = actions::send_raw_l1_json_action(
-        context.api_base_url,
-        context.chain,
+        context.api,
         context.signer,
         &plan.action,
         actions::RawL1ActionMetadata::new(actions::nonce_now()).with_vault_address(vault_address),
@@ -783,8 +779,7 @@ pub async fn twap_cancel(
     context.signer.ensure_can_attempt_live_signing()?;
     let plan = prepare_twap_cancel_plan(resolver, args)?;
     let response = actions::send_raw_l1_json_action(
-        context.api_base_url,
-        context.chain,
+        context.api,
         context.signer,
         &plan.action,
         actions::RawL1ActionMetadata::new(actions::nonce_now()).with_vault_address(vault_address),
@@ -830,8 +825,7 @@ pub async fn schedule_cancel(
     let nonce = actions::nonce_now();
     if plan.scheduled_at.is_some() {
         actions::send_l1_action_raw(
-            context.api_base_url,
-            context.chain,
+            context.api,
             context.signer,
             plan.action,
             nonce,
@@ -841,8 +835,7 @@ pub async fn schedule_cancel(
         .await?;
     } else {
         actions::send_raw_l1_json_action(
-            context.api_base_url,
-            context.chain,
+            context.api,
             context.signer,
             &ScheduleCancelRawAction {
                 action_type: "scheduleCancel",
@@ -1132,15 +1125,13 @@ fn status_count_mismatch(statuses: usize, orders: usize) -> CliError {
 }
 
 async fn place_tpsl_batch(
-    api_base_url: &str,
-    chain: Chain,
+    api: &ApiClient,
     signer: &SelectedSigner,
     batch: BatchOrder,
     vault_address: Option<Address>,
 ) -> Result<Vec<TpslResponseStatus>, CliError> {
     let response = actions::send_l1_action_raw(
-        api_base_url,
-        chain,
+        api,
         signer,
         Action::Order(batch),
         actions::nonce_now(),
@@ -1152,15 +1143,13 @@ async fn place_tpsl_batch(
 }
 
 async fn place_order_batch_raw(
-    api_base_url: &str,
-    chain: Chain,
+    api: &ApiClient,
     signer: &SelectedSigner,
     batch: BatchOrder,
     vault_address: Option<Address>,
 ) -> Result<Vec<OrderResponseStatus>, CliError> {
     let response = actions::send_l1_action_raw(
-        api_base_url,
-        chain,
+        api,
         signer,
         Action::Order(batch),
         actions::nonce_now(),
@@ -1181,8 +1170,7 @@ struct BuilderOrderAction {
 }
 
 async fn place_builder_order_batch_raw(
-    api_base_url: &str,
-    chain: Chain,
+    api: &ApiClient,
     signer: &SelectedSigner,
     batch: BatchOrder,
     builder: OrderBuilderFee,
@@ -1198,8 +1186,7 @@ async fn place_builder_order_batch_raw(
         builder,
     };
     let response = actions::send_raw_l1_json_action(
-        api_base_url,
-        chain,
+        api,
         signer,
         &action,
         actions::RawL1ActionMetadata::new(actions::nonce_now()).with_vault_address(vault_address),
@@ -1830,7 +1817,7 @@ impl<'a> ConsentTarget<'a> {
     ) -> Self {
         Self {
             mode: submission.inv.mode(),
-            chain: submission.chain,
+            chain: submission.api.chain(),
             signer: submission.signer,
             vault_address,
             builder,

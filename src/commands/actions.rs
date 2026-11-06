@@ -10,7 +10,7 @@ use hypersdk::hypercore::types::{Action, Response, Signature};
 use serde::Serialize;
 
 use crate::errors::{self, CliError};
-use crate::http_api::post_exchange_json;
+use crate::http_api::ApiClient;
 use crate::response_sanitization::Untrusted;
 use crate::signing::SelectedSigner;
 
@@ -66,29 +66,26 @@ pub(crate) fn nonce_now() -> u64 {
 
 /// Sign and send an L1 action supported by hypersdk's raw [`Action`] enum.
 pub(crate) async fn send_l1_action(
-    api_base_url: &str,
-    chain: Chain,
+    api: &ApiClient,
     signer: &SelectedSigner,
     action: Action,
     nonce: u64,
 ) -> Result<(), CliError> {
-    let request = signer.sign_l1_action_sync(action, nonce, None, chain)?;
-    post_json(api_base_url, &request, "exchange action").await
+    let request = signer.sign_l1_action_sync(action, nonce, None, api.chain())?;
+    post_json(api, &request, "exchange action").await
 }
 
 /// Sign and send an L1 action supported by hypersdk, returning the raw ok response payload.
 pub(crate) async fn send_l1_action_raw(
-    api_base_url: &str,
-    chain: Chain,
+    api: &ApiClient,
     signer: &SelectedSigner,
     action: Action,
     nonce: u64,
     vault_address: Option<Address>,
     context: &'static str,
 ) -> Result<serde_json::Value, CliError> {
-    let request = signer.sign_l1_action_sync(action, nonce, vault_address, chain)?;
-    let parsed = post_exchange_json::<serde_json::Value>(api_base_url, &request, "").await?;
-    ensure_ok_raw_response(parsed, context)
+    let request = signer.sign_l1_action_sync(action, nonce, vault_address, api.chain())?;
+    post_json_raw(api, &request, context).await
 }
 
 /// Sign a user-signed EIP-712 action with a custom primary type.
@@ -103,7 +100,7 @@ pub(crate) fn sign_user_action<T: SolStruct>(
 
 /// Send a user-signed JSON action that is not currently modeled in hypersdk's Action enum.
 pub(crate) async fn send_user_signed_json_action(
-    api_base_url: &str,
+    api: &ApiClient,
     action: serde_json::Value,
     nonce: u64,
     signature: Signature,
@@ -115,13 +112,12 @@ pub(crate) async fn send_user_signed_json_action(
         vault_address: None,
         expires_after: None,
     };
-    post_json(api_base_url, &request, "exchange action").await
+    post_json(api, &request, "exchange action").await
 }
 
 /// Sign and send a raw L1 action not currently modeled by hypersdk's [`Action`] enum.
 pub(crate) async fn send_raw_l1_json_action<A: Serialize>(
-    api_base_url: &str,
-    chain: Chain,
+    api: &ApiClient,
     signer: &SelectedSigner,
     action: &A,
     metadata: RawL1ActionMetadata,
@@ -129,7 +125,7 @@ pub(crate) async fn send_raw_l1_json_action<A: Serialize>(
 ) -> Result<serde_json::Value, CliError> {
     let signature = sign_raw_l1_action(
         signer,
-        chain,
+        api.chain(),
         action,
         metadata.nonce,
         metadata.vault_address,
@@ -143,7 +139,7 @@ pub(crate) async fn send_raw_l1_json_action<A: Serialize>(
         vault_address: metadata.vault_address,
         expires_after: metadata.expires_after,
     };
-    post_json_raw(api_base_url, &request, context).await
+    post_json_raw(api, &request, context).await
 }
 
 fn typed_data<T: SolStruct>(message: &impl Serialize, chain: Chain) -> TypedData {
@@ -202,20 +198,20 @@ fn raw_rmp_hash<T: Serialize>(
 }
 
 async fn post_json(
-    api_base_url: &str,
+    api: &ApiClient,
     request: &impl Serialize,
     context: &'static str,
 ) -> Result<(), CliError> {
-    let parsed = post_exchange_json::<Response>(api_base_url, request, "").await?;
+    let parsed = api.exchange::<Response>(request).await?;
     ensure_default_response(parsed, context)
 }
 
 async fn post_json_raw(
-    api_base_url: &str,
+    api: &ApiClient,
     request: &impl Serialize,
     context: &'static str,
 ) -> Result<serde_json::Value, CliError> {
-    let parsed = post_exchange_json::<serde_json::Value>(api_base_url, request, "").await?;
+    let parsed = api.exchange::<serde_json::Value>(request).await?;
     ensure_ok_raw_response(parsed, context)
 }
 

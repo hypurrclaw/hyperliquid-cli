@@ -154,7 +154,7 @@ impl TableData for PerpMarketDetailsOutput {
 
 /// Fetch and render perpetual markets, optionally from a HIP-3 DEX.
 pub async fn list(inv: &Invocation, args: &PerpsListArgs) -> Result<(), anyhow::Error> {
-    let client = inv.remote()?.client();
+    let client = inv.remote()?.api().sdk();
     let markets = if let Some(dex_name) = args.dex.as_deref() {
         let dex = find_perp_dex(client, dex_name).await?;
         client.perps_from(dex).await.map_err(from_sdk)?
@@ -168,7 +168,7 @@ pub async fn list(inv: &Invocation, args: &PerpsListArgs) -> Result<(), anyhow::
 
 /// Resolve, fetch, and render one perpetual market.
 pub async fn get(inv: &Invocation, args: &PerpsGetArgs) -> Result<(), anyhow::Error> {
-    let client = inv.remote()?.client();
+    let client = inv.remote()?.api().sdk();
     let resolver = inv.asset_resolver().await?;
     let query = qualify_dex_asset(args.dex.as_deref(), &args.coin);
     let market = if let AssetQuery::Hip3 {

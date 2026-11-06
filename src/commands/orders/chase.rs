@@ -5,12 +5,13 @@ use hypersdk::hypercore::types::{
     Action, BasicOrder, BatchCancelCloid, BatchOrder, CancelByCloid, OrderGrouping,
     OrderResponseStatus,
 };
-use hypersdk::hypercore::{Chain, Cloid, HttpClient};
+use hypersdk::hypercore::{Cloid, HttpClient};
 use hypersdk::{Address, Decimal};
 use serde_json::json;
 
 use crate::errors::CliError;
 use crate::errors::from_sdk;
+use crate::http_api::ApiClient;
 use crate::output::TableData;
 use crate::response_sanitization::labelled_untrusted_text;
 use crate::signing::SelectedSigner;
@@ -74,7 +75,7 @@ pub async fn chase(
 
     let started = Instant::now();
     let coin_key = qualify_dex_asset(args.dex.as_deref(), &args.coin);
-    let start_mid = fetch_mid(context.client, &coin_key).await?;
+    let start_mid = fetch_mid(context.submission.api.sdk(), &coin_key).await?;
     let mut remaining = args.size;
     let mut status = "timeout";
     let mut working: Option<WorkingQuote> = None;
@@ -83,7 +84,7 @@ pub async fn chase(
 
     let outcome: Result<(), CliError> = async {
         while started.elapsed() < timeout && remaining > Decimal::ZERO {
-            let mid = fetch_mid(context.client, &coin_key).await?;
+            let mid = fetch_mid(context.submission.api.sdk(), &coin_key).await?;
             if start_mid > Decimal::ZERO {
                 let traveled_bps = ((mid - start_mid).abs() / start_mid) * Decimal::from(BPS);
                 if traveled_bps > Decimal::from(args.max_chase) {
@@ -142,7 +143,7 @@ pub async fn chase(
             // Reconcile the working quote against open orders so partial fills
             // shrink the next quote and a vanished quote counts as filled.
             if let Some(quote) = working.as_mut() {
-                let open = client_open_orders(context.client, user).await?;
+                let open = client_open_orders(context.submission.api.sdk(), user).await?;
                 let open_size = quote_open_size(&open, quote);
                 if open_size <= Decimal::ZERO {
                     remaining = (remaining - quote.size).max(Decimal::ZERO);
@@ -292,8 +293,7 @@ async fn cancel_working_quote(
     vault_address: Option<Address>,
 ) -> Result<(), CliError> {
     submit_action(
-        context.submission.api_base_url,
-        context.submission.chain,
+        context.submission.api,
         context.submission.signer,
         Action::CancelByCloid(BatchCancelCloid {
             cancels: vec![CancelByCloid {
@@ -318,7 +318,7 @@ async fn place_chase_quote(
     vault_address: Option<Address>,
 ) -> Result<(u32, OrderResponseStatus), anyhow::Error> {
     let plan = prepare_create_order_plan(
-        context.client,
+        context.submission.api.sdk(),
         context.resolver,
         &chase_create_args(args, size, price, cloid),
     )
@@ -339,8 +339,7 @@ async fn place_chase_quote(
         ))
     })?;
     let response = submit_action(
-        context.submission.api_base_url,
-        context.submission.chain,
+        context.submission.api,
         context.submission.signer,
         Action::Order(BatchOrder {
             orders: vec![prepared.request],
@@ -361,16 +360,14 @@ async fn place_chase_quote(
 }
 
 async fn submit_action(
-    api_base_url: &str,
-    chain: Chain,
+    api: &ApiClient,
     signer: &SelectedSigner,
     action: Action,
     vault_address: Option<Address>,
     error_label: &'static str,
 ) -> Result<serde_json::Value, CliError> {
     actions::send_l1_action_raw(
-        api_base_url,
-        chain,
+        api,
         signer,
         action,
         actions::nonce_now(),

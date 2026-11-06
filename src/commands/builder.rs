@@ -17,7 +17,7 @@ use serde::Serialize;
 use crate::commands::actions;
 use crate::dry_run::ActionReversibility;
 use crate::errors::CliError;
-use crate::http_api::post_info_json;
+use crate::http_api::ApiClient;
 use crate::invocation::Invocation;
 use crate::mode::Mode;
 use crate::output::TableData;
@@ -248,7 +248,7 @@ pub async fn max_fee(
     user: Address,
     builder: Address,
 ) -> Result<(), anyhow::Error> {
-    let max_fee_tenths_bps = load_max_fee(inv.remote()?.api_base_url(), user, builder).await?;
+    let max_fee_tenths_bps = load_max_fee(inv.remote()?.api(), user, builder).await?;
     inv.print(&BuilderMaxFeeOutput {
         row: BuilderMaxFeeRow {
             user: user.to_string(),
@@ -261,19 +261,19 @@ pub async fn max_fee(
 }
 
 pub async fn approved(inv: &Invocation, user: Address) -> Result<(), anyhow::Error> {
-    let api_base_url = inv.remote()?.api_base_url();
-    let builders = post_info_json::<Vec<Address>>(
-        api_base_url,
-        &ApprovedBuildersRequest {
-            request_type: "approvedBuilders",
-            user,
-        },
-        "loading approved builders",
-    )
-    .await?;
+    let api = inv.remote()?.api();
+    let builders = api
+        .info::<Vec<Address>>(
+            &ApprovedBuildersRequest {
+                request_type: "approvedBuilders",
+                user,
+            },
+            "loading approved builders",
+        )
+        .await?;
 
     let rows = try_join_all(builders.into_iter().map(|builder| async move {
-        let max_fee_tenths_bps = load_max_fee(api_base_url, user, builder).await?;
+        let max_fee_tenths_bps = load_max_fee(api, user, builder).await?;
         Ok::<_, CliError>(BuilderApprovedRow {
             user: user.to_string(),
             builder: builder.to_string(),
@@ -313,13 +313,8 @@ pub fn approve_dry_run_value(
     }))
 }
 
-async fn load_max_fee(
-    api_base_url: &str,
-    user: Address,
-    builder: Address,
-) -> Result<u64, CliError> {
-    post_info_json::<u64>(
-        api_base_url,
+async fn load_max_fee(api: &ApiClient, user: Address, builder: Address) -> Result<u64, CliError> {
+    api.info::<u64>(
         &MaxBuilderFeeRequest {
             request_type: "maxBuilderFee",
             user,
@@ -344,14 +339,7 @@ pub async fn approve(
 
     let remote = inv.remote()?;
     let chain = remote.chain();
-    submit_approval(
-        remote.api_base_url(),
-        chain,
-        signer,
-        builder,
-        &args.max_fee_rate,
-    )
-    .await?;
+    submit_approval(remote.api(), signer, builder, &args.max_fee_rate).await?;
 
     inv.print(&BuilderApproveOutput {
         row: approve_output_row(
@@ -366,12 +354,12 @@ pub async fn approve(
 }
 
 pub async fn submit_approval(
-    api_base_url: &str,
-    chain: Chain,
+    api: &ApiClient,
     signer: &SelectedSigner,
     builder: Address,
     max_fee_rate: &str,
 ) -> Result<u64, anyhow::Error> {
+    let chain = api.chain();
     let max_fee_tenths_bps = validate_max_fee_rate(max_fee_rate)?;
     let nonce = actions::nonce_now();
     let message = ApproveBuilderFeeMessage {
@@ -391,7 +379,7 @@ pub async fn submit_approval(
         nonce,
     };
     actions::send_user_signed_json_action(
-        api_base_url,
+        api,
         serde_json::to_value(action).map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?,
         nonce,
         signature,

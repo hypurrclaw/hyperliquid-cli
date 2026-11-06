@@ -14,6 +14,7 @@ use crate::commands::spot_balances::user_spot_balances_raw;
 use crate::dry_run::ActionReversibility;
 use crate::errors::CliError;
 use crate::errors::from_sdk;
+use crate::http_api::ApiClient;
 use crate::invocation::{Invocation, Remote};
 use crate::mode::Mode;
 use crate::output::TableData;
@@ -345,7 +346,7 @@ pub async fn send(
     args: &SendArgs,
 ) -> Result<(), anyhow::Error> {
     let remote = inv.remote()?;
-    let (api_base_url, chain, client) = (remote.api_base_url(), remote.chain(), remote.client());
+    let (api, chain, client) = (remote.api(), remote.chain(), remote.api().sdk());
     validate_positive_amount(args.amount)?;
     let destination = parse_address(&args.to, "--to")?;
     ensure_perp_balance(client, balance_user, args.amount).await?;
@@ -374,7 +375,7 @@ pub async fn send(
         }
         .into_action(chain),
     );
-    actions::send_l1_action(api_base_url, chain, signer, action, nonce).await?;
+    actions::send_l1_action(api, signer, action, nonce).await?;
 
     print_transfer(
         inv,
@@ -393,7 +394,7 @@ pub async fn spot_send(
     args: &SpotSendArgs,
 ) -> Result<(), anyhow::Error> {
     let remote = inv.remote()?;
-    let (api_base_url, chain, client) = (remote.api_base_url(), remote.chain(), remote.client());
+    let (api, chain, client) = (remote.api(), remote.chain(), remote.api().sdk());
     validate_spot_send_args(args)?;
     let destination = parse_address(&args.to, "--to")?;
     let token = resolve_spot_token(client, &args.token).await?;
@@ -425,7 +426,7 @@ pub async fn spot_send(
     }
     .into_action(chain);
     let action = Action::SpotSend(spot_send);
-    actions::send_l1_action(api_base_url, chain, signer, action, nonce).await?;
+    actions::send_l1_action(api, signer, action, nonce).await?;
 
     print_transfer(
         inv,
@@ -461,7 +462,7 @@ pub async fn execute_send_asset(
     signer: &SelectedSigner,
     args: &SendAssetArgs,
 ) -> Result<String, anyhow::Error> {
-    let (api_base_url, chain, client) = (remote.api_base_url(), remote.chain(), remote.client());
+    let (api, chain, client) = (remote.api(), remote.chain(), remote.api().sdk());
     validate_send_asset_args(args)?;
     let destination = parse_address(&args.to, "--to")?;
     let token = resolve_spot_token(client, &args.token).await?;
@@ -498,7 +499,7 @@ pub async fn execute_send_asset(
     }
     .into_action(chain);
     let action = Action::SendAsset(send_asset);
-    actions::send_l1_action(api_base_url, chain, signer, action, nonce).await?;
+    actions::send_l1_action(api, signer, action, nonce).await?;
     Ok(token.name)
 }
 
@@ -510,7 +511,7 @@ pub async fn withdraw(
     args: &WithdrawArgs,
 ) -> Result<(), anyhow::Error> {
     let remote = inv.remote()?;
-    let (api_base_url, chain, client) = (remote.api_base_url(), remote.chain(), remote.client());
+    let (api, chain, client) = (remote.api(), remote.chain(), remote.api().sdk());
     validate_positive_amount(args.amount)?;
     let destination = parse_address(&args.to, "--to")?;
     ensure_perp_balance(client, balance_user, args.amount).await?;
@@ -551,7 +552,7 @@ pub async fn withdraw(
         time: nonce,
     };
     actions::send_user_signed_json_action(
-        api_base_url,
+        api,
         serde_json::to_value(action).map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?,
         nonce,
         signature,
@@ -670,10 +671,10 @@ async fn class_transfer(
     yes: bool,
 ) -> Result<(), anyhow::Error> {
     let remote = inv.remote()?;
-    let (api_base_url, chain, client) = (remote.api_base_url(), remote.chain(), remote.client());
+    let (api, chain, client) = (remote.api(), remote.chain(), remote.api().sdk());
     validate_positive_amount(amount)?;
     if to_perp {
-        ensure_spot_usdc_balance(client, balance_user, amount).await?;
+        ensure_spot_usdc_balance(api, balance_user, amount).await?;
     } else {
         ensure_perp_balance(client, balance_user, amount).await?;
     }
@@ -709,7 +710,7 @@ async fn class_transfer(
         nonce,
     };
     actions::send_user_signed_json_action(
-        api_base_url,
+        api,
         serde_json::to_value(action).map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?,
         nonce,
         signature,
@@ -722,11 +723,11 @@ async fn class_transfer(
 }
 
 async fn ensure_spot_usdc_balance(
-    client: &HttpClient,
+    api: &ApiClient,
     user: Address,
     amount: Decimal,
 ) -> Result<(), CliError> {
-    let available = user_spot_balances_raw(client, user)
+    let available = user_spot_balances_raw(api, user)
         .await?
         .into_iter()
         .find(|balance| balance.coin.eq_ignore_ascii_case("USDC"))

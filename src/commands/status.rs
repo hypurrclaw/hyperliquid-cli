@@ -50,7 +50,7 @@ impl TableData for StatusOutput {
 /// Query lightweight public endpoints and render API health/rate-limit status.
 pub async fn show(inv: &Invocation) -> Result<(), anyhow::Error> {
     let remote = inv.remote()?;
-    let client = remote.client();
+    let client = remote.api().sdk();
     let probe_start = Instant::now();
     let perps = client.perps().await.map_err(from_sdk)?;
     let mids = client.all_mids(None).await.map_err(from_sdk)?;
@@ -58,7 +58,7 @@ pub async fn show(inv: &Invocation) -> Result<(), anyhow::Error> {
 
     inv.print(&StatusOutput {
         network: remote.network().to_string(),
-        api_url: remote.api_base_url().to_string(),
+        api_url: remote.api().base_url().to_string(),
         health: "healthy".to_string(),
         latency_ms: latency.as_millis(),
         perps_count: perps.len(),

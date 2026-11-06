@@ -349,7 +349,7 @@ impl TableData for PositionActionOutput {
 
 /// List authenticated user's open positions.
 pub async fn list(inv: &Invocation, user: Address) -> Result<(), anyhow::Error> {
-    inv.print(&list_snapshot(inv.remote()?.client(), user).await?);
+    inv.print(&list_snapshot(inv.remote()?.api().sdk(), user).await?);
     Ok(())
 }
 
@@ -392,8 +392,7 @@ pub async fn submit_update_leverage(
 ) -> Result<(), anyhow::Error> {
     let remote = inv.remote()?;
     actions::send_l1_action(
-        remote.api_base_url(),
-        remote.chain(),
+        remote.api(),
         signer,
         prepared.action(),
         actions::nonce_now(),
@@ -437,8 +436,7 @@ pub async fn submit_update_margin(
 ) -> Result<(), anyhow::Error> {
     let remote = inv.remote()?;
     actions::send_l1_action(
-        remote.api_base_url(),
-        remote.chain(),
+        remote.api(),
         signer,
         prepared.action(),
         actions::nonce_now(),

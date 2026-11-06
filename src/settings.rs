@@ -439,13 +439,6 @@ impl Settings {
         Ok(None)
     }
 
-    /// The URL the API client talks to: the override, else the public endpoint.
-    pub fn api_base_url(&self, network: Network) -> Result<String, CliError> {
-        Ok(self
-            .api_base_url_override(network)?
-            .map_or_else(|| network.api_base_url().to_string(), |url| url.to_string()))
-    }
-
     pub fn default_wallet_id(&self) -> Result<Option<&str>, CliError> {
         Ok(self
             .config()?
@@ -749,10 +742,6 @@ mod tests {
                 .unwrap()
                 .as_str(),
             "http://127.0.0.1:4011/"
-        );
-        assert_eq!(
-            settings(&[], None).api_base_url(Network::Mainnet).unwrap(),
-            "https://api.hyperliquid.xyz"
         );
     }
 

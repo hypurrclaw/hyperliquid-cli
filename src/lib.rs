@@ -11,7 +11,7 @@ pub mod commands;
 pub mod config;
 pub mod dry_run;
 pub mod errors;
-pub(crate) mod http_api;
+pub mod http_api;
 pub mod input_hardening;
 pub mod invocation;
 pub mod legacy_accounts;

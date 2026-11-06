@@ -13,6 +13,6 @@ pub use market::{Market, OutcomeAsset, PerpAsset, SpotAsset};
 pub use metadata::{
     AssetMetadata, CachedMetadata, METADATA_TTL, MetadataCache, SpotListing, load_spot_markets,
 };
-pub(crate) use metadata::{find_perp_dex, load_hip3_market, raw_info_base_url};
+pub(crate) use metadata::{find_perp_dex, load_hip3_market};
 pub use query::{AssetQuery, parse_asset_query, qualify_dex_asset};
 pub use resolver::{AssetError, AssetResolver, suggestions};

@@ -11,7 +11,7 @@ use crate::assets::asset_id::{
     outcome_asset_id, outcome_coin, outcome_encoding, outcome_token, parse_outcome_notation,
 };
 use crate::errors::CliError;
-use crate::http_api::post_info_json;
+use crate::http_api::ApiClient;
 use crate::invocation::Invocation;
 use crate::output::TableData;
 
@@ -127,7 +127,7 @@ impl TableData for OutcomeSideOutput {
 }
 
 pub async fn list(inv: &Invocation, args: &OutcomeListArgs) -> Result<(), anyhow::Error> {
-    let mut rows = outcome_side_rows(inv.remote()?.api_base_url()).await?;
+    let mut rows = outcome_side_rows(inv.remote()?.api()).await?;
     rows.truncate(args.limit);
     inv.print(&OutcomeSidesOutput::new(rows));
     Ok(())
@@ -135,7 +135,7 @@ pub async fn list(inv: &Invocation, args: &OutcomeListArgs) -> Result<(), anyhow
 
 pub async fn get(inv: &Invocation, args: &OutcomeGetArgs) -> Result<(), anyhow::Error> {
     let parsed = parse_outcome_notation(&args.notation)?;
-    let row = outcome_side_rows(inv.remote()?.api_base_url())
+    let row = outcome_side_rows(inv.remote()?.api())
         .await?
         .into_iter()
         .find(|row| row.encoding == parsed.encoding)
@@ -149,15 +149,15 @@ pub async fn get(inv: &Invocation, args: &OutcomeGetArgs) -> Result<(), anyhow::
     Ok(())
 }
 
-pub async fn outcome_side_rows(api_base_url: &str) -> Result<Vec<OutcomeSideRow>, CliError> {
-    let response = post_info_json::<OutcomeMetaResponse>(
-        api_base_url,
-        &OutcomeMetaRequest {
-            request_type: "outcomeMeta",
-        },
-        "loading outcome metadata",
-    )
-    .await?;
+pub async fn outcome_side_rows(api: &ApiClient) -> Result<Vec<OutcomeSideRow>, CliError> {
+    let response = api
+        .info::<OutcomeMetaResponse>(
+            &OutcomeMetaRequest {
+                request_type: "outcomeMeta",
+            },
+            "loading outcome metadata",
+        )
+        .await?;
     Ok(rows_from_meta(response))
 }
 

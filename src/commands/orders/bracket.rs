@@ -155,7 +155,9 @@ pub async fn bracket(
     let started = Instant::now();
     let cloid = super::generated_cloid(1)?;
     let entry_args = entry_create_args(args, Some(cloid));
-    let plan = prepare_create_order_plan(context.client, context.resolver, &entry_args).await?;
+    let plan =
+        prepare_create_order_plan(context.submission.api.sdk(), context.resolver, &entry_args)
+            .await?;
     let prepared = match plan.submission {
         CreateOrderSubmission::Single(prepared) => prepared,
         CreateOrderSubmission::NormalTpsl(_) => {
@@ -241,7 +243,7 @@ pub async fn bracket(
     let user = vault_address.unwrap_or_else(|| context.submission.signer.query_address());
     while started.elapsed() < timeout {
         tokio::time::sleep(Duration::from_millis(500)).await;
-        let open = match context.client.open_orders(user, None).await {
+        let open = match context.submission.api.sdk().open_orders(user, None).await {
             Ok(open) => open,
             Err(err) => {
                 return Err(report_unprotected(
@@ -496,8 +498,7 @@ async fn cancel_entry(
         }),
     };
     actions::send_l1_action_raw(
-        context.submission.api_base_url,
-        context.submission.chain,
+        context.submission.api,
         context.submission.signer,
         action,
         actions::nonce_now(),

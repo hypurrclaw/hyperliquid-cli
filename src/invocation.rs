@@ -9,14 +9,14 @@
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
-use std::time::Duration;
 
-use hypersdk::hypercore::{Chain, HttpClient};
+use hypersdk::hypercore::Chain;
 
 use crate::assets::{AssetResolver, MetadataCache};
 use crate::auth::{ResolvedSigner, SignerSelection};
 use crate::dry_run::{DryRunEnvelope, DryRunRunContext};
-use crate::errors::{self, CliError};
+use crate::errors::CliError;
+use crate::http_api::ApiClient;
 use crate::mode::Mode;
 use crate::network::Network;
 use crate::output::{OutputFormat, Session, TableData};
@@ -48,9 +48,7 @@ pub struct Remote {
     settings: Settings,
     selection: SignerSelection,
     network: Network,
-    api_base_url_override: Option<reqwest::Url>,
-    api_base_url: String,
-    client: HttpClient,
+    api: ApiClient,
     signer: OnceLock<ResolvedSigner>,
 }
 
@@ -58,13 +56,13 @@ impl std::fmt::Debug for Remote {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Remote")
             .field("network", &self.network)
-            .field("api_base_url", &self.api_base_url)
+            .field("api", &self.api)
             .finish_non_exhaustive()
     }
 }
 
 impl Remote {
-    fn resolve(flags: &InvocationFlags) -> Result<Self, CliError> {
+    fn resolve(flags: &InvocationFlags, announce_retries: bool) -> Result<Self, CliError> {
         let settings = Settings::from_process();
         let network = settings.network(flags.testnet)?;
         let signer = &flags.signer;
@@ -76,19 +74,12 @@ impl Remote {
             signer.account.clone(),
             signer.ows_signer.clone(),
         )?;
-        let api_base_url_override = settings.api_base_url_override(network)?;
-        let client = network.http_client(api_base_url_override.clone());
-        let api_base_url = api_base_url_override.as_ref().map_or_else(
-            || network.api_base_url().to_string(),
-            std::string::ToString::to_string,
-        );
+        let api = ApiClient::from_settings(&settings, network, announce_retries)?;
         Ok(Self {
             settings,
             selection,
             network,
-            api_base_url_override,
-            api_base_url,
-            client,
+            api,
             signer: OnceLock::new(),
         })
     }
@@ -113,57 +104,10 @@ impl Remote {
         self.network.chain()
     }
 
-    /// The URL the API client talks to: the loopback override, else the public endpoint.
+    /// The one HTTP edge to the Hyperliquid API.
     #[must_use]
-    pub fn api_base_url(&self) -> &str {
-        &self.api_base_url
-    }
-
-    #[must_use]
-    pub fn client(&self) -> &HttpClient {
-        &self.client
-    }
-
-    #[must_use]
-    pub fn has_api_base_url_override(&self) -> bool {
-        self.api_base_url_override.is_some()
-    }
-
-    /// Probe a loopback API override with an `allMids` read before any command uses it.
-    pub async fn validate_api_override(&self) -> Result<(), CliError> {
-        let Some(api_base_url) = self.api_base_url_override.as_ref() else {
-            return Ok(());
-        };
-
-        let mut url = api_base_url.clone();
-        url.set_path("/info");
-        url.set_query(None);
-
-        let response = reqwest::Client::builder()
-            .timeout(Duration::from_secs(5))
-            .build()
-            .map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?
-            .post(url)
-            .json(&serde_json::json!({ "type": "allMids" }))
-            .send()
-            .await
-            .map_err(|err| errors::network_error(&err, Some(Duration::from_secs(5))))?;
-
-        let status = response.status();
-        let body = response
-            .text()
-            .await
-            .map_err(|err| errors::network_error(&err, Some(Duration::from_secs(5))))?;
-
-        if errors::http_response_indicates_rate_limit(status.as_u16(), &body) {
-            return Err(CliError::rate_limited());
-        }
-
-        if !status.is_success() {
-            return Err(CliError::api_status(status, &body));
-        }
-
-        Ok(())
+    pub fn api(&self) -> &ApiClient {
+        &self.api
     }
 }
 
@@ -271,8 +215,20 @@ impl Invocation {
         if let Some(remote) = self.remote.get() {
             return Ok(remote);
         }
-        let remote = Remote::resolve(&self.flags)?;
+        let remote = Remote::resolve(&self.flags, self.announces_retries())?;
         Ok(self.remote.get_or_init(|| remote))
+    }
+
+    /// An API client for `network`, for `setup`, which may pick another network
+    /// than the run resolved.
+    pub fn api_client_for(&self, network: Network) -> Result<ApiClient, CliError> {
+        ApiClient::from_settings(self.remote()?.settings(), network, self.announces_retries())
+    }
+
+    /// Read retries are announced to a person at a terminal, never to JSON,
+    /// agent, CI, non-interactive or payload-on-stdin runs.
+    fn announces_retries(&self) -> bool {
+        self.session.env().stderr_tty && self.mode.can_prompt()
     }
 
     /// The selected signer, resolved once per run. A failed resolution is not cached.
@@ -320,11 +276,7 @@ impl Invocation {
 
     /// Asset metadata through the per-run cache.
     pub async fn asset_resolver(&self) -> Result<AssetResolver, CliError> {
-        let remote = self.remote()?;
-        let metadata = self
-            .metadata
-            .get_or_load(remote.chain(), remote.client())
-            .await?;
+        let metadata = self.metadata.get_or_load(self.remote()?.api()).await?;
         Ok(AssetResolver::new(metadata))
     }
 
@@ -333,7 +285,90 @@ impl Invocation {
     pub async fn trading_resolver(&self) -> Result<AssetResolver, CliError> {
         match self.asset_resolver().await {
             Ok(resolver) => Ok(resolver),
-            Err(_) => AssetResolver::load_raw(self.remote()?.api_base_url()).await,
+            Err(_) => AssetResolver::load_raw(self.remote()?.api()).await,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::output::JsonRenderOptions;
+    use crate::output::terminal::OutputEnv;
+
+    fn invocation(format: OutputFormat, env: OutputEnv, flags: InvocationFlags) -> Invocation {
+        Invocation::new(
+            Session::new(format, JsonRenderOptions::default(), env),
+            flags,
+        )
+    }
+
+    fn terminal() -> OutputEnv {
+        OutputEnv {
+            stdout_tty: true,
+            stderr_tty: true,
+            ..OutputEnv::default()
+        }
+    }
+
+    #[test]
+    fn retry_notices_are_for_a_person_at_a_terminal_who_may_be_prompted() {
+        let flags = InvocationFlags::default();
+        assert!(invocation(OutputFormat::Pretty, terminal(), flags.clone()).announces_retries());
+
+        let cases = [
+            (
+                "stderr piped",
+                OutputFormat::Pretty,
+                OutputEnv {
+                    stderr_tty: false,
+                    ..terminal()
+                },
+                flags.clone(),
+            ),
+            ("json", OutputFormat::Json, terminal(), flags.clone()),
+            (
+                "agent",
+                OutputFormat::Pretty,
+                OutputEnv {
+                    agent: true,
+                    ..terminal()
+                },
+                flags.clone(),
+            ),
+            (
+                "ci",
+                OutputFormat::Pretty,
+                OutputEnv {
+                    ci: true,
+                    ..terminal()
+                },
+                flags.clone(),
+            ),
+            (
+                "non-interactive",
+                OutputFormat::Pretty,
+                terminal(),
+                InvocationFlags {
+                    non_interactive: true,
+                    ..flags.clone()
+                },
+            ),
+            (
+                "payload on stdin",
+                OutputFormat::Pretty,
+                terminal(),
+                InvocationFlags {
+                    payload_from_stdin: true,
+                    ..flags
+                },
+            ),
+        ];
+        for (name, format, env, flags) in cases {
+            assert!(
+                !invocation(format, env, flags).announces_retries(),
+                "{name}"
+            );
         }
     }
 }

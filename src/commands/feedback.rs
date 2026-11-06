@@ -7,7 +7,8 @@ use clap::{ArgGroup, Args};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::errors::{self, CliError};
+use crate::errors::CliError;
+use crate::http_api;
 use crate::invocation::Invocation;
 use crate::output::TableData;
 use crate::response_sanitization::labelled_untrusted_text;
@@ -134,14 +135,7 @@ pub async fn submit(inv: &Invocation, args: &FeedbackArgs) -> Result<(), anyhow:
         .map_err(|err| CliError::Unavailable(format!("failed to read feedback response: {err}")))?;
 
     if !status.is_success() {
-        if errors::http_response_indicates_rate_limit(status.as_u16(), &body) {
-            return Err(CliError::rate_limited().into());
-        }
-        return Err(CliError::Unavailable(format!(
-            "feedback service returned HTTP {status}. {}",
-            labelled_untrusted_text(&body)
-        ))
-        .into());
+        return Err(http_api::failed_reply(status, &body).into());
     }
 
     inv.print(&feedback_output_from_body(&body)?);

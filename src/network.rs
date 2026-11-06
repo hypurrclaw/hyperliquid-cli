@@ -37,11 +37,6 @@ impl Network {
         }
     }
 
-    #[must_use]
-    pub fn from_chain(chain: Chain) -> Self {
-        Self::from_testnet(!chain.is_mainnet())
-    }
-
     /// An info/exchange client for this network, pointed at `api_override` when given.
     #[must_use]
     pub fn http_client(self, api_override: Option<reqwest::Url>) -> HttpClient {
@@ -58,6 +53,15 @@ impl Network {
         match self {
             Self::Mainnet => "https://api.hyperliquid.xyz",
             Self::Testnet => "https://api.hyperliquid-testnet.xyz",
+        }
+    }
+
+    /// The public API endpoint as a URL, before any loopback test override.
+    #[must_use]
+    pub fn api_url(self) -> reqwest::Url {
+        match self {
+            Self::Mainnet => hypersdk::hypercore::mainnet_url(),
+            Self::Testnet => hypersdk::hypercore::testnet_url(),
         }
     }
 
@@ -129,7 +133,6 @@ mod tests {
     fn chain_and_url_mapping() {
         assert!(Network::Mainnet.chain().is_mainnet());
         assert!(!Network::Testnet.chain().is_mainnet());
-        assert_eq!(Network::from_chain(Chain::Testnet), Network::Testnet);
         assert_eq!(
             Network::Mainnet.api_base_url(),
             "https://api.hyperliquid.xyz"

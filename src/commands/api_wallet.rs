@@ -11,7 +11,6 @@ use crate::auth;
 use crate::commands::actions;
 use crate::errors::CliError;
 use crate::errors::from_sdk;
-use crate::http_api::post_exchange_json;
 use crate::invocation::Invocation;
 use crate::output::{OutputFormat, TableData};
 use crate::signing::SelectedSigner;
@@ -282,7 +281,8 @@ pub async fn approve(
 pub async fn list(inv: &Invocation, master_address: Address) -> Result<(), anyhow::Error> {
     let rows = inv
         .remote()?
-        .client()
+        .api()
+        .sdk()
         .api_agents(master_address)
         .await
         .map_err(from_sdk)?
@@ -375,7 +375,7 @@ async fn approve_prepared(
     let signer = runtime.signer.ok_or(CliError::AuthRequired)?;
     let master_address = signer.address();
     let request = signer.sign_l1_action_sync(Action::ApproveAgent(approval), nonce, None, chain)?;
-    let response = post_exchange_json::<Response>(remote.api_base_url(), &request, "").await?;
+    let response = remote.api().exchange::<Response>(&request).await?;
     actions::ensure_default_response(response, "approveAgent action failed")?;
 
     let private_key = prepared.generated_private_key;

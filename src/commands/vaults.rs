@@ -13,7 +13,7 @@ use crate::commands::actions;
 use crate::dry_run::ActionReversibility;
 use crate::errors::CliError;
 use crate::errors::from_sdk;
-use crate::http_api::post_info_json;
+use crate::http_api::ApiClient;
 use crate::invocation::Invocation;
 use crate::output::{self, TableData};
 use crate::signing::SelectedSigner;
@@ -421,7 +421,7 @@ impl TableData for VaultTransferOutput {
 /// Get vault details.
 pub async fn get(inv: &Invocation, address: &str) -> Result<(), anyhow::Error> {
     let vault = parse_address(address)?;
-    let row = raw_vault_details_row(inv.remote()?.api_base_url(), vault).await?;
+    let row = raw_vault_details_row(inv.remote()?.api(), vault).await?;
     inv.print(&VaultDetailsOutput { row });
     Ok(())
 }
@@ -429,7 +429,7 @@ pub async fn get(inv: &Invocation, address: &str) -> Result<(), anyhow::Error> {
 /// List vault summaries.
 pub async fn list(inv: &Invocation, args: &VaultListArgs) -> Result<(), anyhow::Error> {
     let user = validate_list_args(args)?;
-    let mut rows = vault_summary_rows(inv.remote()?.api_base_url(), user).await?;
+    let mut rows = vault_summary_rows(inv.remote()?.api(), user).await?;
     rows.retain(|row| args.kind.matches(&row.kind));
     sort_vault_rows(&mut rows, args.sort);
     rows.truncate(args.limit);
@@ -441,7 +441,7 @@ pub async fn list(inv: &Invocation, args: &VaultListArgs) -> Result<(), anyhow::
 pub async fn search(inv: &Invocation, args: &VaultSearchArgs) -> Result<(), anyhow::Error> {
     let user = validate_search_args(args)?;
     let query = args.query.to_ascii_lowercase();
-    let mut rows = vault_summary_rows(inv.remote()?.api_base_url(), user)
+    let mut rows = vault_summary_rows(inv.remote()?.api(), user)
         .await?
         .into_iter()
         .filter(|row| {
@@ -461,7 +461,8 @@ pub async fn positions(inv: &Invocation, address: &str) -> Result<(), anyhow::Er
     let vault = parse_address(address)?;
     let rows = inv
         .remote()?
-        .client()
+        .api()
+        .sdk()
         .clearinghouse_state(vault, None)
         .await
         .map_err(from_sdk)?
@@ -583,7 +584,7 @@ async fn transfer(
     action_kind: VaultTransferActionKind,
 ) -> Result<(), anyhow::Error> {
     let remote = inv.remote()?;
-    let (api_base_url, chain) = (remote.api_base_url(), remote.chain());
+    let (api, chain) = (remote.api(), remote.chain());
     let vault = parse_address(&args.vault)?;
     let usd = validate_usdc_amount(args.amount)?;
     let nonce = actions::nonce_now();
@@ -593,7 +594,7 @@ async fn transfer(
         usd,
     });
 
-    actions::send_l1_action(api_base_url, chain, signer, hl_action, nonce).await?;
+    actions::send_l1_action(api, signer, hl_action, nonce).await?;
 
     inv.print(&VaultTransferOutput {
         row: VaultTransferConfirmation {
@@ -670,44 +671,36 @@ struct RawVaultDetails {
 }
 
 async fn raw_vault_details_row(
-    api_base_url: &str,
+    api: &ApiClient,
     vault: Address,
 ) -> Result<VaultDetailsRow, CliError> {
-    let details: RawVaultDetails = match post_info_json(
-        api_base_url,
-        &RawVaultDetailsRequest {
-            request_type: "vaultDetails",
-            vault_address: vault,
-        },
-        "fetching vault details",
-    )
-    .await
-    {
-        Ok(details) => details,
-        Err(err) if is_null_object_decode(&err) => {
-            return Err(CliError::Unsupported(format!(
-                "vault details not found for {}",
-                vault
-            )));
-        }
-        Err(err) => return Err(err),
-    };
+    // The exchange answers `null` for an address that is not a vault.
+    let details = api
+        .info::<Option<RawVaultDetails>>(
+            &RawVaultDetailsRequest {
+                request_type: "vaultDetails",
+                vault_address: vault,
+            },
+            "fetching vault details",
+        )
+        .await?
+        .ok_or_else(|| CliError::Unsupported(format!("vault details not found for {vault}")))?;
     details.into_row(vault)
 }
 
 async fn vault_summary_rows(
-    api_base_url: &str,
+    api: &ApiClient,
     user: Option<Address>,
 ) -> Result<Vec<VaultSummaryRow>, CliError> {
-    let summaries: Vec<RawVaultSummary> = post_info_json(
-        api_base_url,
-        &RawVaultSummariesRequest {
-            request_type: "vaultSummaries",
-            user,
-        },
-        "fetching vault summaries",
-    )
-    .await?;
+    let summaries: Vec<RawVaultSummary> = api
+        .info(
+            &RawVaultSummariesRequest {
+                request_type: "vaultSummaries",
+                user,
+            },
+            "fetching vault summaries",
+        )
+        .await?;
     summaries
         .into_iter()
         .map(RawVaultSummary::into_row)
@@ -823,13 +816,6 @@ fn decimal_field(value: &Value, field: &'static str) -> Result<Decimal, CliError
 fn parse_decimal_text(raw: &str) -> Result<Decimal, rust_decimal::Error> {
     raw.parse::<Decimal>()
         .or_else(|_| Decimal::from_scientific(raw))
-}
-
-fn is_null_object_decode(err: &CliError) -> bool {
-    let message = err.to_string();
-    message.contains("invalid type: null")
-        && message.contains("expected struct RawVaultDetails")
-        && message.contains("body=[untrusted remote data] null")
 }
 
 fn raw_portfolio_summary(portfolio: &Value) -> (Vec<String>, Option<Decimal>) {

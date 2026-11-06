@@ -1,10 +1,10 @@
-use hypersdk::hypercore::HttpClient;
 use hypersdk::{Address, Decimal};
 use serde_json::json;
 
 use crate::commands::account::fetch_abstraction;
 use crate::commands::transfers::{self, SendAssetArgs};
 use crate::errors::CliError;
+use crate::http_api::ApiClient;
 use crate::invocation::Remote;
 use crate::mode::Mode;
 use crate::signing::SelectedSigner;
@@ -31,8 +31,7 @@ impl Hip3MarginPlan {
 }
 
 pub async fn plan_hip3_margin_transfer(
-    client: &HttpClient,
-    api_base_url: &str,
+    api: &ApiClient,
     user: Address,
     dex: Option<&str>,
     notional: Decimal,
@@ -44,7 +43,7 @@ pub async fn plan_hip3_margin_transfer(
         return Ok(None);
     }
 
-    let Ok(abstraction) = fetch_abstraction(api_base_url, &user.to_string()).await else {
+    let Ok(abstraction) = fetch_abstraction(api, &user.to_string()).await else {
         return Ok(None);
     };
     if matches!(
@@ -62,7 +61,8 @@ pub async fn plan_hip3_margin_transfer(
         return Ok(None);
     }
 
-    let dest_available = client
+    let dest_available = api
+        .sdk()
         .clearinghouse_state(user, Some(dest_dex.to_string()))
         .await
         .map(|state| state.withdrawable)

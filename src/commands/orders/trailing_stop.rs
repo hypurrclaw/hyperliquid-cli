@@ -239,8 +239,7 @@ pub async fn trailing_stop(
         .into());
     }
     let response = actions::send_l1_action_raw(
-        context.api_base_url,
-        context.chain,
+        context.api,
         context.signer,
         Action::TrailingStop(plan.action.clone()),
         actions::nonce_now(),

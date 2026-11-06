@@ -121,7 +121,8 @@ impl TableData for PriorityBidOutput {
 pub async fn status(inv: &Invocation) -> Result<(), anyhow::Error> {
     let status = inv
         .remote()?
-        .client()
+        .api()
+        .sdk()
         .gossip_priority_auction_status()
         .await
         .map_err(from_sdk)?;
@@ -159,8 +160,8 @@ pub async fn bid(
     args: &BidArgs,
 ) -> Result<(), anyhow::Error> {
     let remote = inv.remote()?;
-    let client = remote.client();
-    let api_base_url = remote.api_base_url();
+    let client = remote.api().sdk();
+    let api = remote.api();
     if args.max <= Decimal::ZERO {
         return Err(
             CliError::Configuration("prio bid requires --max to be positive".to_string()).into(),
@@ -214,8 +215,7 @@ pub async fn bid(
 
     let bid = if current > 0 { current + 1 } else { max_gas };
     let response = send_l1_action_raw(
-        api_base_url,
-        remote.chain(),
+        api,
         signer,
         Action::GossipPriorityBid(GossipPriorityBid {
             slot_id: args.slot,

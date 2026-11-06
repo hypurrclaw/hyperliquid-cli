@@ -6,12 +6,12 @@
 
 use clap::Args;
 use hypersdk::Address;
-use hypersdk::hypercore::HttpClient;
 use serde::Serialize;
 
 use crate::commands::{builder, referral, wallet};
 use crate::errors::CliError;
 use crate::errors::from_sdk;
+use crate::http_api::ApiClient;
 use crate::invocation::Invocation;
 use crate::mode::Mode;
 use crate::network::Network;
@@ -160,7 +160,8 @@ pub async fn run(inv: &Invocation, args: &SetupArgs) -> Result<(), anyhow::Error
 
     // Verify connection and collect fallible defaults before creating any local
     // wallet state so failures do not leave orphaned wallets behind.
-    let connection = verify_connection(settings, network).await?;
+    let api = inv.api_client_for(network)?;
+    let connection = verify_connection(&api).await?;
     eprintln!("{connection}");
     let builder_suggestion = builder::suggested_default_builder(settings)?;
     let builder_defaults = if args.yes {
@@ -245,8 +246,7 @@ pub async fn run(inv: &Invocation, args: &SetupArgs) -> Result<(), anyhow::Error
     eprintln!("Saved config to {config_path}");
 
     let builder_approval = maybe_approve_default_builder(
-        settings,
-        network,
+        &api,
         approve_builder,
         builder_defaults.as_ref(),
         &stored.info,
@@ -342,8 +342,8 @@ fn print_replay_command(
     eprintln!("    {command}");
 }
 
-async fn verify_connection(settings: &Settings, network: Network) -> Result<String, anyhow::Error> {
-    let client: HttpClient = network.http_client(settings.api_base_url_override(network)?);
+async fn verify_connection(api: &ApiClient) -> Result<String, anyhow::Error> {
+    let client = api.sdk();
     let mids = client.all_mids(None).await.map_err(from_sdk)?;
     Ok(format!(
         "Test query succeeded ({} mid prices returned)",
@@ -441,8 +441,7 @@ fn resolve_builder_approval(
 }
 
 async fn maybe_approve_default_builder(
-    settings: &Settings,
-    network: Network,
+    api: &ApiClient,
     approve: bool,
     builder_defaults: Option<&(String, String)>,
     wallet: &WalletInfo,
@@ -464,15 +463,7 @@ async fn maybe_approve_default_builder(
         signer_address,
         vault.clone(),
     ));
-    let api_base_url = settings.api_base_url(network)?;
-    let approval = builder::submit_approval(
-        &api_base_url,
-        network.chain(),
-        &signer,
-        builder_address,
-        fee,
-    )
-    .await;
+    let approval = builder::submit_approval(api, &signer, builder_address, fee).await;
     match approval {
         Ok(max_fee_tenths_bps) => {
             let message =

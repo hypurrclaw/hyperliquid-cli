@@ -12,17 +12,15 @@ use clap::{Args, Subcommand, ValueEnum};
 use hypersdk::Address;
 use hypersdk::Decimal;
 use hypersdk::hypercore::{
-    AssetPosition, BasicOrder, Chain, ClearinghouseState, Fill, HttpClient, SubAccount,
-    UserVaultEquity,
+    AssetPosition, BasicOrder, Chain, ClearinghouseState, Fill, SubAccount, UserVaultEquity,
 };
 use serde::Serialize;
 
-use crate::assets::raw_info_base_url;
 use crate::commands::actions;
 use crate::commands::spot_balances::{RawSpotBalance, user_spot_balances_raw};
 use crate::errors::CliError;
 use crate::errors::from_sdk;
-use crate::http_api::post_info_json;
+use crate::http_api::ApiClient;
 use crate::invocation::Invocation;
 use crate::mode::Mode;
 use crate::output::{JsonValueOutput, TableData, colors};
@@ -243,13 +241,13 @@ impl TableData for AbstractionSetOutput {
 
 /// Fetch and render fill history for any public address.
 pub async fn fills(inv: &Invocation, address: &str, args: &FillsArgs) -> Result<(), anyhow::Error> {
-    let client = inv.remote()?.client();
+    let api = inv.remote()?.api();
     let user = parse_address(address)?;
     validate_optional_time_range(args.start, args.end)?;
     let fills = if args.start.is_some() || args.aggregate_by_time {
-        user_fills_raw(client, user, args.start, args.end, args.aggregate_by_time).await?
+        user_fills_raw(api, user, args.start, args.end, args.aggregate_by_time).await?
     } else {
-        client
+        api.sdk()
             .user_fills(user)
             .await
             .map_err(from_sdk)?
@@ -263,7 +261,7 @@ pub async fn fills(inv: &Invocation, address: &str, args: &FillsArgs) -> Result<
 
 /// Fetch and render open orders for any public address.
 pub async fn orders(inv: &Invocation, address: &str) -> Result<(), anyhow::Error> {
-    let client = inv.remote()?.client();
+    let client = inv.remote()?.api().sdk();
     let user = parse_address(address)?;
     let orders = client
         .open_orders(user, None)
@@ -278,13 +276,14 @@ pub async fn orders(inv: &Invocation, address: &str) -> Result<(), anyhow::Error
 
 /// Fetch and render a portfolio summary for any public address.
 pub async fn portfolio(inv: &Invocation, address: &str) -> Result<(), anyhow::Error> {
-    let client = inv.remote()?.client();
+    let api = inv.remote()?.api();
+    let client = api.sdk();
     let user = parse_address(address)?;
     let state = client
         .clearinghouse_state(user, None)
         .await
         .map_err(from_sdk)?;
-    let spot_balances = user_balances_raw(client, user).await?;
+    let spot_balances = user_balances_raw(api, user).await?;
     let vault_equities = client.user_vault_equities(user).await.map_err(from_sdk)?;
     inv.print(&PortfolioOutput::new(state, spot_balances, vault_equities));
     Ok(())
@@ -292,16 +291,20 @@ pub async fn portfolio(inv: &Invocation, address: &str) -> Result<(), anyhow::Er
 
 /// Fetch and render subaccounts for any public master address.
 pub async fn subaccounts(inv: &Invocation, address: &str) -> Result<(), anyhow::Error> {
-    let client = inv.remote()?.client();
+    let api = inv.remote()?.api();
     let user = parse_address(address)?;
-    let subaccounts = match client.subaccounts(user).await {
-        Ok(subaccounts) => subaccounts,
-        Err(err) if is_null_sequence_decode(&err) => Vec::new(),
-        Err(err) => return Err(from_sdk(err).into()),
-    }
-    .into_iter()
-    .map(SubaccountRow::from)
-    .collect();
+    let request = UserRequest {
+        request_type: "subAccounts",
+        user,
+    };
+    // The exchange answers `null` for an account without subaccounts.
+    let subaccounts = api
+        .info::<Option<Vec<SubAccount>>>(&request, "loading subaccounts")
+        .await?
+        .unwrap_or_default()
+        .into_iter()
+        .map(SubaccountRow::from)
+        .collect();
     inv.print(&SubaccountsOutput::new(subaccounts));
     Ok(())
 }
@@ -350,7 +353,7 @@ pub async fn twap_fills(
     address: &str,
     args: &TwapFillsArgs,
 ) -> Result<(), anyhow::Error> {
-    let api_base_url = inv.remote()?.api_base_url();
+    let api = inv.remote()?.api();
     let user = parse_address(address)?;
     validate_optional_time_range(args.start, args.end)?;
     let value = if let Some(start_time) = args.start {
@@ -361,18 +364,14 @@ pub async fn twap_fills(
             end_time: args.end,
             aggregate_by_time: args.aggregate_by_time.then_some(true),
         };
-        post_info_json::<serde_json::Value>(
-            api_base_url,
-            &request,
-            "loading TWAP slice fills by time",
-        )
-        .await?
+        api.info::<serde_json::Value>(&request, "loading TWAP slice fills by time")
+            .await?
     } else {
         let request = UserRequest {
             request_type: "userTwapSliceFills",
             user,
         };
-        post_info_json::<serde_json::Value>(api_base_url, &request, "loading TWAP slice fills")
+        api.info::<serde_json::Value>(&request, "loading TWAP slice fills")
             .await?
     };
 
@@ -381,14 +380,14 @@ pub async fn twap_fills(
 }
 
 pub async fn abstraction(inv: &Invocation, address: &str) -> Result<(), anyhow::Error> {
-    let row = fetch_abstraction(inv.remote()?.api_base_url(), address).await?;
+    let row = fetch_abstraction(inv.remote()?.api(), address).await?;
     inv.print(&AbstractionOutput { row });
     Ok(())
 }
 
 /// The account abstraction mode `address` currently has.
 pub async fn fetch_abstraction(
-    api_base_url: &str,
+    api: &ApiClient,
     address: &str,
 ) -> Result<AbstractionRow, anyhow::Error> {
     let user = parse_address(address)?;
@@ -396,8 +395,9 @@ pub async fn fetch_abstraction(
         request_type: "userAbstraction",
         user,
     };
-    let raw_mode =
-        post_info_json::<String>(api_base_url, &request, "loading user abstraction").await?;
+    let raw_mode = api
+        .info::<String>(&request, "loading user abstraction")
+        .await?;
     Ok(AbstractionRow {
         user: user.to_string(),
         normalized_mode: normalize_abstraction_mode(&raw_mode).to_string(),
@@ -435,7 +435,7 @@ pub async fn set_abstraction(
         confirm_account_mode_change(inv.mode(), args.mode, signer.address())?;
     }
     let remote = inv.remote()?;
-    let api_base_url = remote.api_base_url();
+    let api = remote.api();
     let chain = remote.chain();
     let user = signer.address();
     let nonce = actions::nonce_now();
@@ -457,7 +457,7 @@ pub async fn set_abstraction(
         nonce,
     };
     actions::send_user_signed_json_action(
-        api_base_url,
+        api,
         serde_json::to_value(action).map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?,
         nonce,
         signature,
@@ -583,11 +583,8 @@ struct UserTwapSliceFillsByTimeRequest {
     aggregate_by_time: Option<bool>,
 }
 
-async fn user_balances_raw(
-    client: &HttpClient,
-    user: Address,
-) -> Result<Vec<BalanceRow>, CliError> {
-    Ok(user_spot_balances_raw(client, user)
+async fn user_balances_raw(api: &ApiClient, user: Address) -> Result<Vec<BalanceRow>, CliError> {
+    Ok(user_spot_balances_raw(api, user)
         .await?
         .into_iter()
         .map(BalanceRow::from)
@@ -595,7 +592,7 @@ async fn user_balances_raw(
 }
 
 async fn user_fills_raw(
-    client: &HttpClient,
+    api: &ApiClient,
     user: Address,
     start_time: Option<u64>,
     end_time: Option<u64>,
@@ -612,13 +609,12 @@ async fn user_fills_raw(
         end_time,
         aggregate_by_time: aggregate_by_time.then_some(true),
     };
-    let api_url = raw_info_base_url(client)?;
     let context = if start_time.is_some() {
         "loading user fills by time"
     } else {
         "loading user fills"
     };
-    let fills = post_info_json::<Vec<Fill>>(api_url.as_str(), &request, context).await?;
+    let fills = api.info::<Vec<Fill>>(&request, context).await?;
     Ok(fills.into_iter().map(FillRow::from).collect())
 }
 
@@ -628,10 +624,12 @@ async fn print_user_info_value(
     request_type: &'static str,
     empty_message: &'static str,
 ) -> Result<(), anyhow::Error> {
-    let api_base_url = inv.remote()?.api_base_url();
+    let api = inv.remote()?.api();
     let user = parse_address(address)?;
     let request = UserRequest { request_type, user };
-    let value = post_info_json::<serde_json::Value>(api_base_url, &request, request_type).await?;
+    let value = api
+        .info::<serde_json::Value>(&request, request_type)
+        .await?;
     inv.print(&JsonValueOutput::new(value, empty_message));
     Ok(())
 }
@@ -643,7 +641,7 @@ async fn print_user_time_range_info_value(
     args: &TimeRangeArgs,
     empty_message: &'static str,
 ) -> Result<(), anyhow::Error> {
-    let api_base_url = inv.remote()?.api_base_url();
+    let api = inv.remote()?.api();
     let user = parse_address(address)?;
     validate_time_range(args.start, args.end)?;
     let request = UserTimeRangeRequest {
@@ -652,16 +650,11 @@ async fn print_user_time_range_info_value(
         start_time: args.start,
         end_time: args.end,
     };
-    let value = post_info_json::<serde_json::Value>(api_base_url, &request, request_type).await?;
+    let value = api
+        .info::<serde_json::Value>(&request, request_type)
+        .await?;
     inv.print(&JsonValueOutput::new(value, empty_message));
     Ok(())
-}
-
-fn is_null_sequence_decode(err: &anyhow::Error) -> bool {
-    let message = err.to_string();
-    message.contains("invalid type: null")
-        && message.contains("expected a sequence")
-        && message.contains("body=null")
 }
 
 fn format_pretty_pnl(value: Decimal) -> String {
@@ -1526,14 +1519,5 @@ mod tests {
             address.to_string(),
             "0x0000000000000000000000000000000000000001"
         );
-    }
-
-    #[test]
-    fn null_sequence_decode_is_treated_as_empty_subaccount_response() {
-        let err = anyhow::anyhow!(
-            "decode failed: invalid type: null, expected a sequence at line 1 column 4; body=null"
-        );
-
-        assert!(is_null_sequence_decode(&err));
     }
 }

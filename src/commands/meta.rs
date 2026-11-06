@@ -1,15 +1,12 @@
 //! Raw exchange metadata command.
 
-use std::time::Duration;
-
 use hypersdk::Decimal;
-use hypersdk::hypercore::HttpClient;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::assets::{SpotListing, load_spot_markets, raw_info_base_url};
+use crate::assets::{SpotListing, load_spot_markets};
 use crate::errors::CliError;
-use crate::errors::from_sdk;
+use crate::http_api::ApiClient;
 use crate::invocation::Invocation;
 use crate::output::TableData;
 use crate::output::format::thousands;
@@ -205,58 +202,31 @@ enum RawInfoRequest {
 
 /// Fetch and render exchange metadata: perpetual universe, spot universe, asset contexts, and DEXes.
 pub async fn show(inv: &Invocation) -> Result<(), anyhow::Error> {
-    let client = inv.remote()?.client();
-    let raw_meta_and_contexts = fetch_meta_and_asset_contexts(client).await?;
-    let spot_universe = load_spot_universe(client).await?;
-    let dexes = fetch_dexes(client).await?;
+    let api = inv.remote()?.api();
+    let raw_meta_and_contexts = fetch_meta_and_asset_contexts(api).await?;
+    let spot_universe = load_spot_universe(api).await?;
+    let dexes = fetch_dexes(api).await?;
     inv.print(&raw_meta_and_contexts.into_output(spot_universe, dexes));
     Ok(())
 }
 
-async fn fetch_meta_and_asset_contexts(
-    client: &HttpClient,
-) -> Result<MetaAndAssetContexts, CliError> {
-    fetch_raw_info(client, &RawInfoRequest::MetaAndAssetCtxs).await
+async fn fetch_meta_and_asset_contexts(api: &ApiClient) -> Result<MetaAndAssetContexts, CliError> {
+    api.info(
+        &RawInfoRequest::MetaAndAssetCtxs,
+        "loading raw exchange metadata",
+    )
+    .await
 }
 
-async fn fetch_dexes(client: &HttpClient) -> Result<Vec<DexRow>, CliError> {
-    let dexes: Vec<Option<RawPerpDex>> = fetch_raw_info(client, &RawInfoRequest::PerpDexs).await?;
+async fn fetch_dexes(api: &ApiClient) -> Result<Vec<DexRow>, CliError> {
+    let dexes: Vec<Option<RawPerpDex>> = api
+        .info(&RawInfoRequest::PerpDexs, "loading raw exchange metadata")
+        .await?;
     Ok(dexes.into_iter().flatten().map(DexRow::from).collect())
 }
 
-async fn fetch_raw_info<T: serde::de::DeserializeOwned>(
-    client: &HttpClient,
-    request: &RawInfoRequest,
-) -> Result<T, CliError> {
-    let mut api_url = raw_info_base_url(client)?;
-    api_url.set_path("/info");
-
-    let http_client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .tcp_nodelay(true)
-        .build()
-        .map_err(|err| CliError::Internal(anyhow::Error::new(err)))?;
-    let response = http_client
-        .post(api_url)
-        .json(request)
-        .send()
-        .await
-        .map_err(|err| from_sdk(anyhow::Error::new(err)))?;
-    let status = response.status();
-    let text = response
-        .text()
-        .await
-        .map_err(|err| from_sdk(anyhow::Error::new(err)))?;
-
-    if !status.is_success() {
-        return Err(from_sdk(anyhow::anyhow!("HTTP {status} body={text}")));
-    }
-
-    crate::http_api::decode_json(&text, "loading raw exchange metadata")
-}
-
-async fn load_spot_universe(client: &HttpClient) -> Result<Vec<MetaSpotRow>, CliError> {
-    Ok(load_spot_markets(client)
+async fn load_spot_universe(api: &ApiClient) -> Result<Vec<MetaSpotRow>, CliError> {
+    Ok(load_spot_markets(api)
         .await?
         .into_iter()
         .map(MetaSpotRow::from)

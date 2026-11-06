@@ -52,7 +52,7 @@ pub(super) async fn run(
         .into());
     }
 
-    let has_api_override = inv.remote()?.has_api_base_url_override();
+    let has_api_override = inv.remote()?.api().has_override();
     if inv.dry_run() {
         // Signed exchange actions name the signer in their preview. Resolution
         // never prompts; a failure is reported inside the preview instead.
@@ -61,7 +61,7 @@ pub(super) async fn run(
         }));
     }
     if has_api_override && command_uses_api(command_contract.as_ref()) {
-        inv.remote()?.validate_api_override().await?;
+        inv.remote()?.api().probe_override().await?;
     }
 
     dispatch(cli, &inv).await
@@ -1448,8 +1448,7 @@ fn order_submission_context<'a>(
     let remote = inv.remote()?;
     Ok(hyperliquid_cli::commands::orders::OrderSubmissionContext {
         inv,
-        api_base_url: remote.api_base_url(),
-        chain: remote.chain(),
+        api: remote.api(),
         signer,
         require_mainnet_confirmation: remote.network() == Network::Mainnet,
     })
@@ -1462,7 +1461,6 @@ fn order_execution_context<'a>(
 ) -> Result<hyperliquid_cli::commands::orders::OrderExecutionContext<'a>, errors::CliError> {
     Ok(hyperliquid_cli::commands::orders::OrderExecutionContext {
         submission: order_submission_context(inv, signer)?,
-        client: inv.remote()?.client(),
         resolver,
     })
 }
@@ -1499,7 +1497,7 @@ async fn watch_book(
 
 async fn watch_mids(inv: &Invocation, max_ticks: Option<usize>) -> Result<(), anyhow::Error> {
     let remote = inv.remote()?;
-    let client = remote.client();
+    let client = remote.api().sdk();
     let selected = inv.session().json_options().selected_fields();
 
     hyperliquid_cli::watch::run_snapshot_watch(
@@ -1523,7 +1521,7 @@ async fn watch_candles(
     max_ticks: Option<usize>,
 ) -> Result<(), anyhow::Error> {
     let remote = inv.remote()?;
-    let client = remote.client();
+    let client = remote.api().sdk();
     let resolver = std::sync::Arc::new(inv.asset_resolver().await?);
     let subscription_coin = resolve_subscription_coin(&resolver, coin)?;
 
@@ -1554,7 +1552,7 @@ async fn watch_open_orders(
     max_ticks: Option<usize>,
 ) -> Result<(), anyhow::Error> {
     let remote = inv.remote()?;
-    let client = remote.client();
+    let client = remote.api().sdk();
     let resolver = std::sync::Arc::new(inv.asset_resolver().await?);
     let resolved = inv.resolve_signer()?;
     let user = resolved.query_address();
@@ -1577,7 +1575,7 @@ async fn watch_open_orders(
 
 async fn watch_positions(inv: &Invocation, max_ticks: Option<usize>) -> Result<(), anyhow::Error> {
     let remote = inv.remote()?;
-    let client = remote.client();
+    let client = remote.api().sdk();
     let resolved = inv.resolve_signer()?;
     let user = resolved.query_address();
 
@@ -1899,7 +1897,7 @@ async fn create_order(
     args: &hyperliquid_cli::commands::orders::CreateArgs,
 ) -> Result<(), anyhow::Error> {
     hyperliquid_cli::commands::orders::validate_create_args(args)?;
-    let client = inv.remote()?.client();
+    let client = inv.remote()?.api().sdk();
     let resolver = inv.trading_resolver().await?;
     let coin_query = qualify_dex_asset(args.dex.as_deref(), &args.coin);
     let vault_address = resolve_optional_acting_account_target(inv, args.on_behalf_of.as_deref())?;
@@ -1916,14 +1914,8 @@ async fn create_order(
             && let Some(object) = details.as_object_mut()
         {
             let user = vault_address.unwrap_or_else(|| resolved.query_address());
-            if let Some(helper) = maybe_hip3_dry_run_side_effect(
-                client,
-                inv.remote()?.api_base_url(),
-                user,
-                args,
-                object,
-            )
-            .await?
+            if let Some(helper) =
+                maybe_hip3_dry_run_side_effect(inv.remote()?.api(), user, args, object).await?
             {
                 object.insert("side_effects".to_string(), serde_json::json!([helper]));
             }
@@ -1987,7 +1979,7 @@ async fn scale_orders(
     args: &hyperliquid_cli::commands::orders::ScaleArgs,
 ) -> Result<(), anyhow::Error> {
     hyperliquid_cli::commands::orders::validate_scale_args(args)?;
-    let client = inv.remote()?.client();
+    let client = inv.remote()?.api().sdk();
     let resolver = inv.trading_resolver().await?;
     let vault_address = resolve_optional_acting_account_target(inv, args.on_behalf_of.as_deref())?;
     let vault_address_string = vault_address.map(|address| address.to_string());
@@ -2064,7 +2056,7 @@ async fn batch_create_orders(
 ) -> Result<(), anyhow::Error> {
     hyperliquid_cli::commands::orders::validate_batch_create_args(args)?;
     let orders = hyperliquid_cli::commands::orders::read_validated_batch_create_orders(args)?;
-    let client = inv.remote()?.client();
+    let client = inv.remote()?.api().sdk();
     let resolver = inv.trading_resolver().await?;
     let vault_address = resolve_optional_acting_account_target(inv, args.on_behalf_of.as_deref())?;
     let vault_address_string = vault_address.map(|address| address.to_string());
@@ -2104,7 +2096,7 @@ async fn create_tpsl(
     args: &hyperliquid_cli::commands::orders::TpslArgs,
 ) -> Result<(), anyhow::Error> {
     hyperliquid_cli::commands::orders::validate_tpsl_args(args)?;
-    let client = inv.remote()?.client();
+    let client = inv.remote()?.api().sdk();
     let resolver = inv.trading_resolver().await?;
     let coin_query = qualify_dex_asset(args.dex.as_deref(), &args.coin);
     let (resolver, resolved_tpsl_perp) = resolver
@@ -2276,7 +2268,7 @@ async fn create_twap(
     inv: &Invocation,
     args: &hyperliquid_cli::commands::orders::TwapCreateArgs,
 ) -> Result<(), anyhow::Error> {
-    let client = inv.remote()?.client();
+    let client = inv.remote()?.api().sdk();
     let resolver = inv.trading_resolver().await?;
     let coin_query = qualify_dex_asset(args.dex.as_deref(), &args.coin);
     let (resolver, resolved_twap_perp) = resolver
@@ -2328,7 +2320,7 @@ async fn trailing_stop_order(
     args: &hyperliquid_cli::commands::orders::TrailingStopArgs,
 ) -> Result<(), anyhow::Error> {
     hyperliquid_cli::commands::orders::validate_trailing_stop_args(args)?;
-    let client = inv.remote()?.client();
+    let client = inv.remote()?.api().sdk();
     let resolver = inv.trading_resolver().await?;
     let coin_query = qualify_dex_asset(args.dex.as_deref(), &args.coin);
     let (resolver, _) = resolver
@@ -2370,7 +2362,7 @@ async fn cancel_twap(
     inv: &Invocation,
     args: &hyperliquid_cli::commands::orders::TwapCancelArgs,
 ) -> Result<(), anyhow::Error> {
-    let client = inv.remote()?.client();
+    let client = inv.remote()?.api().sdk();
     let resolver = inv.trading_resolver().await?;
     let coin_query = qualify_dex_asset(args.dex.as_deref(), &args.coin);
     let (resolver, _) = resolver
@@ -2645,7 +2637,7 @@ async fn transfer_spot_send(
     args: &hyperliquid_cli::commands::transfers::SpotSendArgs,
 ) -> Result<(), anyhow::Error> {
     hyperliquid_cli::commands::transfers::validate_spot_send_args(args)?;
-    let client = inv.remote()?.client();
+    let client = inv.remote()?.api().sdk();
     let args_json =
         hyperliquid_cli::commands::transfers::spot_send_dry_run_args(client, args).await?;
     if inv.dry_run() {
@@ -2673,7 +2665,7 @@ async fn transfer_send_asset(
     args: &hyperliquid_cli::commands::transfers::SendAssetArgs,
 ) -> Result<(), anyhow::Error> {
     hyperliquid_cli::commands::transfers::validate_send_asset_args(args)?;
-    let client = inv.remote()?.client();
+    let client = inv.remote()?.api().sdk();
     let args_json =
         hyperliquid_cli::commands::transfers::send_asset_dry_run_args(client, args).await?;
     if inv.dry_run() {
@@ -2935,14 +2927,9 @@ async fn borrowlend_action(
     operation: hyperliquid_cli::commands::borrowlend::BorrowLendOperation,
     args: &hyperliquid_cli::commands::borrowlend::ActionArgs,
 ) -> Result<(), anyhow::Error> {
-    let client = inv.remote()?.client();
-    let preview = hyperliquid_cli::commands::borrowlend::action_preview(
-        client,
-        inv.remote()?.chain(),
-        operation,
-        args,
-    )
-    .await?;
+    let preview =
+        hyperliquid_cli::commands::borrowlend::action_preview(inv.remote()?.api(), operation, args)
+            .await?;
     if inv.dry_run() {
         let envelope = signed_action_dry_run_envelope(
             inv,
@@ -3067,8 +3054,7 @@ fn ensure_outcome_coin(coin: &str) -> Result<(), errors::CliError> {
 }
 
 async fn maybe_hip3_dry_run_side_effect(
-    client: &hypersdk::hypercore::HttpClient,
-    api_base_url: &str,
+    api: &hyperliquid_cli::http_api::ApiClient,
     user: hypersdk::Address,
     args: &hyperliquid_cli::commands::orders::CreateArgs,
     preview: &serde_json::Map<String, serde_json::Value>,
@@ -3080,8 +3066,7 @@ async fn maybe_hip3_dry_run_side_effect(
     };
     let notional = preview_notional(preview).unwrap_or(hypersdk::Decimal::ZERO);
     let plan = hyperliquid_cli::commands::orders::plan_hip3_margin_transfer(
-        client,
-        api_base_url,
+        api,
         user,
         Some(dex.as_str()),
         notional,
@@ -3112,7 +3097,7 @@ async fn chase_order(
     args: &hyperliquid_cli::commands::orders::ChaseArgs,
 ) -> Result<(), anyhow::Error> {
     hyperliquid_cli::commands::orders::chase_dry_run_plan(args, None)?;
-    let client = inv.remote()?.client();
+    let client = inv.remote()?.api().sdk();
     let resolver = inv.trading_resolver().await?;
     let vault_address = resolve_optional_acting_account_target(inv, args.on_behalf_of.as_deref())?;
     let vault_address_string = vault_address.map(|address| address.to_string());
@@ -3147,7 +3132,7 @@ async fn bracket_order(
     args: &hyperliquid_cli::commands::orders::BracketArgs,
 ) -> Result<(), anyhow::Error> {
     hyperliquid_cli::commands::orders::validate_bracket_args(args)?;
-    let client = inv.remote()?.client();
+    let client = inv.remote()?.api().sdk();
     let resolver = inv.trading_resolver().await?;
     let vault_address = resolve_optional_acting_account_target(inv, args.on_behalf_of.as_deref())?;
     let vault_address_string = vault_address.map(|address| address.to_string());

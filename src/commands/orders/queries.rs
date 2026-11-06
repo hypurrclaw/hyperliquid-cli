@@ -1,7 +1,6 @@
 use super::*;
 use crate::assets::AssetResolver;
-use crate::errors::http_response_indicates_rate_limit;
-use crate::http_api::{decode_json, post_info_raw};
+use crate::http_api::ApiClient;
 use crate::output::JsonValueOutput;
 
 /// List authenticated user's open orders.
@@ -10,7 +9,7 @@ pub async fn open(
     resolver: &AssetResolver,
     user: Address,
 ) -> Result<(), anyhow::Error> {
-    inv.print(&open_snapshot(inv.remote()?.client(), resolver, user).await?);
+    inv.print(&open_snapshot(inv.remote()?.api().sdk(), resolver, user).await?);
     Ok(())
 }
 
@@ -58,12 +57,11 @@ pub async fn status(
         user,
         oid,
     };
-    let value = post_info_json::<serde_json::Value>(
-        inv.remote()?.api_base_url(),
-        &request,
-        "loading order status",
-    )
-    .await?;
+    let value = inv
+        .remote()?
+        .api()
+        .info::<serde_json::Value>(&request, "loading order status")
+        .await?;
     inv.print(&JsonValueOutput::new(value, "No order status."));
     Ok(())
 }
@@ -83,7 +81,7 @@ pub async fn history(
     resolver: &AssetResolver,
     user: Address,
 ) -> Result<(), anyhow::Error> {
-    let rows = historical_orders(inv.remote()?.client(), user)
+    let rows = historical_orders(inv.remote()?.api(), user)
         .await?
         .into_iter()
         .map(|order| OrderListRow::from(normalize_order_display_coin(resolver, order)))
@@ -119,14 +117,11 @@ impl HistoricalOrderItem {
     }
 }
 
-async fn historical_orders(
-    client: &HttpClient,
-    user: Address,
-) -> Result<Vec<BasicOrder>, CliError> {
-    match client.historical_orders(user).await {
+async fn historical_orders(api: &ApiClient, user: Address) -> Result<Vec<BasicOrder>, CliError> {
+    match api.sdk().historical_orders(user).await {
         Ok(orders) => Ok(orders.into_iter().map(|update| update.order).collect()),
         Err(err) if should_fallback_to_raw_historical_orders(&err) => {
-            historical_orders_raw(client, user).await
+            historical_orders_raw(api, user).await
         }
         Err(err) => Err(from_sdk(err)),
     }
@@ -145,27 +140,16 @@ fn should_fallback_to_raw_historical_orders(err: &anyhow::Error) -> bool {
 }
 
 async fn historical_orders_raw(
-    client: &HttpClient,
+    api: &ApiClient,
     user: Address,
 ) -> Result<Vec<BasicOrder>, CliError> {
-    let api_url = crate::assets::raw_info_base_url(client)?;
     let request = HistoricalOrdersRequest {
         request_type: "historicalOrders",
         user,
     };
-    let response = post_info_raw(api_url.as_str(), &request).await?;
-    let status = response.status;
-    let body = response.body;
-
-    if http_response_indicates_rate_limit(status.as_u16(), &body) {
-        return Err(CliError::rate_limited());
-    }
-
-    if !status.is_success() {
-        return Err(from_sdk(anyhow::anyhow!("HTTP {status} body={body}")));
-    }
-
-    let items = decode_json::<Vec<HistoricalOrderItem>>(&body, "loading historical orders")?;
+    let items = api
+        .info::<Vec<HistoricalOrderItem>>(&request, "loading historical orders")
+        .await?;
     Ok(items
         .into_iter()
         .map(HistoricalOrderItem::into_order)

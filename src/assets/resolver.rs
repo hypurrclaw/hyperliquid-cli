@@ -5,6 +5,7 @@ use hypersdk::hypercore::HttpClient;
 use strsim::levenshtein;
 
 use crate::errors::CliError;
+use crate::http_api::ApiClient;
 
 use super::asset_id;
 use super::market::{Market, OutcomeAsset, PerpAsset, SpotAsset};
@@ -42,8 +43,8 @@ impl AssetResolver {
 
     /// Resolver over metadata loaded from the raw `/info` endpoints.
     /// See [`AssetMetadata::load_raw`].
-    pub async fn load_raw(api_base_url: &str) -> Result<Self, CliError> {
-        AssetMetadata::load_raw(api_base_url).await.map(Self::new)
+    pub async fn load_raw(api: &ApiClient) -> Result<Self, CliError> {
+        AssetMetadata::load_raw(api).await.map(Self::new)
     }
 
     /// Resolve according to the user's asset format.
