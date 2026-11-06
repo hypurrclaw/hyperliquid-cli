@@ -1,18 +1,9 @@
-//! Typed command contract registry.
-//!
-//! This is an inventory and parity layer only. Legacy clap dispatch and command
-//! handlers remain the execution authority until later command-spine migration
-//! issues move behavior behind typed handlers.
-
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::command_handlers::HandlerBinding;
 use crate::command_metadata::{
     CatalogArgMetadata, CatalogCommandMetadata, command_metadata, normalize_arg,
 };
-
-pub const PHASE1_AUTHORITY_DECISION: &str = "Phase 1 keeps src/command_catalog.json as the editable catalog and emits CLI schemas from CommandRegistry until the registry becomes the source file.";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CommandRegistry {
@@ -21,10 +12,6 @@ pub struct CommandRegistry {
 
 impl CommandRegistry {
     pub fn load() -> Result<Self, anyhow::Error> {
-        Self::from_embedded_catalog()
-    }
-
-    pub fn from_embedded_catalog() -> Result<Self, anyhow::Error> {
         let catalog: Catalog = serde_json::from_str(include_str!("command_catalog.json"))?;
         let commands = catalog
             .commands
@@ -35,10 +22,6 @@ impl CommandRegistry {
     }
 
     pub fn commands(&self) -> &[CommandContract] {
-        &self.commands
-    }
-
-    pub fn entries(&self) -> &[CommandContract] {
         &self.commands
     }
 
@@ -71,7 +54,6 @@ pub struct CommandContract {
     pub transport: Vec<Transport>,
     pub ows_signer: OwsSupport,
     pub output_contract: OutputContract,
-    pub handler: HandlerBinding,
     pub one_of_required: Vec<Vec<String>>,
     pub inputs: Vec<InputContract>,
 }
@@ -110,7 +92,6 @@ impl CommandContract {
             transport,
             ows_signer,
             output_contract: output_contract(&command_key, lifecycle, dry_run),
-            handler: HandlerBinding::for_command_key(&command_key),
             one_of_required: command.one_of_required,
             inputs: args.into_iter().map(InputContract::from_catalog).collect(),
         })
@@ -494,18 +475,12 @@ struct CatalogCommand {
     dangerous: bool,
     #[serde(default)]
     aliases: Vec<String>,
-    #[serde(default)]
-    lifecycle: Option<String>,
-    #[serde(default)]
-    risk: Option<String>,
-    #[serde(default)]
-    dry_run: Option<String>,
-    #[serde(default)]
-    raw_payload: Option<String>,
-    #[serde(default)]
-    confirmation: Option<String>,
-    #[serde(default)]
-    ows_signer: Option<String>,
+    lifecycle: String,
+    risk: String,
+    dry_run: String,
+    raw_payload: String,
+    confirmation: String,
+    ows_signer: String,
     description: String,
     #[serde(default)]
     one_of_required: Vec<Vec<String>>,
@@ -547,36 +522,28 @@ impl CatalogCommandMetadata for CatalogCommand {
         &self.aliases
     }
 
-    fn lifecycle(&self) -> Option<&str> {
-        self.lifecycle.as_deref()
+    fn lifecycle(&self) -> &str {
+        &self.lifecycle
     }
 
-    fn risk(&self) -> Option<&str> {
-        self.risk.as_deref()
+    fn risk(&self) -> &str {
+        &self.risk
     }
 
-    fn dry_run(&self) -> Option<&str> {
-        self.dry_run.as_deref()
+    fn dry_run(&self) -> &str {
+        &self.dry_run
     }
 
-    fn raw_payload(&self) -> Option<&str> {
-        self.raw_payload.as_deref()
+    fn raw_payload(&self) -> &str {
+        &self.raw_payload
     }
 
-    fn confirmation(&self) -> Option<&str> {
-        self.confirmation.as_deref()
+    fn confirmation(&self) -> &str {
+        &self.confirmation
     }
 
-    fn ows_signer(&self) -> Option<&str> {
-        self.ows_signer.as_deref()
-    }
-
-    fn auth_required(&self) -> bool {
-        self.auth_required
-    }
-
-    fn dangerous(&self) -> bool {
-        self.dangerous
+    fn ows_signer(&self) -> &str {
+        &self.ows_signer
     }
 }
 
@@ -611,11 +578,10 @@ mod tests {
     use std::collections::BTreeSet;
 
     use super::*;
-    use crate::command_handlers::{HandlerDispatch, HandlerId};
 
     #[test]
     fn registry_enumerates_current_catalog_inventory() {
-        let registry = CommandRegistry::from_embedded_catalog().unwrap();
+        let registry = CommandRegistry::load().unwrap();
         assert_eq!(registry.commands().len(), 121);
         assert!(registry.find_path(&["asset", "decode"]).is_some());
         assert!(registry.find_path(&["asset", "search"]).is_some());
@@ -633,7 +599,7 @@ mod tests {
 
     #[test]
     fn registry_normalizes_option_placeholders_out_of_command_paths() {
-        let registry = CommandRegistry::from_embedded_catalog().unwrap();
+        let registry = CommandRegistry::load().unwrap();
         assert!(
             registry
                 .find_path(&["borrowlend", "supply"])
@@ -643,7 +609,7 @@ mod tests {
 
     #[test]
     fn registry_includes_current_command_families() {
-        let registry = CommandRegistry::from_embedded_catalog().unwrap();
+        let registry = CommandRegistry::load().unwrap();
         let groups = registry
             .commands()
             .iter()
@@ -665,237 +631,5 @@ mod tests {
         ] {
             assert!(groups.contains(group), "missing command group {group}");
         }
-    }
-
-    #[test]
-    fn registry_binds_low_risk_handlers_without_dropping_legacy_fallbacks() {
-        let registry = CommandRegistry::from_embedded_catalog().unwrap();
-        let status = registry.find_path(&["status"]).unwrap();
-        let meta = registry.find_path(&["meta"]).unwrap();
-        let book = registry.find_path(&["book"]).unwrap();
-        let mids = registry.find_path(&["mids"]).unwrap();
-        let candles = registry.find_path(&["candles"]).unwrap();
-        let spread = registry.find_path(&["spread"]).unwrap();
-        let funding = registry.find_path(&["funding"]).unwrap();
-        let perps_list = registry.find_path(&["perps", "list"]).unwrap();
-        let perps_get = registry.find_path(&["perps", "get"]).unwrap();
-        let spot_list = registry.find_path(&["spot", "list"]).unwrap();
-        let spot_get = registry.find_path(&["spot", "get"]).unwrap();
-        let asset_decode = registry.find_path(&["asset", "decode"]).unwrap();
-        let asset_search = registry.find_path(&["asset", "search"]).unwrap();
-        let builder_max_fee = registry.find_path(&["builder", "max-fee"]).unwrap();
-        let builder_approved = registry.find_path(&["builder", "approved"]).unwrap();
-        let prio_status = registry.find_path(&["prio", "status"]).unwrap();
-        let orders_status = registry.find_path(&["orders", "status"]).unwrap();
-        let borrowlend_rates = registry.find_path(&["borrowlend", "rates"]).unwrap();
-        let borrowlend_get = registry.find_path(&["borrowlend", "get"]).unwrap();
-        let borrowlend_user = registry.find_path(&["borrowlend", "user"]).unwrap();
-        let staking_validators = registry.find_path(&["staking", "validators"]).unwrap();
-        let staking_summary = registry.find_path(&["staking", "summary"]).unwrap();
-        let staking_rewards = registry.find_path(&["staking", "rewards"]).unwrap();
-        let staking_history = registry.find_path(&["staking", "history"]).unwrap();
-        let vault_list = registry.find_path(&["vault", "list"]).unwrap();
-        let vault_search = registry.find_path(&["vault", "search"]).unwrap();
-        let vault_get = registry.find_path(&["vault", "get"]).unwrap();
-        let vault_positions = registry.find_path(&["vault", "positions"]).unwrap();
-        let schema = registry.find_path(&["schema"]).unwrap();
-        let orders_create = registry.find_path(&["orders", "create"]).unwrap();
-
-        assert_eq!(status.handler.id, Some(HandlerId::Status));
-        assert_eq!(status.handler.dispatch, HandlerDispatch::TypedInProcess);
-        assert!(status.handler.is_in_process_safe());
-
-        assert_eq!(meta.handler.id, Some(HandlerId::Meta));
-        assert_eq!(meta.handler.dispatch, HandlerDispatch::TypedInProcess);
-        assert!(meta.handler.is_in_process_safe());
-
-        assert_eq!(book.handler.id, Some(HandlerId::Book));
-        assert_eq!(book.handler.dispatch, HandlerDispatch::TypedInProcess);
-        assert!(book.handler.is_in_process_safe());
-
-        assert_eq!(mids.handler.id, Some(HandlerId::Mids));
-        assert_eq!(mids.handler.dispatch, HandlerDispatch::TypedInProcess);
-        assert!(mids.handler.is_in_process_safe());
-
-        assert_eq!(candles.handler.id, Some(HandlerId::Candles));
-        assert_eq!(candles.handler.dispatch, HandlerDispatch::TypedInProcess);
-        assert!(candles.handler.is_in_process_safe());
-
-        assert_eq!(spread.handler.id, Some(HandlerId::Spread));
-        assert_eq!(spread.handler.dispatch, HandlerDispatch::TypedInProcess);
-        assert!(spread.handler.is_in_process_safe());
-
-        assert_eq!(funding.handler.id, Some(HandlerId::MarketFunding));
-        assert_eq!(funding.handler.dispatch, HandlerDispatch::TypedInProcess);
-        assert!(funding.handler.is_in_process_safe());
-
-        assert_eq!(perps_list.handler.id, Some(HandlerId::PerpsList));
-        assert_eq!(perps_list.handler.dispatch, HandlerDispatch::TypedInProcess);
-        assert!(perps_list.handler.is_in_process_safe());
-
-        assert_eq!(perps_get.handler.id, Some(HandlerId::PerpsGet));
-        assert_eq!(perps_get.handler.dispatch, HandlerDispatch::TypedInProcess);
-        assert!(perps_get.handler.is_in_process_safe());
-
-        assert_eq!(spot_list.handler.id, Some(HandlerId::SpotList));
-        assert_eq!(spot_list.handler.dispatch, HandlerDispatch::TypedInProcess);
-        assert!(spot_list.handler.is_in_process_safe());
-
-        assert_eq!(spot_get.handler.id, Some(HandlerId::SpotGet));
-        assert_eq!(spot_get.handler.dispatch, HandlerDispatch::TypedInProcess);
-        assert!(spot_get.handler.is_in_process_safe());
-
-        assert_eq!(asset_decode.handler.id, Some(HandlerId::AssetDecode));
-        assert_eq!(
-            asset_decode.handler.dispatch,
-            HandlerDispatch::TypedInProcess
-        );
-        assert!(asset_decode.handler.is_in_process_safe());
-
-        assert_eq!(asset_search.handler.id, Some(HandlerId::AssetSearch));
-        assert_eq!(
-            asset_search.handler.dispatch,
-            HandlerDispatch::TypedInProcess
-        );
-        assert!(asset_search.handler.is_in_process_safe());
-
-        assert_eq!(builder_max_fee.handler.id, Some(HandlerId::BuilderMaxFee));
-        assert_eq!(
-            builder_max_fee.handler.dispatch,
-            HandlerDispatch::TypedInProcess
-        );
-        assert!(builder_max_fee.handler.is_in_process_safe());
-
-        assert_eq!(
-            builder_approved.handler.id,
-            Some(HandlerId::BuilderApproved)
-        );
-        assert_eq!(
-            builder_approved.handler.dispatch,
-            HandlerDispatch::TypedInProcess
-        );
-        assert!(builder_approved.handler.is_in_process_safe());
-
-        assert_eq!(prio_status.handler.id, Some(HandlerId::PrioStatus));
-        assert_eq!(
-            prio_status.handler.dispatch,
-            HandlerDispatch::TypedInProcess
-        );
-        assert!(prio_status.handler.is_in_process_safe());
-
-        assert_eq!(orders_status.handler.id, Some(HandlerId::OrdersStatus));
-        assert_eq!(
-            orders_status.handler.dispatch,
-            HandlerDispatch::TypedInProcess
-        );
-        assert!(orders_status.handler.is_in_process_safe());
-
-        assert_eq!(
-            borrowlend_rates.handler.id,
-            Some(HandlerId::BorrowlendRates)
-        );
-        assert_eq!(
-            borrowlend_rates.handler.dispatch,
-            HandlerDispatch::TypedInProcess
-        );
-        assert!(borrowlend_rates.handler.is_in_process_safe());
-
-        assert_eq!(borrowlend_get.handler.id, Some(HandlerId::BorrowlendGet));
-        assert_eq!(
-            borrowlend_get.handler.dispatch,
-            HandlerDispatch::TypedInProcess
-        );
-        assert!(borrowlend_get.handler.is_in_process_safe());
-
-        assert_eq!(borrowlend_user.handler.id, Some(HandlerId::BorrowlendUser));
-        assert_eq!(
-            borrowlend_user.handler.dispatch,
-            HandlerDispatch::TypedInProcess
-        );
-        assert!(borrowlend_user.handler.is_in_process_safe());
-
-        assert_eq!(
-            staking_validators.handler.id,
-            Some(HandlerId::StakingValidators)
-        );
-        assert_eq!(
-            staking_validators.handler.dispatch,
-            HandlerDispatch::TypedInProcess
-        );
-        assert!(staking_validators.handler.is_in_process_safe());
-
-        assert_eq!(staking_summary.handler.id, Some(HandlerId::StakingSummary));
-        assert_eq!(
-            staking_summary.handler.dispatch,
-            HandlerDispatch::TypedInProcess
-        );
-        assert!(staking_summary.handler.is_in_process_safe());
-
-        assert_eq!(staking_rewards.handler.id, Some(HandlerId::StakingRewards));
-        assert_eq!(
-            staking_rewards.handler.dispatch,
-            HandlerDispatch::TypedInProcess
-        );
-        assert!(staking_rewards.handler.is_in_process_safe());
-
-        assert_eq!(staking_history.handler.id, Some(HandlerId::StakingHistory));
-        assert_eq!(
-            staking_history.handler.dispatch,
-            HandlerDispatch::TypedInProcess
-        );
-        assert!(staking_history.handler.is_in_process_safe());
-
-        assert_eq!(vault_list.handler.id, Some(HandlerId::VaultList));
-        assert_eq!(vault_list.handler.dispatch, HandlerDispatch::TypedInProcess);
-        assert!(vault_list.handler.is_in_process_safe());
-
-        assert_eq!(vault_search.handler.id, Some(HandlerId::VaultSearch));
-        assert_eq!(
-            vault_search.handler.dispatch,
-            HandlerDispatch::TypedInProcess
-        );
-        assert!(vault_search.handler.is_in_process_safe());
-
-        assert_eq!(vault_get.handler.id, Some(HandlerId::VaultGet));
-        assert_eq!(vault_get.handler.dispatch, HandlerDispatch::TypedInProcess);
-        assert!(vault_get.handler.is_in_process_safe());
-
-        assert_eq!(vault_positions.handler.id, Some(HandlerId::VaultPositions));
-        assert_eq!(
-            vault_positions.handler.dispatch,
-            HandlerDispatch::TypedInProcess
-        );
-        assert!(vault_positions.handler.is_in_process_safe());
-
-        assert_eq!(schema.handler.id, Some(HandlerId::Schema));
-        assert_eq!(schema.handler.dispatch, HandlerDispatch::TypedInProcess);
-        assert!(schema.handler.is_in_process_safe());
-
-        for path in [
-            &["account", "fills"][..],
-            &["account", "fees"][..],
-            &["account", "rate-limit"][..],
-            &["account", "orders"][..],
-            &["account", "portfolio"][..],
-            &["account", "subaccounts"][..],
-            &["account", "portfolio-history"][..],
-            &["account", "ledger"][..],
-            &["account", "funding"][..],
-            &["account", "twap-history"][..],
-            &["account", "twap-fills"][..],
-            &["account", "abstraction"][..],
-            &["subaccount", "list"][..],
-        ] {
-            let command = registry.find_path(path).unwrap();
-            assert_eq!(command.handler.dispatch, HandlerDispatch::TypedInProcess);
-            assert!(command.handler.is_in_process_safe());
-        }
-
-        assert_eq!(orders_create.handler.id, None);
-        assert_eq!(
-            orders_create.handler.dispatch,
-            HandlerDispatch::LegacyFallback
-        );
-        assert!(!orders_create.handler.is_in_process_safe());
     }
 }

@@ -4,7 +4,6 @@
 
 pub mod assets;
 pub mod auth;
-pub mod command_handlers;
 pub(crate) mod command_metadata;
 pub mod command_registry;
 pub mod commands;

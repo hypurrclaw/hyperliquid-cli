@@ -13,21 +13,6 @@
       "description": "Show Hyperliquid API health and rate-limit context.",
       "dry_run": "not_supported",
       "group": "market",
-      "handler": {
-        "dispatch": "typed_in_process",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": "status",
-        "purity": {
-          "direct_stdio": false,
-          "local_state": false,
-          "process_global_cli_state": false,
-          "process_global_output": false,
-          "prompts": false,
-          "signs_or_submits": false
-        }
-      },
       "inputs": [],
       "lifecycle": "read_only",
       "mutability": "read_only",
@@ -52,21 +37,6 @@
       "description": "Show raw exchange metadata.",
       "dry_run": "not_supported",
       "group": "market",
-      "handler": {
-        "dispatch": "typed_in_process",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": "meta",
-        "purity": {
-          "direct_stdio": false,
-          "local_state": false,
-          "process_global_cli_state": false,
-          "process_global_output": false,
-          "prompts": false,
-          "signs_or_submits": false
-        }
-      },
       "inputs": [],
       "lifecycle": "read_only",
       "mutability": "read_only",
@@ -92,21 +62,6 @@
       "description": "List perpetual markets.",
       "dry_run": "not_supported",
       "group": "market",
-      "handler": {
-        "dispatch": "typed_in_process",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": "perps_list",
-        "purity": {
-          "direct_stdio": false,
-          "local_state": false,
-          "process_global_cli_state": false,
-          "process_global_output": false,
-          "prompts": false,
-          "signs_or_submits": false
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -146,21 +101,6 @@
       "description": "Get details for a perpetual market.",
       "dry_run": "not_supported",
       "group": "market",
-      "handler": {
-        "dispatch": "typed_in_process",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": "perps_get",
-        "purity": {
-          "direct_stdio": false,
-          "local_state": false,
-          "process_global_cli_state": false,
-          "process_global_output": false,
-          "prompts": false,
-          "signs_or_submits": false
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -213,21 +153,6 @@
       "description": "List spot markets.",
       "dry_run": "not_supported",
       "group": "market",
-      "handler": {
-        "dispatch": "typed_in_process",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": "spot_list",
-        "purity": {
-          "direct_stdio": false,
-          "local_state": false,
-          "process_global_cli_state": false,
-          "process_global_output": false,
-          "prompts": false,
-          "signs_or_submits": false
-        }
-      },
       "inputs": [],
       "lifecycle": "read_only",
       "mutability": "read_only",
@@ -253,21 +178,6 @@
       "description": "Get details for a spot pair.",
       "dry_run": "not_supported",
       "group": "market",
-      "handler": {
-        "dispatch": "typed_in_process",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": "spot_get",
-        "purity": {
-          "direct_stdio": false,
-          "local_state": false,
-          "process_global_cli_state": false,
-          "process_global_output": false,
-          "prompts": false,
-          "signs_or_submits": false
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -306,21 +216,6 @@
       "description": "Show an L2 order book snapshot.",
       "dry_run": "not_supported",
       "group": "market",
-      "handler": {
-        "dispatch": "typed_in_process",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": "book",
-        "purity": {
-          "direct_stdio": false,
-          "local_state": false,
-          "process_global_cli_state": false,
-          "process_global_output": false,
-          "prompts": false,
-          "signs_or_submits": false
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -385,21 +280,6 @@
       "description": "Show all mid prices.",
       "dry_run": "not_supported",
       "group": "market",
-      "handler": {
-        "dispatch": "typed_in_process",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": "mids",
-        "purity": {
-          "direct_stdio": false,
-          "local_state": false,
-          "process_global_cli_state": false,
-          "process_global_output": false,
-          "prompts": false,
-          "signs_or_submits": false
-        }
-      },
       "inputs": [
         {
           "arg_type": "boolean",
@@ -451,21 +331,6 @@
       "description": "Show candle history.",
       "dry_run": "not_supported",
       "group": "market",
-      "handler": {
-        "dispatch": "typed_in_process",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": "candles",
-        "purity": {
-          "direct_stdio": false,
-          "local_state": false,
-          "process_global_cli_state": false,
-          "process_global_output": false,
-          "prompts": false,
-          "signs_or_submits": false
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -556,21 +421,6 @@
       "description": "Show bid, ask, and spread.",
       "dry_run": "not_supported",
       "group": "market",
-      "handler": {
-        "dispatch": "typed_in_process",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": "spread",
-        "purity": {
-          "direct_stdio": false,
-          "local_state": false,
-          "process_global_cli_state": false,
-          "process_global_output": false,
-          "prompts": false,
-          "signs_or_submits": false
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -609,21 +459,6 @@
       "description": "Show current funding rate.",
       "dry_run": "not_supported",
       "group": "market",
-      "handler": {
-        "dispatch": "typed_in_process",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": "market_funding",
-        "purity": {
-          "direct_stdio": false,
-          "local_state": false,
-          "process_global_cli_state": false,
-          "process_global_output": false,
-          "prompts": false,
-          "signs_or_submits": false
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -663,21 +498,6 @@
       "description": "Decode a raw Hyperliquid protocol asset ID from exchange errors, schemas, or payloads into reusable market notation when metadata is available.",
       "dry_run": "not_supported",
       "group": "market",
-      "handler": {
-        "dispatch": "typed_in_process",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": "asset_decode",
-        "purity": {
-          "direct_stdio": false,
-          "local_state": false,
-          "process_global_cli_state": false,
-          "process_global_output": false,
-          "prompts": false,
-          "signs_or_submits": false
-        }
-      },
       "inputs": [
         {
           "arg_type": "integer",
@@ -717,21 +537,6 @@
       "description": "Search Hyperliquid assets by symbol, market title, app slug, outcome notation, or protocol asset ID and return reusable CLI selectors plus protocol IDs.",
       "dry_run": "not_supported",
       "group": "market",
-      "handler": {
-        "dispatch": "typed_in_process",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": "asset_search",
-        "purity": {
-          "direct_stdio": false,
-          "local_state": false,
-          "process_global_cli_state": false,
-          "process_global_output": false,
-          "prompts": false,
-          "signs_or_submits": false
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -802,21 +607,6 @@
       "description": "Search perps, HIP-3, spot, and outcome markets in one list. Each row includes a stable venue field. Retry: safe. Pipe --select coin into buy --dry-run.",
       "dry_run": "not_supported",
       "group": "market",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -887,21 +677,6 @@
       "description": "Market buy alias for orders create --side buy. Limit if --price is set. Accepts --size or --amount. Dry-run first. Retry: check_open_orders — not idempotent. Mainnet orders prompt for confirmation unless --yes is passed; --testnet orders run without a prompt.",
       "dry_run": "optional",
       "group": "trade",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -1136,21 +911,6 @@
       "description": "Market sell alias for orders create --side sell. Limit if --price is set. Accepts --size or --amount. Dry-run first. Retry: check_open_orders — not idempotent. Mainnet orders prompt for confirmation unless --yes is passed; --testnet orders run without a prompt.",
       "dry_run": "optional",
       "group": "trade",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -1385,21 +1145,6 @@
       "description": "Buy a HIP-4 outcome token. Coin must be #N or +N notation. Dry-run first. Retry: check_open_orders — not idempotent. Mainnet orders prompt for confirmation unless --yes is passed; --testnet orders run without a prompt.",
       "dry_run": "optional",
       "group": "trade",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -1634,21 +1379,6 @@
       "description": "Sell a HIP-4 outcome token. Coin must be #N or +N notation. Dry-run first. Retry: check_open_orders — not idempotent. Mainnet orders prompt for confirmation unless --yes is passed; --testnet orders run without a prompt.",
       "dry_run": "optional",
       "group": "trade",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -1884,21 +1614,6 @@
       "description": "Read-only liquidation and risk watcher. Emits JSON-line alerts with kind alert or heartbeat and never places orders. Retry: safe. Agent mode requires --max-events or --idle-timeout-ms.",
       "dry_run": "not_supported",
       "group": "watch",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -2034,21 +1749,6 @@
       "description": "List active outcome market sides from outcomeMeta. Use orders create with #<encoding> or +<encoding> notation for verified outcome limit orders.",
       "dry_run": "not_supported",
       "group": "market",
-      "handler": {
-        "dispatch": "typed_in_process",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": "outcomes_list",
-        "purity": {
-          "direct_stdio": false,
-          "local_state": false,
-          "process_global_cli_state": false,
-          "process_global_output": false,
-          "prompts": false,
-          "signs_or_submits": false
-        }
-      },
       "inputs": [
         {
           "arg_type": "integer",
@@ -2088,21 +1788,6 @@
       "description": "Show outcome side metadata by #N coin notation or +N token notation.",
       "dry_run": "not_supported",
       "group": "market",
-      "handler": {
-        "dispatch": "typed_in_process",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": "outcomes_get",
-        "purity": {
-          "direct_stdio": false,
-          "local_state": false,
-          "process_global_cli_state": false,
-          "process_global_output": false,
-          "prompts": false,
-          "signs_or_submits": false
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -2142,21 +1827,6 @@
       "description": "Query the max builder fee a user has approved for a builder, returned in tenths of a basis point and percent form.",
       "dry_run": "not_supported",
       "group": "builder",
-      "handler": {
-        "dispatch": "typed_in_process",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": "builder_max_fee",
-        "purity": {
-          "direct_stdio": false,
-          "local_state": false,
-          "process_global_cli_state": false,
-          "process_global_output": false,
-          "prompts": false,
-          "signs_or_submits": false
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -2209,21 +1879,6 @@
       "description": "List builders approved by a user, enriched with each approved max fee cap.",
       "dry_run": "not_supported",
       "group": "builder",
-      "handler": {
-        "dispatch": "typed_in_process",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": "builder_approved",
-        "purity": {
-          "direct_stdio": false,
-          "local_state": false,
-          "process_global_cli_state": false,
-          "process_global_output": false,
-          "prompts": false,
-          "signs_or_submits": false
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -2263,21 +1918,6 @@
       "description": "Approve, update, or revoke a max builder fee for the selected master signer. Use 0% to revoke.",
       "dry_run": "optional",
       "group": "builder",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -2343,21 +1983,6 @@
       "description": "Query public fill history for an address or wallet, optionally bounded by time.",
       "dry_run": "not_supported",
       "group": "account",
-      "handler": {
-        "dispatch": "typed_in_process",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": "account_fills",
-        "purity": {
-          "direct_stdio": false,
-          "local_state": false,
-          "process_global_cli_state": false,
-          "process_global_output": false,
-          "prompts": false,
-          "signs_or_submits": false
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -2436,21 +2061,6 @@
       "description": "Query fee schedule and volume context for an address or wallet.",
       "dry_run": "not_supported",
       "group": "account",
-      "handler": {
-        "dispatch": "typed_in_process",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": "account_fees",
-        "purity": {
-          "direct_stdio": false,
-          "local_state": false,
-          "process_global_cli_state": false,
-          "process_global_output": false,
-          "prompts": false,
-          "signs_or_submits": false
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -2490,21 +2100,6 @@
       "description": "Query user rate-limit context for an address or wallet.",
       "dry_run": "not_supported",
       "group": "account",
-      "handler": {
-        "dispatch": "typed_in_process",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": "account_rate_limit",
-        "purity": {
-          "direct_stdio": false,
-          "local_state": false,
-          "process_global_cli_state": false,
-          "process_global_output": false,
-          "prompts": false,
-          "signs_or_submits": false
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -2544,21 +2139,6 @@
       "description": "Query public open orders for an address or wallet.",
       "dry_run": "not_supported",
       "group": "account",
-      "handler": {
-        "dispatch": "typed_in_process",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": "account_orders",
-        "purity": {
-          "direct_stdio": false,
-          "local_state": false,
-          "process_global_cli_state": false,
-          "process_global_output": false,
-          "prompts": false,
-          "signs_or_submits": false
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -2598,21 +2178,6 @@
       "description": "Query public portfolio summary for an address or wallet.",
       "dry_run": "not_supported",
       "group": "account",
-      "handler": {
-        "dispatch": "typed_in_process",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": "account_portfolio",
-        "purity": {
-          "direct_stdio": false,
-          "local_state": false,
-          "process_global_cli_state": false,
-          "process_global_output": false,
-          "prompts": false,
-          "signs_or_submits": false
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -2652,21 +2217,6 @@
       "description": "Query public subaccounts for an address or wallet.",
       "dry_run": "not_supported",
       "group": "account",
-      "handler": {
-        "dispatch": "typed_in_process",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": "account_subaccounts",
-        "purity": {
-          "direct_stdio": false,
-          "local_state": false,
-          "process_global_cli_state": false,
-          "process_global_output": false,
-          "prompts": false,
-          "signs_or_submits": false
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -2706,21 +2256,6 @@
       "description": "Query frontend portfolio graph/history data for an address or wallet.",
       "dry_run": "not_supported",
       "group": "account",
-      "handler": {
-        "dispatch": "typed_in_process",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": "account_portfolio_history",
-        "purity": {
-          "direct_stdio": false,
-          "local_state": false,
-          "process_global_cli_state": false,
-          "process_global_output": false,
-          "prompts": false,
-          "signs_or_submits": false
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -2760,21 +2295,6 @@
       "description": "Query non-funding ledger updates, including deposits and withdrawals.",
       "dry_run": "not_supported",
       "group": "account",
-      "handler": {
-        "dispatch": "typed_in_process",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": "account_ledger",
-        "purity": {
-          "direct_stdio": false,
-          "local_state": false,
-          "process_global_cli_state": false,
-          "process_global_output": false,
-          "prompts": false,
-          "signs_or_submits": false
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -2840,21 +2360,6 @@
       "description": "Query user funding payment history.",
       "dry_run": "not_supported",
       "group": "account",
-      "handler": {
-        "dispatch": "typed_in_process",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": "account_funding",
-        "purity": {
-          "direct_stdio": false,
-          "local_state": false,
-          "process_global_cli_state": false,
-          "process_global_output": false,
-          "prompts": false,
-          "signs_or_submits": false
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -2920,21 +2425,6 @@
       "description": "Query user TWAP order history.",
       "dry_run": "not_supported",
       "group": "account",
-      "handler": {
-        "dispatch": "typed_in_process",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": "account_twap_history",
-        "purity": {
-          "direct_stdio": false,
-          "local_state": false,
-          "process_global_cli_state": false,
-          "process_global_output": false,
-          "prompts": false,
-          "signs_or_submits": false
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -2974,21 +2464,6 @@
       "description": "Query user TWAP slice fills, optionally bounded by time.",
       "dry_run": "not_supported",
       "group": "account",
-      "handler": {
-        "dispatch": "typed_in_process",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": "account_twap_fills",
-        "purity": {
-          "direct_stdio": false,
-          "local_state": false,
-          "process_global_cli_state": false,
-          "process_global_output": false,
-          "prompts": false,
-          "signs_or_submits": false
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -3067,21 +2542,6 @@
       "description": "Read account abstraction mode via userAbstraction. When ADDRESS is omitted, uses the configured signer address.",
       "dry_run": "not_supported",
       "group": "account",
-      "handler": {
-        "dispatch": "typed_in_process",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": "account_abstraction",
-        "purity": {
-          "direct_stdio": false,
-          "local_state": false,
-          "process_global_cli_state": false,
-          "process_global_output": false,
-          "prompts": false,
-          "signs_or_submits": false
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -3122,21 +2582,6 @@
       "description": "Set account abstraction for the signer (userSetAbstraction). Use --dry-run to preview; confirm or pass -y for live submit.",
       "dry_run": "optional",
       "group": "account",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -3195,21 +2640,6 @@
       "description": "Query public subaccounts for a master address or wallet.",
       "dry_run": "not_supported",
       "group": "account",
-      "handler": {
-        "dispatch": "typed_in_process",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": "subaccount_list",
-        "purity": {
-          "direct_stdio": false,
-          "local_state": false,
-          "process_global_cli_state": false,
-          "process_global_output": false,
-          "prompts": false,
-          "signs_or_submits": false
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -3251,21 +2681,6 @@
       "description": "Create a subaccount signed by the configured master account.",
       "dry_run": "optional",
       "group": "account",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -3307,21 +2722,6 @@
       "description": "Transfer USDC between the master account and a subaccount.",
       "dry_run": "optional",
       "group": "transfer",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -3405,21 +2805,6 @@
       "description": "Transfer a spot token between the master account and a subaccount.",
       "dry_run": "optional",
       "group": "transfer",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -3514,21 +2899,6 @@
       "description": "List wallets in the OWS vault.",
       "dry_run": "not_supported",
       "group": "wallet",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [],
       "lifecycle": "read_only",
       "mutability": "local_only",
@@ -3554,21 +2924,6 @@
       "description": "Add a signing wallet. Passing private_key exposes it to the child process argv.",
       "dry_run": "optional",
       "group": "wallet",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -3647,21 +3002,6 @@
       "description": "Set the default signing wallet.",
       "dry_run": "optional",
       "group": "wallet",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -3701,21 +3041,6 @@
       "description": "Delete a wallet's encrypted key from the vault. This cannot be undone.",
       "dry_run": "optional",
       "group": "wallet",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -3770,21 +3095,6 @@
       "description": "Generate or approve a Hyperliquid API/agent wallet. When the CLI generates a local agent keypair, it prints the private key exactly once before approval.",
       "dry_run": "optional",
       "group": "wallet",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -3865,21 +3175,6 @@
       "description": "Approve an existing or generated API/agent wallet address for the selected master account.",
       "dry_run": "optional",
       "group": "wallet",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -3960,21 +3255,6 @@
       "description": "List API wallets approved by a master account. Stored agent accounts query under their master address.",
       "dry_run": "not_supported",
       "group": "wallet",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -4016,21 +3296,6 @@
       "description": "Revoke a named API wallet by replacing it with a short-lived throwaway agent.",
       "dry_run": "optional",
       "group": "wallet",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -4070,21 +3335,6 @@
       "description": "Create a new wallet in the OWS vault.",
       "dry_run": "optional",
       "group": "wallet",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [],
       "lifecycle": "interactive_local",
       "mutability": "local_only",
@@ -4110,21 +3360,6 @@
       "description": "Import a private key into the OWS vault. Passing private_key exposes it to the child process argv.",
       "dry_run": "optional",
       "group": "wallet",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -4164,21 +3399,6 @@
       "description": "Show current wallet metadata.",
       "dry_run": "not_supported",
       "group": "wallet",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [],
       "lifecycle": "read_only",
       "mutability": "local_only",
@@ -4204,21 +3424,6 @@
       "description": "Print the configured wallet address.",
       "dry_run": "not_supported",
       "group": "wallet",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [],
       "lifecycle": "read_only",
       "mutability": "local_only",
@@ -4244,21 +3449,6 @@
       "description": "Delete the config file, clearing default wallet, network, and builder and referral defaults. Wallets stay in the vault.",
       "dry_run": "optional",
       "group": "wallet",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "boolean",
@@ -4298,21 +3488,6 @@
       "description": "Import an existing wallet from a BIP-39 mnemonic phrase.",
       "dry_run": "optional",
       "group": "wallet",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -4365,21 +3540,6 @@
       "description": "List all wallets in the OWS vault.",
       "dry_run": "not_supported",
       "group": "wallet",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [],
       "lifecycle": "read_only",
       "mutability": "local_only",
@@ -4405,21 +3565,6 @@
       "description": "Rename a wallet by name or id.",
       "dry_run": "not_supported",
       "group": "wallet",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -4472,21 +3617,6 @@
       "description": "Delete a wallet's encrypted key from the vault. This cannot be undone.",
       "dry_run": "optional",
       "group": "wallet",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -4539,21 +3669,6 @@
       "description": "Export a wallet's secret (mnemonic or private key).",
       "dry_run": "not_supported",
       "group": "wallet",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -4606,21 +3721,6 @@
       "description": "List open orders for the configured signer.",
       "dry_run": "not_supported",
       "group": "account",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "boolean",
@@ -4673,21 +3773,6 @@
       "description": "List order history for the configured signer.",
       "dry_run": "not_supported",
       "group": "account",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [],
       "lifecycle": "read_only",
       "mutability": "read_only",
@@ -4713,21 +3798,6 @@
       "description": "Query public order status by OID or CLOID.",
       "dry_run": "not_supported",
       "group": "account",
-      "handler": {
-        "dispatch": "typed_in_process",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": "orders_status",
-        "purity": {
-          "direct_stdio": false,
-          "local_state": false,
-          "process_global_cli_state": false,
-          "process_global_output": false,
-          "prompts": false,
-          "signs_or_submits": false
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -4800,21 +3870,6 @@
       "description": "List positions for the configured signer.",
       "dry_run": "not_supported",
       "group": "account",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "boolean",
@@ -4867,21 +3922,6 @@
       "description": "List staking validators.",
       "dry_run": "not_supported",
       "group": "staking",
-      "handler": {
-        "dispatch": "typed_in_process",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": "staking_validators",
-        "purity": {
-          "direct_stdio": false,
-          "local_state": false,
-          "process_global_cli_state": false,
-          "process_global_output": false,
-          "prompts": false,
-          "signs_or_submits": false
-        }
-      },
       "inputs": [],
       "lifecycle": "read_only",
       "mutability": "read_only",
@@ -4907,21 +3947,6 @@
       "description": "Show staking summary for an address or wallet.",
       "dry_run": "not_supported",
       "group": "staking",
-      "handler": {
-        "dispatch": "typed_in_process",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": "staking_summary",
-        "purity": {
-          "direct_stdio": false,
-          "local_state": false,
-          "process_global_cli_state": false,
-          "process_global_output": false,
-          "prompts": false,
-          "signs_or_submits": false
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -4961,21 +3986,6 @@
       "description": "Show staking rewards for an address or wallet.",
       "dry_run": "not_supported",
       "group": "staking",
-      "handler": {
-        "dispatch": "typed_in_process",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": "staking_rewards",
-        "purity": {
-          "direct_stdio": false,
-          "local_state": false,
-          "process_global_cli_state": false,
-          "process_global_output": false,
-          "prompts": false,
-          "signs_or_submits": false
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -5015,21 +4025,6 @@
       "description": "Show staking delegation and withdrawal history for an address or wallet.",
       "dry_run": "not_supported",
       "group": "staking",
-      "handler": {
-        "dispatch": "typed_in_process",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": "staking_history",
-        "purity": {
-          "direct_stdio": false,
-          "local_state": false,
-          "process_global_cli_state": false,
-          "process_global_output": false,
-          "prompts": false,
-          "signs_or_submits": false
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -5071,21 +4066,6 @@
       "description": "List vault summaries with filtering, sorting, and limits.",
       "dry_run": "not_supported",
       "group": "vault",
-      "handler": {
-        "dispatch": "typed_in_process",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": "vault_list",
-        "purity": {
-          "direct_stdio": false,
-          "local_state": false,
-          "process_global_cli_state": false,
-          "process_global_output": false,
-          "prompts": false,
-          "signs_or_submits": false
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -5178,21 +4158,6 @@
       "description": "Search vault summaries by name, leader, or address.",
       "dry_run": "not_supported",
       "group": "vault",
-      "handler": {
-        "dispatch": "typed_in_process",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": "vault_search",
-        "purity": {
-          "direct_stdio": false,
-          "local_state": false,
-          "process_global_cli_state": false,
-          "process_global_output": false,
-          "prompts": false,
-          "signs_or_submits": false
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -5278,21 +4243,6 @@
       "description": "Show vault details.",
       "dry_run": "not_supported",
       "group": "vault",
-      "handler": {
-        "dispatch": "typed_in_process",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": "vault_get",
-        "purity": {
-          "direct_stdio": false,
-          "local_state": false,
-          "process_global_cli_state": false,
-          "process_global_output": false,
-          "prompts": false,
-          "signs_or_submits": false
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -5334,21 +4284,6 @@
       "description": "List vault positions.",
       "dry_run": "not_supported",
       "group": "vault",
-      "handler": {
-        "dispatch": "typed_in_process",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": "vault_positions",
-        "purity": {
-          "direct_stdio": false,
-          "local_state": false,
-          "process_global_cli_state": false,
-          "process_global_output": false,
-          "prompts": false,
-          "signs_or_submits": false
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -5388,21 +4323,6 @@
       "description": "List borrow/lend rates.",
       "dry_run": "not_supported",
       "group": "market",
-      "handler": {
-        "dispatch": "typed_in_process",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": "borrowlend_rates",
-        "purity": {
-          "direct_stdio": false,
-          "local_state": false,
-          "process_global_cli_state": false,
-          "process_global_output": false,
-          "prompts": false,
-          "signs_or_submits": false
-        }
-      },
       "inputs": [],
       "lifecycle": "read_only",
       "mutability": "read_only",
@@ -5428,21 +4348,6 @@
       "description": "Show a single borrow/lend token reserve.",
       "dry_run": "not_supported",
       "group": "market",
-      "handler": {
-        "dispatch": "typed_in_process",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": "borrowlend_get",
-        "purity": {
-          "direct_stdio": false,
-          "local_state": false,
-          "process_global_cli_state": false,
-          "process_global_output": false,
-          "prompts": false,
-          "signs_or_submits": false
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -5482,21 +4387,6 @@
       "description": "Show user borrow/lend state.",
       "dry_run": "not_supported",
       "group": "account",
-      "handler": {
-        "dispatch": "typed_in_process",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": "borrowlend_user",
-        "purity": {
-          "direct_stdio": false,
-          "local_state": false,
-          "process_global_cli_state": false,
-          "process_global_output": false,
-          "prompts": false,
-          "signs_or_submits": false
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -5536,21 +4426,6 @@
       "description": "Supply a borrow/lend reserve token with a wallet-signed borrowLend exchange action. Runs live without a confirmation prompt; --dry-run previews the action without submitting.",
       "dry_run": "optional",
       "group": "market",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -5616,21 +4491,6 @@
       "description": "Withdraw from a borrow/lend reserve with a wallet-signed borrowLend exchange action. Runs live without a confirmation prompt; --dry-run previews the action without submitting.",
       "dry_run": "optional",
       "group": "market",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -5696,21 +4556,6 @@
       "description": "Show priority auction status.",
       "dry_run": "not_supported",
       "group": "prio",
-      "handler": {
-        "dispatch": "typed_in_process",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": "prio_status",
-        "purity": {
-          "direct_stdio": false,
-          "local_state": false,
-          "process_global_cli_state": false,
-          "process_global_output": false,
-          "prompts": false,
-          "signs_or_submits": false
-        }
-      },
       "inputs": [],
       "lifecycle": "read_only",
       "mutability": "read_only",
@@ -5736,21 +4581,6 @@
       "description": "Show referral status for the configured signer.",
       "dry_run": "not_supported",
       "group": "referral",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [],
       "lifecycle": "read_only",
       "mutability": "read_only",
@@ -5776,21 +4606,6 @@
       "description": "Create a live limit, market, stop-loss, take-profit, stop-limit, take-limit, or verified outcome limit order. Supports optional per-order builder fee params. Mainnet orders prompt for confirmation unless --yes is passed; --testnet orders run without a prompt.",
       "dry_run": "optional",
       "group": "trade",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -6096,21 +4911,6 @@
       "description": "Create a deterministic batch of evenly spaced limit orders. Mainnet orders prompt for confirmation unless --yes is passed; --testnet orders run without a prompt.",
       "dry_run": "optional",
       "group": "trade",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -6303,21 +5103,6 @@
       "description": "Create a batch of limit orders from a JSON order-leg file. Mainnet orders prompt for confirmation unless --yes is passed; --testnet orders run without a prompt.",
       "dry_run": "optional",
       "group": "trade",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -6383,21 +5168,6 @@
       "description": "Create position-attached take-profit and/or stop-loss orders. Dry-run first. Retry: check_open_orders — a second tpsl can duplicate working triggers. Mainnet orders prompt for confirmation unless --yes is passed; --testnet orders run without a prompt.",
       "dry_run": "optional",
       "group": "trade",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -6575,21 +5345,6 @@
       "description": "Place a native trailing stop on a perp market. It tracks the mark price and fires a market order once the mark retraces from its best level since activation. Dry-run first. Retry: check_open_orders — a second trailing stop can duplicate a working one. Mainnet orders prompt for confirmation unless --yes is passed; --testnet orders run without a prompt.",
       "dry_run": "optional",
       "group": "trade",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -6756,21 +5511,6 @@
       "description": "Cancel an order.",
       "dry_run": "optional",
       "group": "trade",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -6836,21 +5576,6 @@
       "description": "Cancel all open orders, optionally filtered by coin.",
       "dry_run": "optional",
       "group": "trade",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -6929,21 +5654,6 @@
       "description": "Modify an existing order.",
       "dry_run": "optional",
       "group": "trade",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "integer",
@@ -7068,21 +5778,6 @@
       "description": "Create a TWAP order. Mainnet orders prompt for confirmation unless --yes is passed; --testnet orders run without a prompt.",
       "dry_run": "optional",
       "group": "trade",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -7219,21 +5914,6 @@
       "description": "Cancel a TWAP order.",
       "dry_run": "optional",
       "group": "trade",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "integer",
@@ -7312,21 +5992,6 @@
       "description": "Update leverage for a position.",
       "dry_run": "optional",
       "group": "trade",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -7392,21 +6057,6 @@
       "description": "Add or remove isolated margin.",
       "dry_run": "optional",
       "group": "trade",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -7459,21 +6109,6 @@
       "description": "Configure a dead man's switch. Mainnet orders prompt for confirmation unless --yes is passed; --testnet orders run without a prompt.",
       "dry_run": "optional",
       "group": "trade",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -7552,21 +6187,6 @@
       "description": "Bounded ALO requote loop that chases mid by a basis-point offset until fill, timeout, or max chase distance. Dry-run first. Retry: check_open_orders — not idempotent. Agent mode requires --timeout. Mainnet orders prompt for confirmation unless --yes is passed; --testnet orders run without a prompt.",
       "dry_run": "optional",
       "group": "trade",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -7739,21 +6359,6 @@
       "description": "Place an entry order, then arm position TP/SL. Limit entries wait for fill up to --entry-timeout. Dry-run first. Retry: check_open_orders — not idempotent. Emits one result object. Mainnet orders prompt for confirmation unless --yes is passed; --testnet orders run without a prompt.",
       "dry_run": "optional",
       "group": "trade",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -7957,21 +6562,6 @@
       "description": "Transfer USDC from spot to perp.",
       "dry_run": "optional",
       "group": "transfer",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -8026,21 +6616,6 @@
       "description": "Transfer USDC from perp to spot.",
       "dry_run": "optional",
       "group": "transfer",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -8095,21 +6670,6 @@
       "description": "Send USDC to another Hyperliquid address.",
       "dry_run": "optional",
       "group": "transfer",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -8177,21 +6737,6 @@
       "description": "Send a spot token to another Hyperliquid address.",
       "dry_run": "optional",
       "group": "transfer",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -8272,21 +6817,6 @@
       "description": "Send an asset between accounts, spot, perp, or DEX contexts.",
       "dry_run": "optional",
       "group": "transfer",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -8406,21 +6936,6 @@
       "description": "Withdraw USDC to Arbitrum.",
       "dry_run": "optional",
       "group": "transfer",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -8486,21 +7001,6 @@
       "description": "Delegate HYPE to a validator.",
       "dry_run": "optional",
       "group": "staking",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -8553,21 +7053,6 @@
       "description": "Undelegate HYPE from a validator.",
       "dry_run": "optional",
       "group": "staking",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -8620,21 +7105,6 @@
       "description": "Deposit HYPE to staking.",
       "dry_run": "optional",
       "group": "staking",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -8674,21 +7144,6 @@
       "description": "Queue HYPE withdrawal from staking.",
       "dry_run": "optional",
       "group": "staking",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -8728,21 +7183,6 @@
       "description": "Claim staking rewards.",
       "dry_run": "optional",
       "group": "staking",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [],
       "lifecycle": "live_mutating",
       "mutability": "live_mutating",
@@ -8769,21 +7209,6 @@
       "description": "Initiate staking-link fee discount attribution from the trading account, targeting the staking user. This is control-affecting; use --dry-run first.",
       "dry_run": "optional",
       "group": "staking",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -8837,21 +7262,6 @@
       "description": "Finalize staking-link fee discount attribution from the staking account, targeting the trading user. Finalization may be permanent; use --dry-run first.",
       "dry_run": "optional",
       "group": "staking",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -8906,21 +7316,6 @@
       "description": "Deposit USDC to a vault.",
       "dry_run": "optional",
       "group": "vault",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -8975,21 +7370,6 @@
       "description": "Withdraw USDC from a vault.",
       "dry_run": "optional",
       "group": "vault",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -9042,21 +7422,6 @@
       "description": "Place a priority auction bid.",
       "dry_run": "optional",
       "group": "prio",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -9122,21 +7487,6 @@
       "description": "Set referral code.",
       "dry_run": "optional",
       "group": "referral",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -9176,21 +7526,6 @@
       "description": "Register/create your own referral code.",
       "dry_run": "optional",
       "group": "referral",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -9230,21 +7565,6 @@
       "description": "Stream real-time trades. automation callers should set max_events or idle_timeout_ms so the call returns.",
       "dry_run": "not_supported",
       "group": "subscribe",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -9310,21 +7630,6 @@
       "description": "Stream L2 order book updates. automation callers should set max_events or idle_timeout_ms so the call returns.",
       "dry_run": "not_supported",
       "group": "subscribe",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -9390,21 +7695,6 @@
       "description": "Stream candle updates. automation callers should set max_events or idle_timeout_ms so the call returns.",
       "dry_run": "not_supported",
       "group": "subscribe",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -9483,21 +7773,6 @@
       "description": "Stream all mid-price updates. automation callers should set max_events or idle_timeout_ms so the call returns.",
       "dry_run": "not_supported",
       "group": "subscribe",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "integer",
@@ -9550,21 +7825,6 @@
       "description": "Stream authenticated order status updates. automation callers should set max_events or idle_timeout_ms so the call returns.",
       "dry_run": "not_supported",
       "group": "subscribe",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "integer",
@@ -9617,21 +7877,6 @@
       "description": "Stream authenticated fill events. automation callers should set max_events or idle_timeout_ms so the call returns.",
       "dry_run": "not_supported",
       "group": "subscribe",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "integer",
@@ -9683,21 +7928,6 @@
       "description": "Send structured CLI feedback as a scenario JSON object to the configured feedback service.",
       "dry_run": "not_supported",
       "group": "system",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -9795,21 +8025,6 @@
       "description": "Show machine-readable command schemas for agents.",
       "dry_run": "not_supported",
       "group": "system",
-      "handler": {
-        "dispatch": "typed_in_process",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": "schema",
-        "purity": {
-          "direct_stdio": false,
-          "local_state": false,
-          "process_global_cli_state": false,
-          "process_global_output": false,
-          "prompts": false,
-          "signs_or_submits": false
-        }
-      },
       "inputs": [
         {
           "arg_type": "string",
@@ -9848,21 +8063,6 @@
       "description": "Update this binary from the latest GitHub release on Linux/macOS. Windows users should rerun install.sh to install the latest .zip release. Use --dry-run to preview without replacing the executable.",
       "dry_run": "optional",
       "group": "system",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [],
       "lifecycle": "interactive_local",
       "mutability": "local_only",
@@ -9887,21 +8087,6 @@
       "description": "Run the guided setup wizard. This is interactive and may not complete in an automation request unless the CLI exits on EOF.",
       "dry_run": "not_supported",
       "group": "system",
-      "handler": {
-        "dispatch": "legacy_fallback",
-        "fallbacks": [
-          "cli_dispatch"
-        ],
-        "id": null,
-        "purity": {
-          "direct_stdio": true,
-          "local_state": true,
-          "process_global_cli_state": true,
-          "process_global_output": true,
-          "prompts": true,
-          "signs_or_submits": true
-        }
-      },
       "inputs": [
         {
           "arg_type": "boolean",

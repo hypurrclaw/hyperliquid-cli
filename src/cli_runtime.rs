@@ -69,7 +69,6 @@ pub(super) async fn run(
 
 async fn dispatch(cli: &Cli, inv: &Invocation) -> Result<(), anyhow::Error> {
     match &cli.command {
-        None => Ok(()),
         Some(Commands::Wallet {
             subcommand: WalletCommands::Address,
         }) => {

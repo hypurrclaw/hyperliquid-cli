@@ -2,14 +2,12 @@ use serde::Serialize;
 
 pub(crate) trait CatalogCommandMetadata {
     fn aliases(&self) -> &[String];
-    fn lifecycle(&self) -> Option<&str>;
-    fn risk(&self) -> Option<&str>;
-    fn dry_run(&self) -> Option<&str>;
-    fn raw_payload(&self) -> Option<&str>;
-    fn confirmation(&self) -> Option<&str>;
-    fn ows_signer(&self) -> Option<&str>;
-    fn auth_required(&self) -> bool;
-    fn dangerous(&self) -> bool;
+    fn lifecycle(&self) -> &str;
+    fn risk(&self) -> &str;
+    fn dry_run(&self) -> &str;
+    fn raw_payload(&self) -> &str;
+    fn confirmation(&self) -> &str;
+    fn ows_signer(&self) -> &str;
 }
 
 pub(crate) trait CatalogArgMetadata {
@@ -42,30 +40,12 @@ pub(crate) fn command_metadata(
         } else {
             command.aliases().to_vec()
         },
-        lifecycle: command
-            .lifecycle()
-            .map(str::to_string)
-            .unwrap_or_else(|| inferred_lifecycle(command_key, command)),
-        risk: command
-            .risk()
-            .map(str::to_string)
-            .unwrap_or_else(|| inferred_risk(command_key, command)),
-        dry_run: command
-            .dry_run()
-            .map(str::to_string)
-            .unwrap_or_else(|| inferred_dry_run(command_key, command)),
-        raw_payload: command
-            .raw_payload()
-            .map(str::to_string)
-            .unwrap_or_else(|| inferred_raw_payload(command_key, command)),
-        confirmation: command
-            .confirmation()
-            .map(str::to_string)
-            .unwrap_or_else(|| inferred_confirmation(command_key, command)),
-        ows_signer: command
-            .ows_signer()
-            .map(str::to_string)
-            .unwrap_or_else(|| inferred_ows_signer(command_key, command)),
+        lifecycle: command.lifecycle().to_string(),
+        risk: command.risk().to_string(),
+        dry_run: command.dry_run().to_string(),
+        raw_payload: command.raw_payload().to_string(),
+        confirmation: command.confirmation().to_string(),
+        ows_signer: command.ows_signer().to_string(),
     }
 }
 
@@ -92,170 +72,6 @@ fn inferred_aliases(command_key: &str) -> Vec<String> {
         return vec!["vaults".to_string()];
     }
     Vec::new()
-}
-
-fn inferred_lifecycle(command_key: &str, command: &impl CatalogCommandMetadata) -> String {
-    if command_key.starts_with("subscribe ") {
-        return "streaming".to_string();
-    }
-    if is_interactive_local_command(command_key) {
-        return "interactive_local".to_string();
-    }
-    if is_local_state_command(command_key) || is_local_secret_command(command_key) {
-        return "read_only".to_string();
-    }
-    if command.dangerous() {
-        return "live_mutating".to_string();
-    }
-    "read_only".to_string()
-}
-
-fn inferred_risk(command_key: &str, command: &impl CatalogCommandMetadata) -> String {
-    if is_local_state_command(command_key) {
-        return "local_state".to_string();
-    }
-    if is_local_secret_command(command_key) {
-        return "local_secret".to_string();
-    }
-    if command_key == "account abstraction set" {
-        return "account_state".to_string();
-    }
-    if command.dangerous() {
-        return "funds_movement".to_string();
-    }
-    if command.auth_required() {
-        return "account_state".to_string();
-    }
-    "none".to_string()
-}
-
-fn inferred_dry_run(command_key: &str, command: &impl CatalogCommandMetadata) -> String {
-    if supports_local_dry_run(command_key)
-        || (!is_local_only_command(command_key) && command.dangerous())
-    {
-        return "optional".to_string();
-    }
-    "not_supported".to_string()
-}
-
-fn inferred_raw_payload(command_key: &str, command: &impl CatalogCommandMetadata) -> String {
-    if is_local_only_command(command_key) {
-        return "unsupported".to_string();
-    }
-    match inferred_dry_run(command_key, command).as_str() {
-        "optional" | "dry_run_only" => "dry_run_only".to_string(),
-        _ => "unsupported".to_string(),
-    }
-}
-
-fn inferred_confirmation(command_key: &str, command: &impl CatalogCommandMetadata) -> String {
-    if requires_local_prompt(command_key) {
-        return "prompt".to_string();
-    }
-    if is_local_only_command(command_key) {
-        return "none".to_string();
-    }
-    if command.dangerous() {
-        return "prompt".to_string();
-    }
-    "none".to_string()
-}
-
-fn inferred_ows_signer(command_key: &str, command: &impl CatalogCommandMetadata) -> String {
-    if matches!(command_key, "wallet show" | "wallet address") {
-        return "address_selector_supported".to_string();
-    }
-    if command_key == "prio bid" {
-        return "experimental_feature_gated".to_string();
-    }
-    if is_local_only_command(command_key) {
-        return "not_applicable".to_string();
-    }
-    if command.auth_required() {
-        return "experimental_feature_gated".to_string();
-    }
-    "not_required".to_string()
-}
-
-fn is_local_only_command(command_key: &str) -> bool {
-    is_interactive_local_command(command_key)
-        || is_local_state_command(command_key)
-        || is_local_secret_command(command_key)
-}
-
-fn is_interactive_local_command(command_key: &str) -> bool {
-    matches!(
-        command_key,
-        "setup"
-            | "wallet create"
-            | "wallet import"
-            | "wallet import-mnemonic"
-            | "wallet reset"
-            | "wallet rename"
-            | "wallet delete"
-            | "wallet export"
-            | "account add"
-            | "account set-default"
-            | "account remove"
-    )
-}
-
-fn is_local_state_command(command_key: &str) -> bool {
-    matches!(
-        command_key,
-        "wallet reset"
-            | "wallet list"
-            | "wallet rename"
-            | "wallet delete"
-            | "account ls"
-            | "account set-default"
-            | "account remove"
-    )
-}
-
-fn is_local_secret_command(command_key: &str) -> bool {
-    matches!(
-        command_key,
-        "setup"
-            | "wallet create"
-            | "wallet import"
-            | "wallet import-mnemonic"
-            | "wallet show"
-            | "wallet address"
-            | "wallet export"
-            | "account add"
-    )
-}
-
-fn supports_local_dry_run(command_key: &str) -> bool {
-    matches!(
-        command_key,
-        "wallet create"
-            | "wallet import"
-            | "wallet import-mnemonic"
-            | "wallet reset"
-            | "wallet delete"
-            | "account add"
-            | "account set-default"
-            | "account remove"
-    )
-}
-
-fn requires_local_prompt(command_key: &str) -> bool {
-    matches!(
-        command_key,
-        "setup"
-            | "wallet import"
-            | "wallet import-mnemonic"
-            | "wallet reset"
-            | "wallet delete"
-            | "wallet export"
-            | "account add"
-            | "account set-default"
-            | "account remove"
-            | "staking link initiate"
-            | "staking link finalize"
-    )
 }
 
 fn inferred_input_kind(arg: &impl CatalogArgMetadata) -> Option<String> {

@@ -1,5 +1,5 @@
 use assert_cmd::Command;
-use hyperliquid_cli::command_registry::{CommandRegistry, OwsSupport, PHASE1_AUTHORITY_DECISION};
+use hyperliquid_cli::command_registry::{CommandRegistry, OwsSupport};
 use predicates::prelude::*;
 use std::fs;
 use std::path::Path;
@@ -261,12 +261,7 @@ fn taskfile_exposes_contract_characterization_gate() {
 }
 
 #[test]
-fn phase1_registry_authority_is_documented_and_used_for_schema_emitters() {
-    assert!(PHASE1_AUTHORITY_DECISION.contains("src/command_catalog.json"));
-    assert!(PHASE1_AUTHORITY_DECISION.contains("CommandRegistry"));
-    assert!(PHASE1_AUTHORITY_DECISION.contains("CLI schema"));
-    assert!(PHASE1_AUTHORITY_DECISION.contains("CLI schemas"));
-
+fn schema_emitters_read_the_registry() {
     let cli_schema = repo_file("src/commands/schema.rs");
 
     assert!(cli_schema.contains("CommandRegistry::load()"));
@@ -492,7 +487,7 @@ fn tool_catalog_and_registry_cover_the_same_command_inventory() {
         .map(|command| command["command"].as_str().unwrap())
         .collect::<Vec<_>>();
     let registry_commands = registry
-        .entries()
+        .commands()
         .iter()
         .map(|command| command.command.as_str())
         .collect::<Vec<_>>();
@@ -510,7 +505,7 @@ fn tool_catalog_materializes_registry_policy_metadata() {
     for catalog_command in commands {
         let command_name = catalog_command["command"].as_str().unwrap();
         let registry_command = registry
-            .entries()
+            .commands()
             .iter()
             .find(|command| command.command == command_name)
             .unwrap_or_else(|| panic!("catalog command missing from registry: {command_name}"));

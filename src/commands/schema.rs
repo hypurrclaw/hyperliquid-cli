@@ -106,7 +106,7 @@ pub fn schema_query(command_path: &[String]) -> Result<SchemaOutput, anyhow::Err
     let registry = CommandRegistry::load()
         .map_err(|err| CliError::Internal(anyhow::anyhow!("invalid command registry: {err}")))?;
     let schemas = registry
-        .entries()
+        .commands()
         .iter()
         .map(command_schema)
         .collect::<Vec<_>>();

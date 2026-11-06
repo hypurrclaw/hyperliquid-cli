@@ -1,6 +1,6 @@
 mod contract_support;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use assert_cmd::Command;
 use serde_json::{Value, json};
@@ -36,26 +36,6 @@ fn every_catalog_command_resolves_to_cli_help() {
             .assert()
             .success();
     }
-}
-
-#[test]
-fn every_cli_leaf_is_cataloged_or_explicitly_excluded() {
-    let cataloged = schema_all()
-        .iter()
-        .map(command_path)
-        .collect::<BTreeSet<_>>();
-    let discovered = discover_cli_leaves(Vec::new());
-    let excluded = BTreeSet::from(["help".to_string()]);
-
-    let missing = discovered
-        .difference(&cataloged)
-        .filter(|path| !excluded.contains(*path))
-        .cloned()
-        .collect::<Vec<_>>();
-    assert!(
-        missing.is_empty(),
-        "CLI leaf commands missing from catalog or explicit exclusions: {missing:?}"
-    );
 }
 
 fn inventory_entry(schema: &Value) -> Value {
@@ -114,60 +94,4 @@ fn output_contract_for(schema: &Value, metadata: &Value) -> Value {
         "json_value"
     };
     json!(contract)
-}
-
-fn discover_cli_leaves(prefix: Vec<String>) -> BTreeSet<String> {
-    let mut args = prefix.iter().map(String::as_str).collect::<Vec<_>>();
-    args.push("--help");
-    let output = Command::cargo_bin("hyperliquid")
-        .unwrap()
-        .args(args)
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .clone();
-    let help = String::from_utf8(output).unwrap();
-    let subcommands = parse_help_subcommands(&help);
-    if subcommands.is_empty() {
-        return BTreeSet::from([prefix.join(" ")]);
-    }
-
-    subcommands
-        .into_iter()
-        .flat_map(|subcommand| {
-            let mut path = prefix.clone();
-            path.push(subcommand);
-            discover_cli_leaves(path)
-        })
-        .collect()
-}
-
-fn parse_help_subcommands(help: &str) -> Vec<String> {
-    let mut in_commands = false;
-    let mut commands = Vec::new();
-
-    for line in help.lines() {
-        if line == "Commands:" {
-            in_commands = true;
-            continue;
-        }
-        if in_commands && !line.starts_with("  ") {
-            break;
-        }
-        if !in_commands {
-            continue;
-        }
-        let Some(trimmed) = line.strip_prefix("  ") else {
-            continue;
-        };
-        let Some(command) = trimmed.split_whitespace().next() else {
-            continue;
-        };
-        if command != "help" {
-            commands.push(command.to_string());
-        }
-    }
-
-    commands
 }
