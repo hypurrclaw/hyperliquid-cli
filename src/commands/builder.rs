@@ -212,17 +212,10 @@ impl TableData for BuilderMaxFeeOutput {
 
 impl TableData for BuilderApprovedOutput {
     fn headers(&self) -> Vec<&str> {
-        if self.rows.is_empty() {
-            vec!["Message"]
-        } else {
-            vec!["User", "Builder", "Max Fee", "Tenths Bps"]
-        }
+        vec!["User", "Builder", "Max Fee", "Tenths Bps"]
     }
 
     fn rows(&self) -> Vec<Vec<String>> {
-        if self.rows.is_empty() {
-            return vec![vec!["No approved builders.".to_string()]];
-        }
         self.rows
             .iter()
             .map(|row| {
@@ -234,6 +227,10 @@ impl TableData for BuilderApprovedOutput {
                 ]
             })
             .collect()
+    }
+
+    fn empty_message(&self) -> Option<&str> {
+        Some("No approved builders.")
     }
 
     fn to_json_value(&self) -> serde_json::Value {

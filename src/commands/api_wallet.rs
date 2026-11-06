@@ -199,20 +199,10 @@ struct ApiAgentListOutput {
 
 impl TableData for ApiAgentListOutput {
     fn headers(&self) -> Vec<&str> {
-        if self.rows.is_empty() {
-            vec!["Master", "Message"]
-        } else {
-            vec!["Master", "Name", "Address", "Valid Until"]
-        }
+        vec!["Master", "Name", "Address", "Valid Until"]
     }
 
     fn rows(&self) -> Vec<Vec<String>> {
-        if self.rows.is_empty() {
-            return vec![vec![
-                self.master_address.clone(),
-                "no API wallets found".to_string(),
-            ]];
-        }
         self.rows
             .iter()
             .map(|row| {
@@ -226,6 +216,10 @@ impl TableData for ApiAgentListOutput {
                 ]
             })
             .collect()
+    }
+
+    fn empty_message(&self) -> Option<&str> {
+        Some("No API wallets.")
     }
 
     fn to_json_value(&self) -> serde_json::Value {

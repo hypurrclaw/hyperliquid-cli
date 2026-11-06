@@ -1063,30 +1063,22 @@ impl FillsOutput {
 
 impl TableData for FillsOutput {
     fn headers(&self) -> Vec<&str> {
-        if self.fills.is_empty() {
-            vec!["Message"]
-        } else {
-            vec![
-                "Coin",
-                "Side",
-                "Price",
-                "Size",
-                "Direction",
-                "Closed PnL",
-                "Fee",
-                "Fee Token",
-                "OID",
-                "Time",
-                "Liquidity",
-            ]
-        }
+        vec![
+            "Coin",
+            "Side",
+            "Price",
+            "Size",
+            "Direction",
+            "Closed PnL",
+            "Fee",
+            "Fee Token",
+            "OID",
+            "Time",
+            "Liquidity",
+        ]
     }
 
     fn rows(&self) -> Vec<Vec<String>> {
-        if self.fills.is_empty() {
-            return vec![vec!["No fills.".to_string()]];
-        }
-
         self.fills
             .iter()
             .map(|fill| {
@@ -1108,10 +1100,6 @@ impl TableData for FillsOutput {
     }
 
     fn pretty_rows(&self) -> Vec<Vec<String>> {
-        if self.fills.is_empty() {
-            return self.rows();
-        }
-
         self.fills
             .iter()
             .map(|fill| {
@@ -1130,6 +1118,10 @@ impl TableData for FillsOutput {
                 ]
             })
             .collect()
+    }
+
+    fn empty_message(&self) -> Option<&str> {
+        Some("No fills.")
     }
 
     fn to_json_value(&self) -> serde_json::Value {
@@ -1187,29 +1179,21 @@ impl OrdersOutput {
 
 impl TableData for OrdersOutput {
     fn headers(&self) -> Vec<&str> {
-        if self.orders.is_empty() {
-            vec!["Message"]
-        } else {
-            vec![
-                "Coin",
-                "Side",
-                "Limit Price",
-                "Size",
-                "Original Size",
-                "OID",
-                "Type",
-                "TIF",
-                "Reduce Only",
-                "Timestamp",
-            ]
-        }
+        vec![
+            "Coin",
+            "Side",
+            "Limit Price",
+            "Size",
+            "Original Size",
+            "OID",
+            "Type",
+            "TIF",
+            "Reduce Only",
+            "Timestamp",
+        ]
     }
 
     fn rows(&self) -> Vec<Vec<String>> {
-        if self.orders.is_empty() {
-            return vec![vec!["No orders.".to_string()]];
-        }
-
         self.orders
             .iter()
             .map(|order| {
@@ -1227,6 +1211,10 @@ impl TableData for OrdersOutput {
                 ]
             })
             .collect()
+    }
+
+    fn empty_message(&self) -> Option<&str> {
+        Some("No orders.")
     }
 
     fn to_json_value(&self) -> serde_json::Value {
@@ -1599,26 +1587,18 @@ impl SubaccountsOutput {
 
 impl TableData for SubaccountsOutput {
     fn headers(&self) -> Vec<&str> {
-        if self.subaccounts.is_empty() {
-            vec!["Message"]
-        } else {
-            vec![
-                "Name",
-                "Address",
-                "Master",
-                "Account Value",
-                "Withdrawable",
-                "Positions",
-                "Spot Balances",
-            ]
-        }
+        vec![
+            "Name",
+            "Address",
+            "Master",
+            "Account Value",
+            "Withdrawable",
+            "Positions",
+            "Spot Balances",
+        ]
     }
 
     fn rows(&self) -> Vec<Vec<String>> {
-        if self.subaccounts.is_empty() {
-            return vec![vec!["No subaccounts.".to_string()]];
-        }
-
         self.subaccounts
             .iter()
             .map(|subaccount| {
@@ -1633,6 +1613,10 @@ impl TableData for SubaccountsOutput {
                 ]
             })
             .collect()
+    }
+
+    fn empty_message(&self) -> Option<&str> {
+        Some("No subaccounts.")
     }
 
     fn to_json_value(&self) -> serde_json::Value {
@@ -1654,7 +1638,8 @@ mod tests {
     fn empty_fills_show_no_data_message_but_json_is_empty_array() {
         let output = FillsOutput::new(vec![]);
 
-        assert_eq!(output.rows()[0][0], "No fills.");
+        assert!(output.rows().is_empty());
+        assert_eq!(output.empty_message(), Some("No fills."));
         assert!(output.to_json_value().as_array().unwrap().is_empty());
     }
 
@@ -1662,7 +1647,8 @@ mod tests {
     fn empty_orders_show_no_data_message_but_json_is_empty_array() {
         let output = OrdersOutput::new(vec![]);
 
-        assert_eq!(output.rows()[0][0], "No orders.");
+        assert!(output.rows().is_empty());
+        assert_eq!(output.empty_message(), Some("No orders."));
         assert!(output.to_json_value().as_array().unwrap().is_empty());
     }
 
@@ -1670,7 +1656,8 @@ mod tests {
     fn empty_subaccounts_show_no_data_message_but_json_is_empty_array() {
         let output = SubaccountsOutput::new(vec![]);
 
-        assert_eq!(output.rows()[0][0], "No subaccounts.");
+        assert!(output.rows().is_empty());
+        assert_eq!(output.empty_message(), Some("No subaccounts."));
         assert!(output.to_json_value().as_array().unwrap().is_empty());
     }
 

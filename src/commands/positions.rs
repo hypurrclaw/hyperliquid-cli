@@ -103,29 +103,21 @@ pub struct PositionsOutput {
 
 impl TableData for PositionsOutput {
     fn headers(&self) -> Vec<&str> {
-        if self.rows.is_empty() {
-            vec!["Message"]
-        } else {
-            vec![
-                "Coin",
-                "Side",
-                "Size",
-                "Entry",
-                "Mark",
-                "Unrealized PnL",
-                "Position Value",
-                "Leverage",
-                "Margin Used",
-                "Liquidation",
-            ]
-        }
+        vec![
+            "Coin",
+            "Side",
+            "Size",
+            "Entry",
+            "Mark",
+            "Unrealized PnL",
+            "Position Value",
+            "Leverage",
+            "Margin Used",
+            "Liquidation",
+        ]
     }
 
     fn rows(&self) -> Vec<Vec<String>> {
-        if self.rows.is_empty() {
-            return vec![vec!["No open positions.".to_string()]];
-        }
-
         self.rows
             .iter()
             .map(|row| {
@@ -153,11 +145,6 @@ impl TableData for PositionsOutput {
         self.rows()
             .into_iter()
             .map(|mut row| {
-                if self.rows.is_empty() {
-                    row[0] = output::colors::gray(&row[0]);
-                    return row;
-                }
-
                 if row.len() > 5 {
                     let pnl = self
                         .rows
@@ -179,6 +166,10 @@ impl TableData for PositionsOutput {
                 row
             })
             .collect()
+    }
+
+    fn empty_message(&self) -> Option<&str> {
+        Some("No open positions.")
     }
 
     fn to_json_value(&self) -> serde_json::Value {

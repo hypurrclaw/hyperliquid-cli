@@ -253,7 +253,8 @@ async fn orders_open_shows_empty_state() {
         .args(["orders", "open"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("No open orders"));
+        .stdout(predicate::str::contains("No open orders").not())
+        .stderr(predicate::str::contains("No open orders."));
 }
 
 #[tokio::test]
@@ -268,10 +269,9 @@ async fn orders_open_pretty_empty_state_uses_theme_colors() {
         .args(["orders", "open"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\u{1b}[36mMessage\u{1b}[0m"))
-        .stdout(predicate::str::contains(
-            "\u{1b}[90mNo open orders.\u{1b}[0m",
-        ));
+        .stdout(predicate::str::contains("\u{1b}[36mCoin\u{1b}[0m"))
+        .stdout(predicate::str::contains("No open orders").not())
+        .stderr(predicate::str::contains("No open orders."));
 }
 
 #[tokio::test]
@@ -285,8 +285,10 @@ async fn orders_open_table_and_json_empty_state_are_uncolored() {
         .args(["--format", "table", "orders", "open"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("No open orders"))
-        .stdout(predicate::str::contains("\u{1b}[").not());
+        .stdout(predicate::str::contains("Coin"))
+        .stdout(predicate::str::contains("No open orders").not())
+        .stdout(predicate::str::contains("\u{1b}[").not())
+        .stderr(predicate::str::contains("No open orders."));
 
     env.command()
         .env(API_OVERRIDE_ENV, server.uri())

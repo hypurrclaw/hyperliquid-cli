@@ -280,7 +280,8 @@ async fn stored_account_aliases_resolve_for_public_user_lookup_commands() {
         .args(["account", "subaccounts", "main", "--testnet"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("No subaccounts."));
+        .stdout(predicate::str::contains("No subaccounts.").not())
+        .stderr(predicate::str::contains("No subaccounts."));
 
     env.account_command_with_server(TEST_ACCOUNT_PASSPHRASE, &server)
         .args(["staking", "summary", "main", "--testnet"])

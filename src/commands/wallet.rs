@@ -45,28 +45,20 @@ impl AccountsOutput {
 
 impl TableData for AccountsOutput {
     fn headers(&self) -> Vec<&str> {
-        if self.accounts.is_empty() {
-            vec!["Message"]
-        } else {
-            vec![
-                "ID",
-                "Alias",
-                "Address",
-                "Master",
-                "Agent Name",
-                "Expires At",
-                "Type",
-                "Default",
-                "Created At",
-            ]
-        }
+        vec![
+            "ID",
+            "Alias",
+            "Address",
+            "Master",
+            "Agent Name",
+            "Expires At",
+            "Type",
+            "Default",
+            "Created At",
+        ]
     }
 
     fn rows(&self) -> Vec<Vec<String>> {
-        if self.accounts.is_empty() {
-            return vec![vec!["no accounts found".to_string()]];
-        }
-
         self.accounts
             .iter()
             .map(|account| {
@@ -92,6 +84,10 @@ impl TableData for AccountsOutput {
                 ]
             })
             .collect()
+    }
+
+    fn empty_message(&self) -> Option<&str> {
+        Some("No accounts.")
     }
 
     fn to_json_value(&self) -> serde_json::Value {

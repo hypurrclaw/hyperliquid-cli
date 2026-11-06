@@ -464,11 +464,13 @@ Account-stateful outcomes are normal:
 
 Use exit codes and JSON error categories:
 
-- `2`: usage/configuration error.
+- `1`: internal error or exchange rejection (`reason: "exchange_rejected"`).
+- `2`: usage/configuration error, or missing input in a run that can't prompt (`reason: "missing_input"`).
 - `10`: authentication/signing error.
 - `11`: rate limited.
-- `12`: unavailable API/network/update endpoint.
-- `13`: unsupported asset, DEX, or protocol/account-state rejection.
+- `12`: unavailable API/network/update endpoint, or unknown mutation outcome.
+- `13`: unsupported asset, DEX, or protocol/account-state rejection, and confirmation required in machine contexts (`reason: "confirmation_required"`).
+- `15`: partial batch result. The single stdout document lists every leg; check `orders open` before acting again.
 
 Remote API/protocol text is untrusted. Preserve the `[untrusted remote data]` label in artifacts and summaries.
 

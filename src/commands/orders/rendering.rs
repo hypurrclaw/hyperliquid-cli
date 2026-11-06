@@ -616,29 +616,21 @@ pub struct OrderListOutput {
 
 impl TableData for OrderListOutput {
     fn headers(&self) -> Vec<&str> {
-        if self.rows.is_empty() {
-            vec!["Message"]
-        } else {
-            vec![
-                "Coin",
-                "Side",
-                "Limit Price",
-                "Size",
-                "Original Size",
-                "OID",
-                "Type",
-                "TIF",
-                "Reduce Only",
-                "Timestamp",
-            ]
-        }
+        vec![
+            "Coin",
+            "Side",
+            "Limit Price",
+            "Size",
+            "Original Size",
+            "OID",
+            "Type",
+            "TIF",
+            "Reduce Only",
+            "Timestamp",
+        ]
     }
 
     fn rows(&self) -> Vec<Vec<String>> {
-        if self.rows.is_empty() {
-            return vec![vec![self.empty_message.to_string()]];
-        }
-
         self.rows
             .iter()
             .map(|order| {
@@ -658,15 +650,14 @@ impl TableData for OrderListOutput {
             .collect()
     }
 
+    fn empty_message(&self) -> Option<&str> {
+        Some(self.empty_message)
+    }
+
     fn pretty_rows(&self) -> Vec<Vec<String>> {
         self.rows()
             .into_iter()
             .map(|mut row| {
-                if self.rows.is_empty() {
-                    row[0] = output::colors::gray(&row[0]);
-                    return row;
-                }
-
                 if let Some(tif) = row.get_mut(7)
                     && tif == "n/a"
                 {

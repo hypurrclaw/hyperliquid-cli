@@ -270,21 +270,14 @@ impl TableData for VaultDetailsOutput {
 
 impl TableData for VaultSummaryOutput {
     fn headers(&self) -> Vec<&str> {
-        if self.rows.is_empty() {
-            vec!["Message"]
-        } else {
-            let mut headers = vec!["Vault", "Name", "Leader", "APR", "TVL", "Age Days", "Kind"];
-            if self.rows.iter().any(|row| row.user_deposit.is_some()) {
-                headers.push("User Deposit");
-            }
-            headers
+        let mut headers = vec!["Vault", "Name", "Leader", "APR", "TVL", "Age Days", "Kind"];
+        if self.rows.iter().any(|row| row.user_deposit.is_some()) {
+            headers.push("User Deposit");
         }
+        headers
     }
 
     fn rows(&self) -> Vec<Vec<String>> {
-        if self.rows.is_empty() {
-            return vec![vec!["No vaults.".to_string()]];
-        }
         let show_user_deposit = self.rows.iter().any(|row| row.user_deposit.is_some());
         self.rows
             .iter()
@@ -310,11 +303,8 @@ impl TableData for VaultSummaryOutput {
             .collect()
     }
 
-    fn pretty_rows(&self) -> Vec<Vec<String>> {
-        if self.rows.is_empty() {
-            return vec![vec![output::colors::gray("No vaults.")]];
-        }
-        self.rows()
+    fn empty_message(&self) -> Option<&str> {
+        Some("No vaults.")
     }
 
     fn to_json_value(&self) -> serde_json::Value {
@@ -324,33 +314,22 @@ impl TableData for VaultSummaryOutput {
 
 impl TableData for VaultPositionsOutput {
     fn headers(&self) -> Vec<&str> {
-        if self.rows.is_empty() {
-            vec!["Vault", "Message"]
-        } else {
-            vec![
-                "Vault",
-                "Coin",
-                "Side",
-                "Size",
-                "Entry",
-                "Mark",
-                "Unrealized PnL",
-                "Position Value",
-                "Leverage",
-                "Margin Used",
-                "Liquidation",
-            ]
-        }
+        vec![
+            "Vault",
+            "Coin",
+            "Side",
+            "Size",
+            "Entry",
+            "Mark",
+            "Unrealized PnL",
+            "Position Value",
+            "Leverage",
+            "Margin Used",
+            "Liquidation",
+        ]
     }
 
     fn rows(&self) -> Vec<Vec<String>> {
-        if self.rows.is_empty() {
-            return vec![vec![
-                self.vault_address.clone(),
-                "No open positions.".to_string(),
-            ]];
-        }
-
         self.rows
             .iter()
             .map(|row| {
@@ -379,10 +358,6 @@ impl TableData for VaultPositionsOutput {
         self.rows()
             .into_iter()
             .map(|mut row| {
-                if self.rows.is_empty() {
-                    row[1] = output::colors::gray(&row[1]);
-                    return row;
-                }
                 if row.len() > 6
                     && let Some(position) =
                         self.rows.iter().find(|position| position.coin == row[1])
@@ -401,6 +376,10 @@ impl TableData for VaultPositionsOutput {
                 row
             })
             .collect()
+    }
+
+    fn empty_message(&self) -> Option<&str> {
+        Some("No open positions.")
     }
 
     fn to_json_value(&self) -> serde_json::Value {
