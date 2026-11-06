@@ -2,6 +2,7 @@
 
 use serde::Serialize;
 
+use crate::invocation::Invocation;
 use crate::output::{OutputFormat, TableData};
 use crate::settings::Settings;
 use ows_lib::types::WalletInfo as VaultWalletInfo;
@@ -229,10 +230,10 @@ impl Receipt {
 }
 
 pub(super) fn print_receipt(
+    inv: &Invocation,
     settings: &Settings,
     vault: &Vault,
     receipt: Receipt,
-    format: OutputFormat,
 ) {
     let info = WalletReceipt {
         message: receipt.message,
@@ -247,38 +248,34 @@ pub(super) fn print_receipt(
         vault_path: vault.display_path(),
         config_keys_written: receipt.config_keys_written,
     };
-    crate::output::print_data_no_timing(&info, format);
+    inv.print_untimed(&info);
 }
 
-pub(super) fn print_wallet_address(address: &str, format: OutputFormat) {
-    if format == OutputFormat::Json {
-        crate::output::print_data_no_timing(
-            &WalletAddressOutput {
-                address: address.to_string(),
-            },
-            format,
-        );
+pub(super) fn print_wallet_address(inv: &Invocation, address: &str) {
+    if inv.format() == OutputFormat::Json {
+        inv.print_untimed(&WalletAddressOutput {
+            address: address.to_string(),
+        });
     } else {
         println!("{address}");
     }
 }
 
-pub(super) fn print_status(status: &str, message: &str, format: OutputFormat) {
-    if format == OutputFormat::Json {
-        let output = StatusOutput {
+pub(super) fn print_status(inv: &Invocation, status: &str, message: &str) {
+    if inv.format() == OutputFormat::Json {
+        inv.print_untimed(&StatusOutput {
             status: status.to_string(),
             message: message.to_string(),
-        };
-        crate::output::print_data_no_timing(&output, format);
+        });
     } else {
         println!("{message}");
     }
 }
 
 /// Report a declined confirmation. Human runs get a stderr note; JSON keeps its status document.
-pub(super) fn print_declined(message: &str, format: OutputFormat) {
-    if format == OutputFormat::Json {
-        print_status("cancelled", message, format);
+pub(super) fn print_declined(inv: &Invocation, message: &str) {
+    if inv.format() == OutputFormat::Json {
+        print_status(inv, "cancelled", message);
     } else {
         eprintln!("{message}");
     }
@@ -314,7 +311,7 @@ mod tests {
             is_default: true,
             created_at: "now".to_string(),
         }]);
-        let rendered = crate::output::render(&output, OutputFormat::Json);
+        let rendered = crate::output::Session::for_test(OutputFormat::Json).render(&output);
 
         assert!(rendered.contains("main"));
         assert!(rendered.contains("\"type\":\"ows-wallet\""));

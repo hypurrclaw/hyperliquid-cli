@@ -6,8 +6,6 @@
 //! - `hyperliquid account portfolio <ADDRESS>` — public portfolio summary
 //! - `hyperliquid account subaccounts <ADDRESS>` — public subaccount list
 
-use std::time::{Duration, Instant};
-
 use alloy::sol;
 use chrono::DateTime;
 use clap::{Args, Subcommand, ValueEnum};
@@ -20,12 +18,14 @@ use hypersdk::hypercore::{
 use serde::Serialize;
 
 use crate::assets::raw_info_base_url;
-use crate::command_context::CommandContext;
+use crate::commands::actions;
 use crate::commands::spot_balances::{RawSpotBalance, user_spot_balances_raw};
-use crate::commands::{actions, map_api_error};
 use crate::errors::CliError;
+use crate::errors::from_sdk;
 use crate::http_api::post_info_json;
-use crate::output::{JsonValueOutput, OutputFormat, TableData, colors};
+use crate::invocation::Invocation;
+use crate::mode::Mode;
+use crate::output::{JsonValueOutput, TableData, colors};
 use crate::signing::SelectedSigner;
 
 sol! {
@@ -241,19 +241,9 @@ impl TableData for AbstractionSetOutput {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct AccountQueryResult<T> {
-    pub output: T,
-    pub elapsed: Duration,
-}
-
 /// Fetch and render fill history for any public address.
-pub async fn fills_query(
-    client: &HttpClient,
-    address: &str,
-    args: &FillsArgs,
-) -> Result<AccountQueryResult<FillsOutput>, anyhow::Error> {
-    let start = Instant::now();
+pub async fn fills(inv: &Invocation, address: &str, args: &FillsArgs) -> Result<(), anyhow::Error> {
+    let client = inv.remote()?.client();
     let user = parse_address(address)?;
     validate_optional_time_range(args.start, args.end)?;
     let fills = if args.start.is_some() || args.aggregate_by_time {
@@ -262,372 +252,105 @@ pub async fn fills_query(
         client
             .user_fills(user)
             .await
-            .map_err(map_api_error)?
+            .map_err(from_sdk)?
             .into_iter()
             .map(FillRow::from)
             .collect()
     };
-    let output = FillsOutput::new(fills);
-
-    Ok(AccountQueryResult {
-        output,
-        elapsed: start.elapsed(),
-    })
-}
-
-pub async fn fills_with_context(
-    context: &CommandContext<'_>,
-    address: &str,
-    args: &FillsArgs,
-) -> Result<(), anyhow::Error> {
-    let client = context.hypercore_client().ok_or_else(|| {
-        anyhow::anyhow!("account fills command requires a Hyperliquid HTTP client")
-    })?;
-    let result = fills_query(client, address, args).await?;
-    context.print(&result.output, result.elapsed);
-    Ok(())
-}
-
-/// Fetch and render fill history for any public address.
-pub async fn fills(
-    client: &HttpClient,
-    address: &str,
-    args: &FillsArgs,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let result = fills_query(client, address, args).await?;
-    crate::output::print_data(&result.output, format, result.elapsed);
+    inv.print(&FillsOutput::new(fills));
     Ok(())
 }
 
 /// Fetch and render open orders for any public address.
-pub async fn orders_query(
-    client: &HttpClient,
-    address: &str,
-) -> Result<AccountQueryResult<OrdersOutput>, anyhow::Error> {
-    let start = Instant::now();
+pub async fn orders(inv: &Invocation, address: &str) -> Result<(), anyhow::Error> {
+    let client = inv.remote()?.client();
     let user = parse_address(address)?;
     let orders = client
         .open_orders(user, None)
         .await
-        .map_err(map_api_error)?
+        .map_err(from_sdk)?
         .into_iter()
         .map(OrderRow::from)
         .collect();
-    let output = OrdersOutput::new(orders);
-
-    Ok(AccountQueryResult {
-        output,
-        elapsed: start.elapsed(),
-    })
-}
-
-pub async fn orders_with_context(
-    context: &CommandContext<'_>,
-    address: &str,
-) -> Result<(), anyhow::Error> {
-    let client = context.hypercore_client().ok_or_else(|| {
-        anyhow::anyhow!("account orders command requires a Hyperliquid HTTP client")
-    })?;
-    let result = orders_query(client, address).await?;
-    context.print(&result.output, result.elapsed);
-    Ok(())
-}
-
-/// Fetch and render open orders for any public address.
-pub async fn orders(
-    client: &HttpClient,
-    address: &str,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let result = orders_query(client, address).await?;
-    crate::output::print_data(&result.output, format, result.elapsed);
+    inv.print(&OrdersOutput::new(orders));
     Ok(())
 }
 
 /// Fetch and render a portfolio summary for any public address.
-pub async fn portfolio_query(
-    client: &HttpClient,
-    address: &str,
-) -> Result<AccountQueryResult<PortfolioOutput>, anyhow::Error> {
-    let start = Instant::now();
+pub async fn portfolio(inv: &Invocation, address: &str) -> Result<(), anyhow::Error> {
+    let client = inv.remote()?.client();
     let user = parse_address(address)?;
     let state = client
         .clearinghouse_state(user, None)
         .await
-        .map_err(map_api_error)?;
+        .map_err(from_sdk)?;
     let spot_balances = user_balances_raw(client, user).await?;
-    let vault_equities = client
-        .user_vault_equities(user)
-        .await
-        .map_err(map_api_error)?;
-    let output = PortfolioOutput::new(state, spot_balances, vault_equities);
-
-    Ok(AccountQueryResult {
-        output,
-        elapsed: start.elapsed(),
-    })
-}
-
-pub async fn portfolio_with_context(
-    context: &CommandContext<'_>,
-    address: &str,
-) -> Result<(), anyhow::Error> {
-    let client = context.hypercore_client().ok_or_else(|| {
-        anyhow::anyhow!("account portfolio command requires a Hyperliquid HTTP client")
-    })?;
-    let result = portfolio_query(client, address).await?;
-    context.print(&result.output, result.elapsed);
-    Ok(())
-}
-
-/// Fetch and render a portfolio summary for any public address.
-pub async fn portfolio(
-    client: &HttpClient,
-    address: &str,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let result = portfolio_query(client, address).await?;
-    crate::output::print_data(&result.output, format, result.elapsed);
+    let vault_equities = client.user_vault_equities(user).await.map_err(from_sdk)?;
+    inv.print(&PortfolioOutput::new(state, spot_balances, vault_equities));
     Ok(())
 }
 
 /// Fetch and render subaccounts for any public master address.
-pub async fn subaccounts_query(
-    client: &HttpClient,
-    address: &str,
-) -> Result<AccountQueryResult<SubaccountsOutput>, anyhow::Error> {
-    let start = Instant::now();
+pub async fn subaccounts(inv: &Invocation, address: &str) -> Result<(), anyhow::Error> {
+    let client = inv.remote()?.client();
     let user = parse_address(address)?;
     let subaccounts = match client.subaccounts(user).await {
         Ok(subaccounts) => subaccounts,
         Err(err) if is_null_sequence_decode(&err) => Vec::new(),
-        Err(err) => return Err(map_api_error(err).into()),
+        Err(err) => return Err(from_sdk(err).into()),
     }
     .into_iter()
     .map(SubaccountRow::from)
     .collect();
-    let output = SubaccountsOutput::new(subaccounts);
-
-    Ok(AccountQueryResult {
-        output,
-        elapsed: start.elapsed(),
-    })
-}
-
-pub async fn subaccounts_with_context(
-    context: &CommandContext<'_>,
-    address: &str,
-) -> Result<(), anyhow::Error> {
-    let client = context.hypercore_client().ok_or_else(|| {
-        anyhow::anyhow!("account subaccounts command requires a Hyperliquid HTTP client")
-    })?;
-    let result = subaccounts_query(client, address).await?;
-    context.print(&result.output, result.elapsed);
+    inv.print(&SubaccountsOutput::new(subaccounts));
     Ok(())
 }
 
-/// Fetch and render subaccounts for any public master address.
-pub async fn subaccounts(
-    client: &HttpClient,
-    address: &str,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let result = subaccounts_query(client, address).await?;
-    crate::output::print_data(&result.output, format, result.elapsed);
-    Ok(())
+pub async fn fees(inv: &Invocation, address: &str) -> Result<(), anyhow::Error> {
+    print_user_info_value(inv, address, "userFees", "No fee data.").await
 }
 
-pub async fn fees(
-    api_base_url: &str,
-    address: &str,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let result = fees_query(api_base_url, address).await?;
-    crate::output::print_data(&result.output, format, result.elapsed);
-    Ok(())
+pub async fn rate_limit(inv: &Invocation, address: &str) -> Result<(), anyhow::Error> {
+    print_user_info_value(inv, address, "userRateLimit", "No rate-limit data.").await
 }
 
-pub async fn fees_query(
-    api_base_url: &str,
-    address: &str,
-) -> Result<AccountQueryResult<JsonValueOutput>, anyhow::Error> {
-    user_info_value_query(api_base_url, address, "userFees", "No fee data.").await
-}
-
-pub async fn fees_with_context(
-    context: &CommandContext<'_>,
-    address: &str,
-) -> Result<(), anyhow::Error> {
-    let result = fees_query(context.api_base_url(), address).await?;
-    context.print(&result.output, result.elapsed);
-    Ok(())
-}
-
-pub async fn rate_limit(
-    api_base_url: &str,
-    address: &str,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let result = rate_limit_query(api_base_url, address).await?;
-    crate::output::print_data(&result.output, format, result.elapsed);
-    Ok(())
-}
-
-pub async fn rate_limit_query(
-    api_base_url: &str,
-    address: &str,
-) -> Result<AccountQueryResult<JsonValueOutput>, anyhow::Error> {
-    user_info_value_query(
-        api_base_url,
-        address,
-        "userRateLimit",
-        "No rate-limit data.",
-    )
-    .await
-}
-
-pub async fn rate_limit_with_context(
-    context: &CommandContext<'_>,
-    address: &str,
-) -> Result<(), anyhow::Error> {
-    let result = rate_limit_query(context.api_base_url(), address).await?;
-    context.print(&result.output, result.elapsed);
-    Ok(())
-}
-
-pub async fn portfolio_history(
-    api_base_url: &str,
-    address: &str,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let result = portfolio_history_query(api_base_url, address).await?;
-    crate::output::print_data(&result.output, format, result.elapsed);
-    Ok(())
-}
-
-pub async fn portfolio_history_query(
-    api_base_url: &str,
-    address: &str,
-) -> Result<AccountQueryResult<JsonValueOutput>, anyhow::Error> {
-    user_info_value_query(api_base_url, address, "portfolio", "No portfolio history.").await
-}
-
-pub async fn portfolio_history_with_context(
-    context: &CommandContext<'_>,
-    address: &str,
-) -> Result<(), anyhow::Error> {
-    let result = portfolio_history_query(context.api_base_url(), address).await?;
-    context.print(&result.output, result.elapsed);
-    Ok(())
+pub async fn portfolio_history(inv: &Invocation, address: &str) -> Result<(), anyhow::Error> {
+    print_user_info_value(inv, address, "portfolio", "No portfolio history.").await
 }
 
 pub async fn ledger(
-    api_base_url: &str,
+    inv: &Invocation,
     address: &str,
     args: &TimeRangeArgs,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
-    let result = ledger_query(api_base_url, address, args).await?;
-    crate::output::print_data(&result.output, format, result.elapsed);
-    Ok(())
-}
-
-pub async fn ledger_query(
-    api_base_url: &str,
-    address: &str,
-    args: &TimeRangeArgs,
-) -> Result<AccountQueryResult<JsonValueOutput>, anyhow::Error> {
-    user_time_range_info_value_query(
-        api_base_url,
+    print_user_time_range_info_value(
+        inv,
         address,
         "userNonFundingLedgerUpdates",
-        args.start,
-        args.end,
+        args,
         "No ledger updates.",
     )
     .await
 }
 
-pub async fn ledger_with_context(
-    context: &CommandContext<'_>,
-    address: &str,
-    args: &TimeRangeArgs,
-) -> Result<(), anyhow::Error> {
-    let result = ledger_query(context.api_base_url(), address, args).await?;
-    context.print(&result.output, result.elapsed);
-    Ok(())
-}
-
 pub async fn funding(
-    api_base_url: &str,
-    address: &str,
-    args: &TimeRangeArgs,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let result = funding_query(api_base_url, address, args).await?;
-    crate::output::print_data(&result.output, format, result.elapsed);
-    Ok(())
-}
-
-pub async fn funding_query(
-    api_base_url: &str,
-    address: &str,
-    args: &TimeRangeArgs,
-) -> Result<AccountQueryResult<JsonValueOutput>, anyhow::Error> {
-    user_time_range_info_value_query(
-        api_base_url,
-        address,
-        "userFunding",
-        args.start,
-        args.end,
-        "No funding history.",
-    )
-    .await
-}
-
-pub async fn funding_with_context(
-    context: &CommandContext<'_>,
+    inv: &Invocation,
     address: &str,
     args: &TimeRangeArgs,
 ) -> Result<(), anyhow::Error> {
-    let result = funding_query(context.api_base_url(), address, args).await?;
-    context.print(&result.output, result.elapsed);
-    Ok(())
+    print_user_time_range_info_value(inv, address, "userFunding", args, "No funding history.").await
 }
 
-pub async fn twap_history(
-    api_base_url: &str,
-    address: &str,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let result = twap_history_query(api_base_url, address).await?;
-    crate::output::print_data(&result.output, format, result.elapsed);
-    Ok(())
+pub async fn twap_history(inv: &Invocation, address: &str) -> Result<(), anyhow::Error> {
+    print_user_info_value(inv, address, "twapHistory", "No TWAP history.").await
 }
 
-pub async fn twap_history_query(
-    api_base_url: &str,
-    address: &str,
-) -> Result<AccountQueryResult<JsonValueOutput>, anyhow::Error> {
-    user_info_value_query(api_base_url, address, "twapHistory", "No TWAP history.").await
-}
-
-pub async fn twap_history_with_context(
-    context: &CommandContext<'_>,
-    address: &str,
-) -> Result<(), anyhow::Error> {
-    let result = twap_history_query(context.api_base_url(), address).await?;
-    context.print(&result.output, result.elapsed);
-    Ok(())
-}
-
-pub async fn twap_fills_query(
-    api_base_url: &str,
+pub async fn twap_fills(
+    inv: &Invocation,
     address: &str,
     args: &TwapFillsArgs,
-) -> Result<AccountQueryResult<JsonValueOutput>, anyhow::Error> {
-    let start = Instant::now();
+) -> Result<(), anyhow::Error> {
+    let api_base_url = inv.remote()?.api_base_url();
     let user = parse_address(address)?;
     validate_optional_time_range(args.start, args.end)?;
     let value = if let Some(start_time) = args.start {
@@ -653,39 +376,21 @@ pub async fn twap_fills_query(
             .await?
     };
 
-    let output = JsonValueOutput::new(value, "No TWAP slice fills.");
-    Ok(AccountQueryResult {
-        output,
-        elapsed: start.elapsed(),
-    })
-}
-
-pub async fn twap_fills_with_context(
-    context: &CommandContext<'_>,
-    address: &str,
-    args: &TwapFillsArgs,
-) -> Result<(), anyhow::Error> {
-    let result = twap_fills_query(context.api_base_url(), address, args).await?;
-    context.print(&result.output, result.elapsed);
+    inv.print(&JsonValueOutput::new(value, "No TWAP slice fills."));
     Ok(())
 }
 
-pub async fn twap_fills(
-    api_base_url: &str,
-    address: &str,
-    args: &TwapFillsArgs,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let result = twap_fills_query(api_base_url, address, args).await?;
-    crate::output::print_data(&result.output, format, result.elapsed);
+pub async fn abstraction(inv: &Invocation, address: &str) -> Result<(), anyhow::Error> {
+    let row = fetch_abstraction(inv.remote()?.api_base_url(), address).await?;
+    inv.print(&AbstractionOutput { row });
     Ok(())
 }
 
-pub async fn abstraction_query(
+/// The account abstraction mode `address` currently has.
+pub async fn fetch_abstraction(
     api_base_url: &str,
     address: &str,
-) -> Result<AccountQueryResult<AbstractionOutput>, anyhow::Error> {
-    let start = Instant::now();
+) -> Result<AbstractionRow, anyhow::Error> {
     let user = parse_address(address)?;
     let request = UserRequest {
         request_type: "userAbstraction",
@@ -693,34 +398,11 @@ pub async fn abstraction_query(
     };
     let raw_mode =
         post_info_json::<String>(api_base_url, &request, "loading user abstraction").await?;
-    let row = AbstractionRow {
+    Ok(AbstractionRow {
         user: user.to_string(),
         normalized_mode: normalize_abstraction_mode(&raw_mode).to_string(),
         raw_mode,
-    };
-    Ok(AccountQueryResult {
-        output: AbstractionOutput { row },
-        elapsed: start.elapsed(),
     })
-}
-
-pub async fn abstraction_with_context(
-    context: &CommandContext<'_>,
-    address: &str,
-) -> Result<(), anyhow::Error> {
-    let result = abstraction_query(context.api_base_url(), address).await?;
-    context.print(&result.output, result.elapsed);
-    Ok(())
-}
-
-pub async fn abstraction(
-    api_base_url: &str,
-    address: &str,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let result = abstraction_query(api_base_url, address).await?;
-    crate::output::print_data(&result.output, format, result.elapsed);
-    Ok(())
 }
 
 pub fn abstraction_set_dry_run_value(
@@ -744,17 +426,17 @@ pub fn abstraction_set_dry_run_value(
 }
 
 pub async fn set_abstraction(
-    api_base_url: &str,
-    chain: Chain,
+    inv: &Invocation,
     signer: &SelectedSigner,
     args: &SetAbstractionArgs,
     require_confirmation: bool,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
     if require_confirmation && !args.yes {
-        confirm_account_mode_change(args.mode, signer.address())?;
+        confirm_account_mode_change(inv.mode(), args.mode, signer.address())?;
     }
-    let start = Instant::now();
+    let remote = inv.remote()?;
+    let api_base_url = remote.api_base_url();
+    let chain = remote.chain();
     let user = signer.address();
     let nonce = actions::nonce_now();
     let protocol_mode = args.mode.protocol_value().to_string();
@@ -782,21 +464,17 @@ pub async fn set_abstraction(
     )
     .await?;
 
-    crate::output::print_data(
-        &AbstractionSetOutput {
-            row: AbstractionSetRow {
-                status: "submitted".to_string(),
-                action: "set-abstraction".to_string(),
-                signer: user.to_string(),
-                user: user.to_string(),
-                mode: mode_cli_value(args.mode).to_string(),
-                protocol_mode,
-                network: chain.to_string(),
-            },
+    inv.print(&AbstractionSetOutput {
+        row: AbstractionSetRow {
+            status: "submitted".to_string(),
+            action: "set-abstraction".to_string(),
+            signer: user.to_string(),
+            user: user.to_string(),
+            mode: mode_cli_value(args.mode).to_string(),
+            protocol_mode,
+            network: chain.to_string(),
         },
-        format,
-        start.elapsed(),
-    );
+    });
     Ok(())
 }
 
@@ -825,13 +503,17 @@ fn mode_cli_value(mode: AbstractionModeArg) -> &'static str {
     }
 }
 
-fn confirm_account_mode_change(mode: AbstractionModeArg, user: Address) -> Result<(), CliError> {
-    crate::prompt::ensure_can_prompt("--yes")?;
+fn confirm_account_mode_change(
+    prompt_mode: &Mode,
+    mode: AbstractionModeArg,
+    user: Address,
+) -> Result<(), CliError> {
+    crate::prompt::ensure_can_prompt(prompt_mode, "--yes")?;
     let question = format!(
         "Set account abstraction for {user} to {}?",
         mode_cli_value(mode)
     );
-    if crate::prompt::confirm_warning(&question, "--yes")? {
+    if crate::prompt::confirm_warning(prompt_mode, &question, "--yes")? {
         Ok(())
     } else {
         Err(CliError::Configuration(
@@ -940,46 +622,39 @@ async fn user_fills_raw(
     Ok(fills.into_iter().map(FillRow::from).collect())
 }
 
-async fn user_info_value_query(
-    api_base_url: &str,
+async fn print_user_info_value(
+    inv: &Invocation,
     address: &str,
     request_type: &'static str,
     empty_message: &'static str,
-) -> Result<AccountQueryResult<JsonValueOutput>, anyhow::Error> {
-    let start = Instant::now();
+) -> Result<(), anyhow::Error> {
+    let api_base_url = inv.remote()?.api_base_url();
     let user = parse_address(address)?;
     let request = UserRequest { request_type, user };
     let value = post_info_json::<serde_json::Value>(api_base_url, &request, request_type).await?;
-    let output = JsonValueOutput::new(value, empty_message);
-    Ok(AccountQueryResult {
-        output,
-        elapsed: start.elapsed(),
-    })
+    inv.print(&JsonValueOutput::new(value, empty_message));
+    Ok(())
 }
 
-async fn user_time_range_info_value_query(
-    api_base_url: &str,
+async fn print_user_time_range_info_value(
+    inv: &Invocation,
     address: &str,
     request_type: &'static str,
-    start_time: u64,
-    end_time: Option<u64>,
+    args: &TimeRangeArgs,
     empty_message: &'static str,
-) -> Result<AccountQueryResult<JsonValueOutput>, anyhow::Error> {
-    let start = Instant::now();
+) -> Result<(), anyhow::Error> {
+    let api_base_url = inv.remote()?.api_base_url();
     let user = parse_address(address)?;
-    validate_time_range(start_time, end_time)?;
+    validate_time_range(args.start, args.end)?;
     let request = UserTimeRangeRequest {
         request_type,
         user,
-        start_time,
-        end_time,
+        start_time: args.start,
+        end_time: args.end,
     };
     let value = post_info_json::<serde_json::Value>(api_base_url, &request, request_type).await?;
-    let output = JsonValueOutput::new(value, empty_message);
-    Ok(AccountQueryResult {
-        output,
-        elapsed: start.elapsed(),
-    })
+    inv.print(&JsonValueOutput::new(value, empty_message));
+    Ok(())
 }
 
 fn is_null_sequence_decode(err: &anyhow::Error) -> bool {
@@ -1619,6 +1294,7 @@ impl TableData for SubaccountsOutput {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::output::{OutputFormat, Session};
     use rust_decimal::Decimal;
     use std::str::FromStr;
 
@@ -1712,7 +1388,7 @@ mod tests {
             },
         ]);
 
-        let pretty = crate::output::render(&output, OutputFormat::Pretty);
+        let pretty = Session::for_test(OutputFormat::Pretty).render(&output);
 
         assert!(pretty.contains(&crate::output::colors::green("12.34")));
         assert!(pretty.contains(&crate::output::colors::red("-5.67")));
@@ -1737,8 +1413,8 @@ mod tests {
             cloid: None,
         }]);
 
-        let table = crate::output::render(&output, OutputFormat::Table);
-        let json = crate::output::render(&output, OutputFormat::Json);
+        let table = Session::for_test(OutputFormat::Table).render(&output);
+        let json = Session::for_test(OutputFormat::Json).render(&output);
 
         assert!(table.contains("12.34"));
         assert!(!table.contains(crate::output::colors::GREEN));
@@ -1767,7 +1443,7 @@ mod tests {
             cloid: None,
         }]);
 
-        let pretty = crate::output::render(&output, OutputFormat::Pretty);
+        let pretty = Session::for_test(OutputFormat::Pretty).render(&output);
 
         assert!(pretty.contains("\t0\t") || pretty.contains(" 0 "));
         assert!(!pretty.contains(&format!("{}0", crate::output::colors::GREEN)));
@@ -1822,8 +1498,8 @@ mod tests {
             vault_equities: vec![],
         };
 
-        let pretty = crate::output::render(&output, OutputFormat::Pretty);
-        let table = crate::output::render(&output, OutputFormat::Table);
+        let pretty = Session::for_test(OutputFormat::Pretty).render(&output);
+        let table = Session::for_test(OutputFormat::Table).render(&output);
 
         assert!(pretty.contains(&format!("pnl={}", crate::output::colors::green("10"))));
         assert!(pretty.contains(&format!("pnl={}", crate::output::colors::red("-5"))));

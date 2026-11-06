@@ -20,6 +20,7 @@ use tokio::time::Sleep;
 
 use crate::errors::CliError;
 use crate::output::terminal;
+use crate::output::{JsonRenderOptions, Session};
 use crate::{output, ws};
 
 /// Exit status for SIGHUP (`128 + 1`).
@@ -85,15 +86,19 @@ pub(crate) fn write_stdout_line(line: &str) -> Result<(), anyhow::Error> {
     write_line(&mut io::stdout().lock(), line)
 }
 
-/// Write one compact JSON line, applying the global `--select`, `--results-only`
-/// and `--max-results` projection with stream-envelope rules.
-pub(crate) fn emit_json_line<T, W>(output: &mut W, item: &T) -> Result<(), anyhow::Error>
+/// Write one compact JSON line, applying `--select`, `--results-only` and
+/// `--max-results` with stream-envelope rules.
+pub(crate) fn emit_json_line<T, W>(
+    output: &mut W,
+    item: &T,
+    projection: &JsonRenderOptions,
+) -> Result<(), anyhow::Error>
 where
     T: Serialize + ?Sized,
     W: Write + ?Sized,
 {
-    let line = if output::json_projection_options_enabled() {
-        let value = output::apply_current_json_stream_options(serde_json::to_value(item)?);
+    let line = if projection.is_active() {
+        let value = projection.apply_stream(serde_json::to_value(item)?);
         serde_json::to_string(&value)?
     } else {
         serde_json::to_string(item)?
@@ -103,8 +108,9 @@ where
 
 pub(crate) fn emit_json_line_to_stdout<T: Serialize + ?Sized>(
     item: &T,
+    projection: &JsonRenderOptions,
 ) -> Result<(), anyhow::Error> {
-    emit_json_line(&mut io::stdout().lock(), item)
+    emit_json_line(&mut io::stdout().lock(), item, projection)
 }
 
 // ── Signals and the run loop ────────────────────────────────────────────
@@ -458,15 +464,16 @@ impl SubscribeTarget {
 
 /// Stream a WebSocket subscription to stdout as NDJSON.
 ///
-/// `human_format_requested` is whether the caller's resolved output format is a
-/// human one, which on a non-terminal stdout only happens when it was asked for
-/// explicitly.
+/// A human output format on a non-terminal stdout only happens when it was
+/// asked for explicitly, so it earns a notice that the stream is JSON lines.
 pub async fn stream_subscription(
+    session: &Session,
     chain: Chain,
     target: SubscribeTarget,
     bounds: StreamBounds,
-    human_format_requested: bool,
 ) -> Result<(), anyhow::Error> {
+    let human_format_requested = session.format() != output::OutputFormat::Json;
+    let projection = session.json_options();
     if !terminal::stdout_is_terminal() && human_format_requested {
         eprintln!("{JSON_LINES_STDOUT_NOTICE}");
     }
@@ -482,6 +489,7 @@ pub async fn stream_subscription(
             |message| target.matches(message),
             &mut ws,
             &mut stdout,
+            projection,
         )
         .await?;
         Ok(StreamEnd::Finished)
@@ -504,6 +512,7 @@ pub async fn stream_subscription_events<S, F, W>(
     event_matches: F,
     events: &mut S,
     output: &mut W,
+    projection: &JsonRenderOptions,
 ) -> Result<(), anyhow::Error>
 where
     S: Stream<Item = WsEvent> + Unpin + ?Sized,
@@ -516,6 +525,7 @@ where
             "type": "subscribed",
             "subscription": subscription_label,
         }),
+        projection,
     )?;
 
     if bounds.max_items == Some(0) {
@@ -542,6 +552,7 @@ where
                     &event_matches,
                     &mut gap_pending,
                     output,
+                    projection,
                 )? {
                     emitted_events += 1;
                     if bounds.reached(emitted_events) {
@@ -561,6 +572,7 @@ fn handle_subscription_event<F, W>(
     event_matches: &F,
     gap_pending: &mut bool,
     output: &mut W,
+    projection: &JsonRenderOptions,
 ) -> Result<bool, anyhow::Error>
 where
     F: Fn(&Incoming) -> bool,
@@ -575,6 +587,7 @@ where
                     "subscription": subscription_label,
                     "data": message,
                 }),
+                projection,
             )?;
             Ok(true)
         }

@@ -1,14 +1,12 @@
 //! Authenticated position management commands.
 
-use std::time::Instant;
-
 use clap::Args;
 use hypersdk::Address;
 use hypersdk::Decimal;
+use hypersdk::hypercore::HttpClient;
 use hypersdk::hypercore::api::UpdateLeverage;
 use hypersdk::hypercore::types::api::UpdateIsolatedMargin;
 use hypersdk::hypercore::types::{Action, AssetPosition, LeverageType};
-use hypersdk::hypercore::{Chain, HttpClient};
 
 use crate::signing::SelectedSigner;
 use rust_decimal::prelude::ToPrimitive;
@@ -16,9 +14,10 @@ use serde::Serialize;
 
 use crate::assets::AssetResolver;
 use crate::commands::actions;
-use crate::commands::map_api_error;
 use crate::errors::CliError;
-use crate::output::{self, OutputFormat, TableData};
+use crate::errors::from_sdk;
+use crate::invocation::Invocation;
+use crate::output::{self, TableData};
 
 /// Arguments for `positions update-leverage`.
 #[derive(Args, Debug, Clone)]
@@ -349,15 +348,8 @@ impl TableData for PositionActionOutput {
 }
 
 /// List authenticated user's open positions.
-pub async fn list(
-    client: &HttpClient,
-    user: Address,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let start = Instant::now();
-    let output = list_snapshot(client, user).await?;
-
-    output::print_data(&output, format, start.elapsed());
+pub async fn list(inv: &Invocation, user: Address) -> Result<(), anyhow::Error> {
+    inv.print(&list_snapshot(inv.remote()?.client(), user).await?);
     Ok(())
 }
 
@@ -369,7 +361,7 @@ pub async fn list_snapshot(
     let rows = client
         .clearinghouse_state(user, None)
         .await
-        .map_err(map_api_error)?
+        .map_err(from_sdk)?
         .asset_positions
         .into_iter()
         .map(PositionRow::from)
@@ -377,19 +369,6 @@ pub async fn list_snapshot(
         .collect::<Vec<_>>();
 
     Ok(PositionsOutput { rows })
-}
-
-/// Update cross/isolated leverage for a perpetual position.
-pub async fn update_leverage(
-    api_base_url: &str,
-    chain: Chain,
-    resolver: &AssetResolver,
-    signer: &SelectedSigner,
-    args: &UpdateLeverageArgs,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let prepared = prepare_update_leverage(resolver, args)?;
-    submit_update_leverage(api_base_url, chain, signer, prepared, format).await
 }
 
 pub fn prepare_update_leverage(
@@ -407,16 +386,14 @@ pub fn prepare_update_leverage(
 }
 
 pub async fn submit_update_leverage(
-    api_base_url: &str,
-    chain: Chain,
+    inv: &Invocation,
     signer: &SelectedSigner,
     prepared: PreparedUpdateLeverage,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
-    let start = Instant::now();
+    let remote = inv.remote()?;
     actions::send_l1_action(
-        api_base_url,
-        chain,
+        remote.api_base_url(),
+        remote.chain(),
         signer,
         prepared.action(),
         actions::nonce_now(),
@@ -426,34 +403,17 @@ pub async fn submit_update_leverage(
     let leverage = prepared.leverage;
     let coin = prepared.coin;
 
-    output::print_data(
-        &PositionActionOutput {
-            rows: vec![PositionActionConfirmation {
-                coin,
-                action: "update-leverage".to_string(),
-                status: "updated".to_string(),
-                leverage: Some(leverage),
-                margin_mode: Some(margin_mode),
-                amount: None,
-            }],
-        },
-        format,
-        start.elapsed(),
-    );
+    inv.print(&PositionActionOutput {
+        rows: vec![PositionActionConfirmation {
+            coin,
+            action: "update-leverage".to_string(),
+            status: "updated".to_string(),
+            leverage: Some(leverage),
+            margin_mode: Some(margin_mode),
+            amount: None,
+        }],
+    });
     Ok(())
-}
-
-/// Add isolated margin to a perpetual position.
-pub async fn update_margin(
-    api_base_url: &str,
-    chain: Chain,
-    resolver: &AssetResolver,
-    signer: &SelectedSigner,
-    args: &UpdateMarginArgs,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let prepared = prepare_update_margin(resolver, args)?;
-    submit_update_margin(api_base_url, chain, signer, prepared, format).await
 }
 
 pub fn prepare_update_margin(
@@ -471,16 +431,14 @@ pub fn prepare_update_margin(
 }
 
 pub async fn submit_update_margin(
-    api_base_url: &str,
-    chain: Chain,
+    inv: &Invocation,
     signer: &SelectedSigner,
     prepared: PreparedUpdateMargin,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
-    let start = Instant::now();
+    let remote = inv.remote()?;
     actions::send_l1_action(
-        api_base_url,
-        chain,
+        remote.api_base_url(),
+        remote.chain(),
         signer,
         prepared.action(),
         actions::nonce_now(),
@@ -489,20 +447,16 @@ pub async fn submit_update_margin(
     let amount = prepared.amount;
     let coin = prepared.coin;
 
-    output::print_data(
-        &PositionActionOutput {
-            rows: vec![PositionActionConfirmation {
-                coin,
-                action: "update-margin".to_string(),
-                status: "updated".to_string(),
-                leverage: None,
-                margin_mode: None,
-                amount: Some(amount),
-            }],
-        },
-        format,
-        start.elapsed(),
-    );
+    inv.print(&PositionActionOutput {
+        rows: vec![PositionActionConfirmation {
+            coin,
+            action: "update-margin".to_string(),
+            status: "updated".to_string(),
+            leverage: None,
+            margin_mode: None,
+            amount: Some(amount),
+        }],
+    });
     Ok(())
 }
 

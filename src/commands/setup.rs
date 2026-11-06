@@ -9,8 +9,11 @@ use hypersdk::Address;
 use hypersdk::hypercore::HttpClient;
 use serde::Serialize;
 
-use crate::commands::{builder, map_api_error, referral, wallet};
+use crate::commands::{builder, referral, wallet};
 use crate::errors::CliError;
+use crate::errors::from_sdk;
+use crate::invocation::Invocation;
+use crate::mode::Mode;
 use crate::network::Network;
 use crate::output::{OutputFormat, TableData};
 use crate::ows::signing::OwsSigningConfig;
@@ -94,14 +97,18 @@ enum WalletSource {
 }
 
 /// Fail before asking anything when this run can't answer prompts and `--yes` wasn't given.
-fn ensure_setup_can_run(args: &SetupArgs, format: OutputFormat) -> Result<(), CliError> {
+fn ensure_setup_can_run(
+    args: &SetupArgs,
+    format: OutputFormat,
+    mode: &Mode,
+) -> Result<(), CliError> {
     if args.yes {
         return Ok(());
     }
     let blocker = if format == OutputFormat::Json {
         Some("JSON output")
     } else {
-        crate::mode::prompt_blocker()
+        mode.prompt_blocker()
     };
     match blocker {
         None => Ok(()),
@@ -112,12 +119,10 @@ fn ensure_setup_can_run(args: &SetupArgs, format: OutputFormat) -> Result<(), Cl
 }
 
 /// Run the interactive first-time setup wizard.
-pub async fn run(
-    default_network: Network,
-    args: &SetupArgs,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    ensure_setup_can_run(args, format)?;
+pub async fn run(inv: &Invocation, args: &SetupArgs) -> Result<(), anyhow::Error> {
+    let mode = inv.mode();
+    let default_network = inv.remote()?.network();
+    ensure_setup_can_run(args, inv.format(), mode)?;
     let store = WalletStore::new(Settings::from_process());
     let settings = store.settings();
     // A broken config is an error before any question is asked.
@@ -135,7 +140,7 @@ pub async fn run(
     let wallet_choice = if args.yes {
         "1".to_string()
     } else {
-        prompt::read_line("Choose an option [1/2]: ", "--yes")?
+        prompt::read_line(mode, "Choose an option [1/2]: ", "--yes")?
     };
     let import_wallet = match wallet_choice.trim().to_ascii_lowercase().as_str() {
         "" | "1" | "create" | "c" => false,
@@ -150,7 +155,7 @@ pub async fn run(
     let network = if args.yes {
         default_network
     } else {
-        prompt_network(default_network)?
+        prompt_network(mode, default_network)?
     };
 
     // Verify connection and collect fallible defaults before creating any local
@@ -161,21 +166,21 @@ pub async fn run(
     let builder_defaults = if args.yes {
         builder_suggestion.clone()
     } else {
-        prompt_builder_defaults(settings)?
+        prompt_builder_defaults(mode, settings)?
     };
     let referral_suggestion =
         referral::suggested_default_referral_code(settings, network.is_testnet())?;
     let referral_code = if args.yes {
         referral_suggestion.clone()
     } else {
-        prompt_referral_default(settings, network)?
+        prompt_referral_default(mode, settings, network)?
     };
     let wallet_source = if import_wallet {
-        WalletSource::Import(wallet::prompt_private_key()?.trim().to_string())
+        WalletSource::Import(wallet::prompt_private_key(mode)?.trim().to_string())
     } else {
         WalletSource::Create
     };
-    let approve_builder = resolve_builder_approval(args, builder_defaults.as_ref())?;
+    let approve_builder = resolve_builder_approval(mode, args, builder_defaults.as_ref())?;
 
     let wallet_name = match wallet_source {
         WalletSource::Create => store.next_name("setup")?,
@@ -267,7 +272,7 @@ pub async fn run(
         default_referral_code,
         config_keys_written: stored.config_keys_written,
     };
-    crate::output::print_data_no_timing(&output, format);
+    inv.print_untimed(&output);
 
     let replayable = matches!(wallet_source, WalletSource::Create)
         && builder_defaults == builder_suggestion
@@ -339,17 +344,17 @@ fn print_replay_command(
 
 async fn verify_connection(settings: &Settings, network: Network) -> Result<String, anyhow::Error> {
     let client: HttpClient = network.http_client(settings.api_base_url_override(network)?);
-    let mids = client.all_mids(None).await.map_err(map_api_error)?;
+    let mids = client.all_mids(None).await.map_err(from_sdk)?;
     Ok(format!(
         "Test query succeeded ({} mid prices returned)",
         mids.len()
     ))
 }
 
-fn prompt_network(default_network: Network) -> Result<Network, anyhow::Error> {
+fn prompt_network(mode: &Mode, default_network: Network) -> Result<Network, anyhow::Error> {
     let default_is_testnet = default_network == Network::Testnet;
     let default_hint = if default_is_testnet { "Y/n" } else { "y/N" };
-    let answer = prompt::read_line(&format!("Use testnet? [{default_hint}]: "), "--yes")?;
+    let answer = prompt::read_line(mode, &format!("Use testnet? [{default_hint}]: "), "--yes")?;
     match answer.trim().to_ascii_lowercase().as_str() {
         "" => Ok(default_network),
         "y" | "yes" => Ok(Network::Testnet),
@@ -361,7 +366,10 @@ fn prompt_network(default_network: Network) -> Result<Network, anyhow::Error> {
     }
 }
 
-fn prompt_builder_defaults(settings: &Settings) -> Result<Option<(String, String)>, anyhow::Error> {
+fn prompt_builder_defaults(
+    mode: &Mode,
+    settings: &Settings,
+) -> Result<Option<(String, String)>, anyhow::Error> {
     let suggestion = builder::suggested_default_builder(settings)?;
     if let Some((address, fee)) = suggestion.as_ref() {
         eprintln!(
@@ -376,7 +384,7 @@ fn prompt_builder_defaults(settings: &Settings) -> Result<Option<(String, String
         .as_ref()
         .map(|(address, _)| format!("Default builder address [{address}]: "))
         .unwrap_or_else(|| "Default builder address: ".to_string());
-    let address = prompt::read_line(&address_prompt, "--yes")?;
+    let address = prompt::read_line(mode, &address_prompt, "--yes")?;
     let address = address.trim();
     if address.eq_ignore_ascii_case("none") || address.eq_ignore_ascii_case("skip") {
         return Ok(None);
@@ -395,7 +403,7 @@ fn prompt_builder_defaults(settings: &Settings) -> Result<Option<(String, String
         .as_ref()
         .map(|(_, fee)| format!("Default builder fee rate [{fee}]: "))
         .unwrap_or_else(|| "Default builder fee rate (for example 0.001%): ".to_string());
-    let fee = prompt::read_line(&fee_prompt, "--yes")?;
+    let fee = prompt::read_line(mode, &fee_prompt, "--yes")?;
     let fee = fee.trim();
     let fee = if fee.is_empty() {
         let Some((_, fee)) = suggestion.as_ref() else {
@@ -415,6 +423,7 @@ fn prompt_builder_defaults(settings: &Settings) -> Result<Option<(String, String
 
 /// Decide, before anything changes, whether setup submits the builder approval.
 fn resolve_builder_approval(
+    mode: &Mode,
     args: &SetupArgs,
     builder_defaults: Option<&(String, String)>,
 ) -> Result<bool, anyhow::Error> {
@@ -428,7 +437,7 @@ fn resolve_builder_approval(
         }
         return Ok(false);
     };
-    should_approve_default_builder(args, builder, fee)
+    should_approve_default_builder(mode, args, builder, fee)
 }
 
 async fn maybe_approve_default_builder(
@@ -480,6 +489,7 @@ async fn maybe_approve_default_builder(
 }
 
 fn should_approve_default_builder(
+    mode: &Mode,
     args: &SetupArgs,
     builder: &str,
     fee: &str,
@@ -492,6 +502,7 @@ fn should_approve_default_builder(
     }
 
     let answer = prompt::read_line(
+        mode,
         &format!("Approve default builder {builder} for max fee {fee}? [Y/n]: "),
         "--approve-builder",
     )?;
@@ -506,6 +517,7 @@ fn should_approve_default_builder(
 }
 
 fn prompt_referral_default(
+    mode: &Mode,
     settings: &Settings,
     network: Network,
 ) -> Result<Option<String>, anyhow::Error> {
@@ -523,7 +535,7 @@ fn prompt_referral_default(
         .as_ref()
         .map(|code| format!("Default referral code [{code}]: "))
         .unwrap_or_else(|| "Default referral code: ".to_string());
-    let code = prompt::read_line(&prompt_label, "--yes")?;
+    let code = prompt::read_line(mode, &prompt_label, "--yes")?;
     let code = code.trim();
     if code.eq_ignore_ascii_case("none") || code.eq_ignore_ascii_case("skip") {
         return Ok(None);
@@ -562,7 +574,11 @@ mod tests {
 
         let json = summary.to_json_value();
         assert!(json.get("private_key").is_none());
-        assert!(crate::output::render(&summary, OutputFormat::Pretty).contains("Setup complete"));
+        assert!(
+            crate::output::Session::for_test(OutputFormat::Pretty)
+                .render(&summary)
+                .contains("Setup complete")
+        );
     }
 
     #[test]
@@ -572,11 +588,11 @@ mod tests {
             approve_builder: false,
             no_approve_builder: false,
         };
-        let err = ensure_setup_can_run(&args, OutputFormat::Json).unwrap_err();
+        let err = ensure_setup_can_run(&args, OutputFormat::Json, &Mode::default()).unwrap_err();
         assert_eq!(err.exit_code(), 2);
         assert!(err.to_string().contains("hyperliquid setup --yes"));
 
         let yes = SetupArgs { yes: true, ..args };
-        assert!(ensure_setup_can_run(&yes, OutputFormat::Json).is_ok());
+        assert!(ensure_setup_can_run(&yes, OutputFormat::Json, &Mode::default()).is_ok());
     }
 }

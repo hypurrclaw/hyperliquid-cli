@@ -4,7 +4,6 @@
 
 pub mod assets;
 pub mod auth;
-pub mod command_context;
 pub mod command_handlers;
 pub(crate) mod command_metadata;
 pub mod command_registry;
@@ -14,6 +13,7 @@ pub mod dry_run;
 pub mod errors;
 pub(crate) mod http_api;
 pub mod input_hardening;
+pub mod invocation;
 pub mod legacy_accounts;
 pub mod mode;
 pub mod network;

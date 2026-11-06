@@ -1,14 +1,15 @@
 //! Structured feedback submission command.
 
 use std::io::Read;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use clap::{ArgGroup, Args};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::errors::{self, CliError};
-use crate::output::{self, OutputFormat, TableData};
+use crate::invocation::Invocation;
+use crate::output::TableData;
 use crate::response_sanitization::labelled_untrusted_text;
 
 const BUILD_ENV_FEEDBACK_URL: &str = "HYPERLIQUID_FEEDBACK_URL";
@@ -99,8 +100,7 @@ impl TableData for FeedbackOutput {
     }
 }
 
-pub async fn submit(args: &FeedbackArgs, format: OutputFormat) -> Result<(), anyhow::Error> {
-    let start = Instant::now();
+pub async fn submit(inv: &Invocation, args: &FeedbackArgs) -> Result<(), anyhow::Error> {
     let endpoint = feedback_endpoint(args)?;
     let scenario = read_scenario(args)?;
     let contact = validate_contact(args.contact.as_deref())?;
@@ -144,8 +144,7 @@ pub async fn submit(args: &FeedbackArgs, format: OutputFormat) -> Result<(), any
         .into());
     }
 
-    let output = feedback_output_from_body(&body)?;
-    output::print_data(&output, format, start.elapsed());
+    inv.print(&feedback_output_from_body(&body)?);
     Ok(())
 }
 

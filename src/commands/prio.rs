@@ -1,18 +1,16 @@
 //! Gossip priority auction commands.
 
-use std::time::{Duration, Instant};
-
 use clap::Args;
 use hypersdk::Decimal;
 use hypersdk::hypercore::types::{Action, GossipPriorityBid};
-use hypersdk::hypercore::{Chain, HttpClient};
 use rust_decimal::prelude::FromPrimitive;
 use serde::Serialize;
 
 use crate::commands::actions::{nonce_now, send_l1_action_raw};
-use crate::commands::map_api_error;
 use crate::errors::CliError;
-use crate::output::{OutputFormat, TableData};
+use crate::errors::from_sdk;
+use crate::invocation::Invocation;
+use crate::output::TableData;
 use crate::signing::SelectedSigner;
 
 /// Arguments for `prio bid`.
@@ -45,12 +43,6 @@ pub struct PrioritySlotRow {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PriorityStatusOutput {
     rows: Vec<PrioritySlotRow>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PriorityStatusResult {
-    pub output: PriorityStatusOutput,
-    pub elapsed: Duration,
 }
 
 impl TableData for PriorityStatusOutput {
@@ -126,18 +118,13 @@ impl TableData for PriorityBidOutput {
     }
 }
 
-pub async fn status(client: &HttpClient, format: OutputFormat) -> Result<(), anyhow::Error> {
-    let result = status_query(client).await?;
-    crate::output::print_data(&result.output, format, result.elapsed);
-    Ok(())
-}
-
-pub async fn status_query(client: &HttpClient) -> Result<PriorityStatusResult, anyhow::Error> {
-    let start = Instant::now();
-    let status = client
+pub async fn status(inv: &Invocation) -> Result<(), anyhow::Error> {
+    let status = inv
+        .remote()?
+        .client()
         .gossip_priority_auction_status()
         .await
-        .map_err(map_api_error)?;
+        .map_err(from_sdk)?;
 
     let rows = status
         .slots
@@ -162,21 +149,18 @@ pub async fn status_query(client: &HttpClient) -> Result<PriorityStatusResult, a
         })
         .collect();
 
-    Ok(PriorityStatusResult {
-        output: PriorityStatusOutput { rows },
-        elapsed: start.elapsed(),
-    })
+    inv.print(&PriorityStatusOutput { rows });
+    Ok(())
 }
 
 pub async fn bid(
-    api_base_url: &str,
-    client: &HttpClient,
+    inv: &Invocation,
     signer: &SelectedSigner,
-    chain: Chain,
     args: &BidArgs,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
-    let start = Instant::now();
+    let remote = inv.remote()?;
+    let client = remote.client();
+    let api_base_url = remote.api_base_url();
     if args.max <= Decimal::ZERO {
         return Err(
             CliError::Configuration("prio bid requires --max to be positive".to_string()).into(),
@@ -194,7 +178,7 @@ pub async fn bid(
     let decimals = client
         .spot_tokens()
         .await
-        .map_err(map_api_error)?
+        .map_err(from_sdk)?
         .into_iter()
         .find(|token| token.name == "HYPE")
         .map(|token| token.wei_decimals as u32)
@@ -210,7 +194,7 @@ pub async fn bid(
     let status = client
         .gossip_priority_auction_status()
         .await
-        .map_err(map_api_error)?;
+        .map_err(from_sdk)?;
     let slot = status
         .slots
         .get(args.slot as usize)
@@ -231,7 +215,7 @@ pub async fn bid(
     let bid = if current > 0 { current + 1 } else { max_gas };
     let response = send_l1_action_raw(
         api_base_url,
-        chain,
+        remote.chain(),
         signer,
         Action::GossipPriorityBid(GossipPriorityBid {
             slot_id: args.slot,
@@ -259,11 +243,7 @@ pub async fn bid(
         bid_hype: fmt_wei(bid, decimals).to_string(),
         status,
     };
-    crate::output::print_data(
-        &PriorityBidOutput { rows: vec![row] },
-        format,
-        start.elapsed(),
-    );
+    inv.print(&PriorityBidOutput { rows: vec![row] });
     Ok(())
 }
 

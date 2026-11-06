@@ -5,18 +5,16 @@
 /// - `hyperliquid perps get <COIN>` — get details for a specific perpetual market
 use clap::Args;
 use hypersdk::Decimal;
-use hypersdk::hypercore::{HttpClient, PerpMarket};
+use hypersdk::hypercore::PerpMarket;
 use serde::Serialize;
-use std::time::{Duration, Instant};
 
 use crate::assets::{
-    AssetQuery, AssetResolver, find_perp_dex, load_hip3_market, parse_asset_query,
-    qualify_dex_asset,
+    AssetQuery, find_perp_dex, load_hip3_market, parse_asset_query, qualify_dex_asset,
 };
-use crate::command_context::CommandContext;
-use crate::commands::map_api_error;
 use crate::errors::CliError;
-use crate::output::{OutputFormat, TableData};
+use crate::errors::from_sdk;
+use crate::invocation::Invocation;
+use crate::output::TableData;
 
 #[derive(Args, Debug)]
 pub struct PerpsListArgs {
@@ -154,85 +152,25 @@ impl TableData for PerpMarketDetailsOutput {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PerpMarketsResult {
-    pub output: PerpMarketsOutput,
-    pub elapsed: Duration,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PerpMarketDetailsResult {
-    pub output: PerpMarketDetailsOutput,
-    pub elapsed: Duration,
-}
-
-/// Fetch perpetual markets, optionally from a HIP-3 DEX.
-pub async fn list_query(
-    client: &HttpClient,
-    args: &PerpsListArgs,
-) -> Result<PerpMarketsResult, anyhow::Error> {
-    let start = Instant::now();
+/// Fetch and render perpetual markets, optionally from a HIP-3 DEX.
+pub async fn list(inv: &Invocation, args: &PerpsListArgs) -> Result<(), anyhow::Error> {
+    let client = inv.remote()?.client();
     let markets = if let Some(dex_name) = args.dex.as_deref() {
         let dex = find_perp_dex(client, dex_name).await?;
-        client.perps_from(dex).await.map_err(map_api_error)?
+        client.perps_from(dex).await.map_err(from_sdk)?
     } else {
-        client.perps().await.map_err(map_api_error)?
+        client.perps().await.map_err(from_sdk)?
     };
     let markets = markets.into_iter().map(PerpMarketRow::from).collect();
-    let output = PerpMarketsOutput::new(markets);
-
-    Ok(PerpMarketsResult {
-        output,
-        elapsed: start.elapsed(),
-    })
-}
-
-/// Fetch and render perpetual markets through a per-call output context.
-pub async fn list_with_context(
-    context: &CommandContext<'_>,
-    args: &PerpsListArgs,
-) -> Result<(), anyhow::Error> {
-    let client = context
-        .hypercore_client()
-        .ok_or_else(|| anyhow::anyhow!("perps list command requires a Hyperliquid HTTP client"))?;
-    let result = list_query(client, args).await?;
-    context.print(&result.output, result.elapsed);
-    Ok(())
-}
-
-/// Fetch and render perpetual markets, optionally from a HIP-3 DEX.
-pub async fn list(
-    client: &HttpClient,
-    args: &PerpsListArgs,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let result = list_query(client, args).await?;
-    crate::output::print_data(&result.output, format, result.elapsed);
+    inv.print(&PerpMarketsOutput::new(markets));
     Ok(())
 }
 
 /// Resolve, fetch, and render one perpetual market.
-pub async fn get(
-    client: &HttpClient,
-    resolver: &AssetResolver,
-    coin: &str,
-    dex: Option<&str>,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let result = get_query(client, resolver, coin, dex).await?;
-    crate::output::print_data(&result.output, format, result.elapsed);
-    Ok(())
-}
-
-/// Resolve and fetch one perpetual market.
-pub async fn get_query(
-    client: &HttpClient,
-    resolver: &AssetResolver,
-    coin: &str,
-    dex: Option<&str>,
-) -> Result<PerpMarketDetailsResult, anyhow::Error> {
-    let start = Instant::now();
-    let query = qualify_dex_asset(dex, coin);
+pub async fn get(inv: &Invocation, args: &PerpsGetArgs) -> Result<(), anyhow::Error> {
+    let client = inv.remote()?.client();
+    let resolver = inv.asset_resolver().await?;
+    let query = qualify_dex_asset(args.dex.as_deref(), &args.coin);
     let market = if let AssetQuery::Hip3 {
         dex: dex_name,
         token,
@@ -249,7 +187,7 @@ pub async fn get_query(
         client
             .perps()
             .await
-            .map_err(map_api_error)?
+            .map_err(from_sdk)?
             .into_iter()
             .find(|market| {
                 market.index == resolved.index || market.name.eq_ignore_ascii_case(&resolved.name)
@@ -260,10 +198,8 @@ pub async fn get_query(
             })?
     };
 
-    Ok(PerpMarketDetailsResult {
-        output: PerpMarketDetailsOutput::new(market),
-        elapsed: start.elapsed(),
-    })
+    inv.print(&PerpMarketDetailsOutput::new(market));
+    Ok(())
 }
 
 #[cfg(test)]

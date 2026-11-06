@@ -1142,10 +1142,7 @@ pub(crate) async fn prepare_cancel_all_orders_plan(
     user: Address,
     args: &CancelAllArgs,
 ) -> Result<CancelAllOrdersPlan, CliError> {
-    let open_orders = client
-        .open_orders(user, None)
-        .await
-        .map_err(map_api_error)?;
+    let open_orders = client.open_orders(user, None).await.map_err(from_sdk)?;
     let coin_filter =
         resolve_cancel_all_coin_filter(resolver, args.coin.as_deref(), args.dex.as_deref())?;
     let orders = filter_orders_by_coin(open_orders, coin_filter.as_deref());

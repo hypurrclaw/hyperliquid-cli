@@ -1,7 +1,5 @@
 //! Authenticated subaccount workflows.
 
-use std::time::Instant;
-
 use clap::{Args, ValueEnum};
 use hypersdk::hypercore::Chain;
 use hypersdk::{Address, Decimal};
@@ -11,7 +9,9 @@ use serde::Serialize;
 use crate::commands::actions;
 use crate::dry_run::ActionReversibility;
 use crate::errors::CliError;
-use crate::output::{self, OutputFormat, TableData};
+use crate::invocation::Invocation;
+use crate::mode::Mode;
+use crate::output::TableData;
 use crate::signing::SelectedSigner;
 
 const USDC_WIRE_SCALE: u64 = 1_000_000;
@@ -289,14 +289,13 @@ pub fn usdc_to_wire_units(amount: Decimal) -> Result<u64, CliError> {
 
 /// Create a new subaccount signed by the configured master account.
 pub async fn create(
-    api_base_url: &str,
-    chain: Chain,
+    inv: &Invocation,
     signer: &SelectedSigner,
     args: &CreateArgs,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
     validate_create_args(args)?;
-    let start = Instant::now();
+    let remote = inv.remote()?;
+    let (api_base_url, chain) = (remote.api_base_url(), remote.chain());
     let action = CreateSubaccountAction {
         action_type: "createSubAccount",
         name: args.name.trim().to_string(),
@@ -314,6 +313,7 @@ pub async fn create(
 
     let signer_address = signer.address().to_string();
     print_action(
+        inv,
         SubaccountActionConfirmation {
             action: "create".to_string(),
             status: "submitted".to_string(),
@@ -330,26 +330,24 @@ pub async fn create(
             usd: None,
             token: None,
         },
-        format,
-        start,
     );
     Ok(())
 }
 
 /// Transfer USDC between the configured master account and a subaccount.
 pub async fn transfer(
-    api_base_url: &str,
-    chain: Chain,
+    inv: &Invocation,
     signer: &SelectedSigner,
     subaccount: Address,
     args: &TransferArgs,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
     validate_transfer_args(args)?;
-    let start = Instant::now();
+    let remote = inv.remote()?;
+    let (api_base_url, chain) = (remote.api_base_url(), remote.chain());
     let usd = usdc_to_wire_units(args.amount)?;
     if !args.yes {
         confirm_transfer(
+            inv.mode(),
             &transfer_prompt(subaccount, args),
             &consent_preview(chain, signer, subaccount),
             "subaccount transfer aborted",
@@ -374,6 +372,7 @@ pub async fn transfer(
 
     let signer_address = signer.address().to_string();
     print_action(
+        inv,
         SubaccountActionConfirmation {
             action: "transfer".to_string(),
             status: "confirmed".to_string(),
@@ -390,25 +389,23 @@ pub async fn transfer(
             usd: Some(usd),
             token: Some("USDC".to_string()),
         },
-        format,
-        start,
     );
     Ok(())
 }
 
 /// Transfer a spot token between the configured master account and a subaccount.
 pub async fn spot_transfer(
-    api_base_url: &str,
-    chain: Chain,
+    inv: &Invocation,
     signer: &SelectedSigner,
     subaccount: Address,
     args: &SpotTransferArgs,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
     validate_spot_transfer_args(args)?;
-    let start = Instant::now();
+    let remote = inv.remote()?;
+    let (api_base_url, chain) = (remote.api_base_url(), remote.chain());
     if !args.yes {
         confirm_transfer(
+            inv.mode(),
             &spot_transfer_prompt(subaccount, args),
             &consent_preview(chain, signer, subaccount),
             "subaccount spot transfer aborted",
@@ -435,6 +432,7 @@ pub async fn spot_transfer(
 
     let signer_address = signer.address().to_string();
     print_action(
+        inv,
         SubaccountActionConfirmation {
             action: "spot-transfer".to_string(),
             status: "confirmed".to_string(),
@@ -451,8 +449,6 @@ pub async fn spot_transfer(
             usd: None,
             token: Some(args.token.trim().to_string()),
         },
-        format,
-        start,
     );
     Ok(())
 }
@@ -496,15 +492,16 @@ fn spot_transfer_prompt(subaccount: Address, args: &SpotTransferArgs) -> String 
 
 /// Print the consent preview on stderr, then ask `question`.
 fn confirm_transfer(
+    mode: &Mode,
     question: &str,
     preview: &[String],
     abort_message: &'static str,
 ) -> Result<(), CliError> {
-    crate::prompt::ensure_can_prompt("--yes")?;
+    crate::prompt::ensure_can_prompt(mode, "--yes")?;
     for line in preview {
         eprintln!("{line}");
     }
-    if crate::prompt::confirm_warning(question, "--yes")? {
+    if crate::prompt::confirm_warning(mode, question, "--yes")? {
         Ok(())
     } else {
         Err(CliError::Configuration(abort_message.to_string()))
@@ -519,12 +516,8 @@ fn consent_preview(chain: Chain, signer: &SelectedSigner, subaccount: Address) -
     ]
 }
 
-fn print_action(row: SubaccountActionConfirmation, format: OutputFormat, start: Instant) {
-    output::print_data(
-        &SubaccountActionOutput { rows: vec![row] },
-        format,
-        start.elapsed(),
-    );
+fn print_action(inv: &Invocation, row: SubaccountActionConfirmation) {
+    inv.print(&SubaccountActionOutput { rows: vec![row] });
 }
 
 fn format_reversibility(reversibility: ActionReversibility) -> &'static str {

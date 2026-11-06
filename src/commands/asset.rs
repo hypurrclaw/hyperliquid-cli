@@ -5,7 +5,6 @@
 //! - `hyperliquid asset search <QUERY>` — find assets by symbol, title, slug, notation, or ID.
 
 use std::collections::BTreeSet;
-use std::time::{Duration, Instant};
 
 use clap::{Args, ValueEnum};
 use serde::Serialize;
@@ -16,8 +15,8 @@ use crate::assets::asset_id::{
     self, AssetIdLayout, MAX_OUTCOME_SIDE, outcome_coin, outcome_token, split_outcome_encoding,
 };
 use crate::assets::{AssetResolver, Market};
-use crate::command_context::CommandContext;
 use crate::commands::outcomes::parse_positive_usize;
+use crate::invocation::Invocation;
 use crate::output::TableData;
 
 #[derive(Args, Debug, Clone)]
@@ -298,12 +297,6 @@ impl TableData for AssetDecodeOutput {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AssetDecodeResult {
-    pub output: AssetDecodeOutput,
-    pub elapsed: Duration,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssetSearchOutput {
     rows: Vec<DecodedAssetId>,
 }
@@ -350,28 +343,10 @@ impl TableData for AssetSearchOutput {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AssetSearchResult {
-    pub output: AssetSearchOutput,
-    pub elapsed: Duration,
-}
-
-pub async fn decode_with_context(
-    context: &CommandContext<'_>,
-    args: &AssetDecodeArgs,
-) -> Result<(), anyhow::Error> {
-    let result = decode_query(context.api_base_url(), context.network(), args).await?;
-    context.print(&result.output, result.elapsed);
-    Ok(())
-}
-
-pub async fn decode_query(
-    api_base_url: &str,
-    network: &str,
-    args: &AssetDecodeArgs,
-) -> Result<AssetDecodeResult, anyhow::Error> {
-    let start = Instant::now();
-    let mut decoded = decode_asset_id(args.asset_id, network);
+pub async fn decode(inv: &Invocation, args: &AssetDecodeArgs) -> Result<(), anyhow::Error> {
+    let remote = inv.remote()?;
+    let api_base_url = remote.api_base_url();
+    let mut decoded = decode_asset_id(args.asset_id, &remote.network().to_string());
 
     match decoded.kind {
         AssetIdKind::Outcome => enrich_outcome(api_base_url, &mut decoded).await,
@@ -380,33 +355,23 @@ pub async fn decode_query(
         }
     }
 
-    Ok(AssetDecodeResult {
-        output: AssetDecodeOutput::new(decoded),
-        elapsed: start.elapsed(),
-    })
-}
-
-pub async fn search_with_context(
-    context: &CommandContext<'_>,
-    args: &AssetSearchArgs,
-) -> Result<(), anyhow::Error> {
-    let result = search_query(context.api_base_url(), context.network(), args).await?;
-    context.print(&result.output, result.elapsed);
+    inv.print(&AssetDecodeOutput::new(decoded));
     Ok(())
 }
 
-pub async fn search_query(
-    api_base_url: &str,
-    network: &str,
-    args: &AssetSearchArgs,
-) -> Result<AssetSearchResult, anyhow::Error> {
-    let start = Instant::now();
-    let rows = search_assets(api_base_url, network, &args.query, args.venue, args.limit).await;
+pub async fn search(inv: &Invocation, args: &AssetSearchArgs) -> Result<(), anyhow::Error> {
+    let remote = inv.remote()?;
+    let rows = search_assets(
+        remote.api_base_url(),
+        &remote.network().to_string(),
+        &args.query,
+        args.venue,
+        args.limit,
+    )
+    .await;
 
-    Ok(AssetSearchResult {
-        output: AssetSearchOutput::new(rows),
-        elapsed: start.elapsed(),
-    })
+    inv.print(&AssetSearchOutput::new(rows));
+    Ok(())
 }
 
 #[must_use]

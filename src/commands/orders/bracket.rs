@@ -10,7 +10,8 @@ use serde_json::json;
 
 use crate::commands::actions;
 use crate::errors::CliError;
-use crate::output::{self, OutputFormat, TableData};
+use crate::invocation::Invocation;
+use crate::output::TableData;
 use crate::response_sanitization::labelled_untrusted_text;
 
 use super::planning::{
@@ -140,7 +141,6 @@ pub async fn bracket(
     context: OrderExecutionContext<'_>,
     args: &BracketArgs,
     vault_address: Option<Address>,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
     validate_bracket_args(args)?;
     if context.submission.require_mainnet_confirmation && !args.yes {
@@ -199,7 +199,6 @@ pub async fn bracket(
                 context,
                 args,
                 vault_address,
-                format,
                 started,
                 &entry,
                 total_sz,
@@ -250,8 +249,8 @@ pub async fn bracket(
                     &tracking.entry(),
                     "resting",
                     "Couldn't check it",
-                    &crate::commands::map_api_error(err),
-                    format,
+                    &crate::errors::from_sdk(err),
+                    context.submission.inv,
                     started,
                 ));
             }
@@ -263,7 +262,6 @@ pub async fn bracket(
                 context,
                 args,
                 vault_address,
-                format,
                 started,
                 &tracking.entry(),
                 filled,
@@ -283,7 +281,7 @@ pub async fn bracket(
             "resting",
             "Couldn't cancel it after the entry timeout",
             &err,
-            format,
+            context.submission.inv,
             started,
         ));
     }
@@ -293,7 +291,6 @@ pub async fn bracket(
             context,
             args,
             vault_address,
-            format,
             started,
             &tracking.entry(),
             filled,
@@ -311,7 +308,7 @@ pub async fn bracket(
             headline: headline.clone(),
             next_commands: Vec::new(),
         });
-        output::print_data(&result, format, started.elapsed());
+        context.submission.inv.print(&result);
         Err(CliError::PartialResults(headline).into())
     }
 }
@@ -325,7 +322,7 @@ fn report_unprotected(
     state: &str,
     failed_step: &str,
     cause: &CliError,
-    format: OutputFormat,
+    inv: &Invocation,
     started: Instant,
 ) -> anyhow::Error {
     let headline = format!(
@@ -357,7 +354,7 @@ fn report_unprotected(
         headline: headline.clone(),
         next_commands: next_commands.clone(),
     });
-    output::print_data(&result, format, started.elapsed());
+    inv.print(&result);
     let commands = next_commands
         .iter()
         .map(|command| format!("    {command}"))
@@ -371,7 +368,6 @@ async fn arm_protection(
     context: OrderExecutionContext<'_>,
     args: &BracketArgs,
     vault_address: Option<Address>,
-    format: OutputFormat,
     started: Instant,
     entry: &EntryRef,
     filled: Decimal,
@@ -388,7 +384,7 @@ async fn arm_protection(
             headline: headline.clone(),
             next_commands: vec!["hyperliquid orders open".to_string()],
         });
-        output::print_data(&result, format, started.elapsed());
+        context.submission.inv.print(&result);
         return Err(CliError::PartialResults(format!(
             "{headline}\n\nCheck what is live:\n    hyperliquid orders open"
         ))
@@ -398,7 +394,6 @@ async fn arm_protection(
         context,
         &protection_tpsl_args(args, Some(filled)),
         vault_address,
-        OutputFormat::Json,
         false,
     )
     .await
@@ -409,15 +404,16 @@ async fn arm_protection(
             "filled",
             "Couldn't place the take-profit and stop-loss",
             &crate::errors::from_anyhow(err),
-            format,
+            context.submission.inv,
             started,
         ));
     }
-    output::print_data(
-        &BracketOutput::result(status, args, filled.to_string(), started),
-        format,
-        started.elapsed(),
-    );
+    context.submission.inv.print(&BracketOutput::result(
+        status,
+        args,
+        filled.to_string(),
+        started,
+    ));
     Ok(())
 }
 

@@ -1,18 +1,10 @@
 use clap::{ArgMatches, Args, CommandFactory, FromArgMatches, Parser, Subcommand};
-use hypersdk::{
-    Address,
-    hypercore::{Chain, HttpClient, Subscription},
-};
+use hypersdk::{Address, hypercore::Subscription};
 use std::ffi::OsString;
 use std::path::PathBuf;
-use std::sync::OnceLock;
-use std::time::Duration;
 
 use hyperliquid_cli::assets::{
-    AssetQuery, AssetResolver, Market, MetadataCache, parse_asset_query, qualify_dex_asset,
-};
-use hyperliquid_cli::command_context::{
-    CommandClients, CommandContext, CommandOutputContext, CommandTransportPolicy, PayloadMetadata,
+    AssetQuery, AssetResolver, Market, parse_asset_query, qualify_dex_asset,
 };
 use hyperliquid_cli::command_registry::{
     CommandContract, CommandRegistry, ConfirmationPolicy, DryRunPolicy, Lifecycle,
@@ -22,6 +14,7 @@ use hyperliquid_cli::dry_run::{
     ActionPlan, ActionReversibility, DryRunEnvelope, DryRunSigningContext, LiveSubmissionPolicy,
 };
 use hyperliquid_cli::errors;
+use hyperliquid_cli::invocation::{Invocation, InvocationFlags, SignerFlags};
 use hyperliquid_cli::network::Network;
 use hyperliquid_cli::output;
 use hyperliquid_cli::stream::{StreamBoundArgs, StreamBounds, SubscribeTarget};
@@ -35,8 +28,6 @@ use cli_shell::{
     Confirmation, PANIC_COMMAND, exit_for_clap_error, install_panic_hook, print_help_to_stdout,
     resolve_output_format, try_parse_cli_from,
 };
-
-static ASSET_METADATA_CACHE: OnceLock<MetadataCache> = OnceLock::new();
 
 const GLOBAL_OPTIONS: &str = "Global Options";
 
@@ -931,7 +922,7 @@ fn error_output(format: output::OutputFormat) -> errors::ErrorOutput {
 async fn main() {
     install_panic_hook();
     let raw_args: Vec<OsString> = std::env::args_os().collect();
-    let mut parsed = match try_parse_cli_from(&raw_args) {
+    let parsed = match try_parse_cli_from(&raw_args) {
         Ok(parsed) => parsed,
         Err(err) => exit_for_clap_error(err, &raw_args),
     };
@@ -939,23 +930,38 @@ async fn main() {
     if let Some(path) = parsed.registry_path.as_deref() {
         let _ = PANIC_COMMAND.set(path.join(" "));
     }
-    let format = match resolve_output_format(parsed.explicit_format, parsed.cli.format) {
+    let env = output::terminal::OutputEnv::probe(parsed.explicit_format);
+    let format = match resolve_output_format(&env, parsed.cli.format) {
         Ok(format) => format,
         Err(err) => errors::exit_with_error(err, errors::ErrorOutput::Json),
     };
-    parsed.cli.format = format;
     if let Err(err) = hyperliquid_cli::mode::validate_env() {
         errors::exit_with_error(err, error_output(format));
     }
-    hyperliquid_cli::mode::init(hyperliquid_cli::mode::ModeInputs {
-        non_interactive_flag: parsed.cli.non_interactive,
-        machine_format: format == output::OutputFormat::Json,
-        stdin_is_payload: parsed.cli.payload_file.as_deref() == Some("-"),
-    });
-    output::set_json_options_with_limit(
-        parsed.cli.select.as_deref(),
-        parsed.cli.results_only,
-        parsed.cli.max_results,
+    let session = output::Session::new(
+        format,
+        output::JsonRenderOptions::from_cli(
+            parsed.cli.select.as_deref(),
+            parsed.cli.results_only,
+            parsed.cli.max_results,
+        ),
+        env,
+    );
+    let inv = Invocation::new(
+        session,
+        InvocationFlags {
+            testnet: parsed.cli.testnet,
+            dry_run: parsed.cli.dry_run,
+            non_interactive: parsed.cli.non_interactive,
+            payload_from_stdin: parsed.cli.payload_file.as_deref() == Some("-"),
+            signer: SignerFlags {
+                private_key: parsed.cli.private_key.clone(),
+                keystore: parsed.cli.keystore.clone(),
+                keystore_password: parsed.cli.keystore_password.clone(),
+                account: parsed.cli.account.clone(),
+                ows_signer: parsed.cli.ows_signer.clone(),
+            },
+        },
     );
     let is_update_command = matches!(&parsed.cli.command, Some(Commands::Update));
     let update_check_handle = hyperliquid_cli::update::maybe_start_update_check(
@@ -967,6 +973,7 @@ async fn main() {
         &parsed.cli,
         parsed.registry_path.as_deref(),
         parsed.confirmation,
+        inv,
     )
     .await
     {

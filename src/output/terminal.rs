@@ -114,6 +114,31 @@ pub fn ci_env() -> bool {
     })
 }
 
+/// Terminal and environment facts about this run, probed once at startup and
+/// carried by the output session.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct OutputEnv {
+    pub stdout_tty: bool,
+    pub stderr_tty: bool,
+    pub agent: bool,
+    pub ci: bool,
+    /// `--format` was given on the command line, so no default may override it.
+    pub explicit_format: bool,
+}
+
+impl OutputEnv {
+    #[must_use]
+    pub fn probe(explicit_format: bool) -> Self {
+        Self {
+            stdout_tty: stdout_is_terminal(),
+            stderr_tty: stderr_is_terminal(),
+            agent: agent_env(),
+            ci: ci_env(),
+            explicit_format,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

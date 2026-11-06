@@ -9,6 +9,7 @@ use super::release::{
     InstallMethod, REPO, ReleaseClient, current_release_asset, is_newer_version, normalize_version,
 };
 use crate::errors::CliError;
+use crate::invocation::Invocation;
 use crate::output::{OutputFormat, TableData};
 use crate::private_fs;
 
@@ -23,7 +24,8 @@ struct UpdateResult {
     path: Option<PathBuf>,
 }
 
-pub async fn update(format: OutputFormat, dry_run: bool) -> Result<(), anyhow::Error> {
+pub async fn update(inv: &Invocation) -> Result<(), anyhow::Error> {
+    let dry_run = inv.dry_run();
     let current_version = env!("CARGO_PKG_VERSION");
     let client = ReleaseClient::new()?;
     let latest_version = client.latest_version().await?;
@@ -35,7 +37,7 @@ pub async fn update(format: OutputFormat, dry_run: bool) -> Result<(), anyhow::E
     })?;
     let report = |status: &'static str, path: PathBuf| {
         print_update_result(
-            format,
+            inv,
             &UpdateResult {
                 status,
                 from: current_version.to_string(),
@@ -248,11 +250,9 @@ impl TableData for UpdateResult {
     }
 }
 
-fn print_update_result(format: OutputFormat, result: &UpdateResult) {
-    match format {
-        OutputFormat::Json | OutputFormat::Table => {
-            crate::output::print_data_no_timing(result, format);
-        }
+fn print_update_result(inv: &Invocation, result: &UpdateResult) {
+    match inv.format() {
+        OutputFormat::Json | OutputFormat::Table => inv.print_untimed(result),
         OutputFormat::Pretty => match result.status {
             "updated" => println!("Updated hyperliquid {} -> {}", result.from, result.to),
             "would_update" => println!("Would update hyperliquid {} -> {}", result.from, result.to),

@@ -12,6 +12,7 @@ use ows_lib::types::WalletInfo;
 
 use crate::errors::CliError;
 use crate::legacy_accounts::{LegacyAccount, LegacyAccounts};
+use crate::mode::Mode;
 use crate::ows::signing::OwsSigningConfig;
 use crate::ows::vault::{HyperliquidAccount, Vault};
 use crate::settings::{Settings, env};
@@ -127,6 +128,7 @@ pub fn signer_private_key_hex(signer: &PrivateKeySigner) -> String {
 pub fn resolve_signer(
     selection: &SignerSelection,
     settings: &Settings,
+    mode: &Mode,
 ) -> Result<ResolvedSigner, anyhow::Error> {
     if let Some(selector) = selection.ows.as_deref() {
         return Ok(resolve_ows_flag(selector, settings)?);
@@ -161,9 +163,9 @@ pub fn resolve_signer(
         )));
     }
     if let Some(selector) = selection.account.as_deref() {
-        return resolve_account(selector, settings);
+        return resolve_account(selector, settings, mode);
     }
-    resolve_default(settings)
+    resolve_default(settings, mode)
 }
 
 fn ows_signer(
@@ -222,7 +224,11 @@ fn find_vault_account(
     Ok(Some((wallet, account)))
 }
 
-fn resolve_account(selector: &str, settings: &Settings) -> Result<ResolvedSigner, anyhow::Error> {
+fn resolve_account(
+    selector: &str,
+    settings: &Settings,
+    mode: &Mode,
+) -> Result<ResolvedSigner, anyhow::Error> {
     let vault = Vault::from_settings(settings);
     match find_vault_account(&vault, selector) {
         Ok(Some((wallet, account))) => {
@@ -233,7 +239,7 @@ fn resolve_account(selector: &str, settings: &Settings) -> Result<ResolvedSigner
         Err(err) => return Err(err.into()),
     }
 
-    let Some(store) = LegacyAccounts::open_default(settings)? else {
+    let Some(store) = LegacyAccounts::open_default(settings, mode)? else {
         return Err(account_selector_not_found(selector).into());
     };
     let account = store
@@ -242,7 +248,7 @@ fn resolve_account(selector: &str, settings: &Settings) -> Result<ResolvedSigner
     legacy_signer(&store, account)
 }
 
-fn resolve_default(settings: &Settings) -> Result<ResolvedSigner, anyhow::Error> {
+fn resolve_default(settings: &Settings, mode: &Mode) -> Result<ResolvedSigner, anyhow::Error> {
     let vault = Vault::from_settings(settings);
     match vault.default_wallet(settings.default_wallet_id()?) {
         Ok(wallet) => {
@@ -257,7 +263,7 @@ fn resolve_default(settings: &Settings) -> Result<ResolvedSigner, anyhow::Error>
         Err(err) => return Err(err.into()),
     }
 
-    let Some(store) = LegacyAccounts::open_default(settings)? else {
+    let Some(store) = LegacyAccounts::open_default(settings, mode)? else {
         return Err(CliError::AuthRequired.into());
     };
     let account = store
@@ -296,6 +302,7 @@ pub(crate) fn account_selector_not_found(selector: &str) -> CliError {
 pub(crate) fn lookup_account_address(
     selector: &str,
     settings: &Settings,
+    mode: &Mode,
 ) -> Result<Address, anyhow::Error> {
     let trimmed = selector.trim();
     if let Ok(address) = trimmed.parse::<Address>() {
@@ -316,7 +323,7 @@ pub(crate) fn lookup_account_address(
         return Ok(account.address);
     }
 
-    let Some(store) = LegacyAccounts::open_default(settings)? else {
+    let Some(store) = LegacyAccounts::open_default(settings, mode)? else {
         return Err(account_selector_not_found(trimmed).into());
     };
     let account = store
@@ -332,6 +339,13 @@ mod tests {
     use crate::ows::vault::test_support::import_test_wallet;
     use crate::settings::EnvSource;
     use tempfile::TempDir;
+
+    fn resolve(
+        selection: &SignerSelection,
+        settings: &Settings,
+    ) -> Result<ResolvedSigner, anyhow::Error> {
+        resolve_signer(selection, settings, &Mode::default())
+    }
 
     const KEY: &str = "0x0000000000000000000000000000000000000000000000000000000000000009";
     const RAW_OWS_ADDRESS: &str = "0x0000000000000000000000000000000000000001";
@@ -362,7 +376,7 @@ mod tests {
     #[test]
     fn ows_flag_beats_every_other_source_and_raw_address_cannot_sign() {
         let vault = TempDir::new().unwrap();
-        let resolved = resolve_signer(
+        let resolved = resolve(
             &SignerSelection {
                 ows: Some(RAW_OWS_ADDRESS.to_string()),
                 private_key: Some(KEY.to_string()),
@@ -388,7 +402,7 @@ mod tests {
         let account = Vault::hyperliquid_account(&wallet).unwrap();
         let settings = vault_settings(&vault, None);
 
-        let by_flag = resolve_signer(
+        let by_flag = resolve(
             &SignerSelection {
                 ows: Some(account.address_text.clone()),
                 ..selection()
@@ -403,7 +417,7 @@ mod tests {
                 .is_err()
         );
 
-        let by_account = resolve_signer(
+        let by_account = resolve(
             &SignerSelection {
                 account: Some(account.address_text.to_lowercase()),
                 ..selection()
@@ -431,7 +445,7 @@ mod tests {
     fn ows_flag_resolves_wallet_by_name_and_keeps_the_selector() {
         let vault = TempDir::new().unwrap();
         let wallet = import_test_wallet(vault.path(), "main");
-        let resolved = resolve_signer(
+        let resolved = resolve(
             &SignerSelection {
                 ows: Some(format!(" {} ", wallet.id)),
                 ..selection()
@@ -452,7 +466,7 @@ mod tests {
     #[test]
     fn empty_ows_selector_is_a_configuration_error() {
         let vault = TempDir::new().unwrap();
-        let err = resolve_signer(
+        let err = resolve(
             &SignerSelection {
                 ows: Some("  ".to_string()),
                 ..selection()
@@ -466,7 +480,7 @@ mod tests {
     #[test]
     fn private_key_beats_keystore() {
         let vault = TempDir::new().unwrap();
-        let resolved = resolve_signer(
+        let resolved = resolve(
             &SignerSelection {
                 private_key: Some(KEY.to_string()),
                 keystore: Some(PathBuf::from("/nonexistent")),
@@ -485,7 +499,7 @@ mod tests {
     #[test]
     fn keystore_requires_a_password() {
         let vault = TempDir::new().unwrap();
-        let err = resolve_signer(
+        let err = resolve(
             &SignerSelection {
                 keystore: Some(PathBuf::from("/nonexistent")),
                 ..selection()
@@ -505,7 +519,7 @@ mod tests {
         let vault = TempDir::new().unwrap();
         let first = import_test_wallet(vault.path(), "first");
 
-        let only = resolve_signer(&selection(), &vault_settings(&vault, None)).unwrap();
+        let only = resolve(&selection(), &vault_settings(&vault, None)).unwrap();
         assert_eq!(only.ows_wallet_name(), Some("first"));
 
         import_test_wallet(vault.path(), "second");
@@ -513,11 +527,10 @@ mod tests {
             default_wallet_id: Some(first.id.clone()),
             ..Config::default()
         };
-        let configured =
-            resolve_signer(&selection(), &vault_settings(&vault, Some(config))).unwrap();
+        let configured = resolve(&selection(), &vault_settings(&vault, Some(config))).unwrap();
         assert_eq!(configured.ows_wallet_name(), Some("first"));
 
-        let err = resolve_signer(&selection(), &vault_settings(&vault, None)).unwrap_err();
+        let err = resolve(&selection(), &vault_settings(&vault, None)).unwrap_err();
         assert!(err.to_string().contains("holds 2 wallets"));
     }
 

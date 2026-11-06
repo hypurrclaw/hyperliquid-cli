@@ -4,8 +4,6 @@
 //! - `hyperliquid outcomes list` — list active outcome market sides
 //! - `hyperliquid outcomes get <NOTATION>` — inspect an outcome side by `#N` or `+N`
 
-use std::time::Instant;
-
 use clap::Args;
 use serde::{Deserialize, Serialize};
 
@@ -14,7 +12,8 @@ use crate::assets::asset_id::{
 };
 use crate::errors::CliError;
 use crate::http_api::post_info_json;
-use crate::output::{OutputFormat, TableData};
+use crate::invocation::Invocation;
+use crate::output::TableData;
 
 #[derive(Args, Debug, Clone)]
 pub struct OutcomeListArgs {
@@ -127,58 +126,16 @@ impl TableData for OutcomeSideOutput {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OutcomeSidesResult {
-    pub output: OutcomeSidesOutput,
-    pub elapsed: std::time::Duration,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OutcomeSideResult {
-    pub output: OutcomeSideOutput,
-    pub elapsed: std::time::Duration,
-}
-
-pub async fn list(
-    api_base_url: &str,
-    args: &OutcomeListArgs,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let result = list_query(api_base_url, args).await?;
-    crate::output::print_data(&result.output, format, result.elapsed);
-    Ok(())
-}
-
-pub async fn get(
-    api_base_url: &str,
-    args: &OutcomeGetArgs,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let result = get_query(api_base_url, args).await?;
-    crate::output::print_data(&result.output, format, result.elapsed);
-    Ok(())
-}
-
-pub async fn list_query(
-    api_base_url: &str,
-    args: &OutcomeListArgs,
-) -> Result<OutcomeSidesResult, anyhow::Error> {
-    let start = Instant::now();
-    let mut rows = outcome_side_rows(api_base_url).await?;
+pub async fn list(inv: &Invocation, args: &OutcomeListArgs) -> Result<(), anyhow::Error> {
+    let mut rows = outcome_side_rows(inv.remote()?.api_base_url()).await?;
     rows.truncate(args.limit);
-    Ok(OutcomeSidesResult {
-        output: OutcomeSidesOutput::new(rows),
-        elapsed: start.elapsed(),
-    })
+    inv.print(&OutcomeSidesOutput::new(rows));
+    Ok(())
 }
 
-pub async fn get_query(
-    api_base_url: &str,
-    args: &OutcomeGetArgs,
-) -> Result<OutcomeSideResult, anyhow::Error> {
-    let start = Instant::now();
+pub async fn get(inv: &Invocation, args: &OutcomeGetArgs) -> Result<(), anyhow::Error> {
     let parsed = parse_outcome_notation(&args.notation)?;
-    let row = outcome_side_rows(api_base_url)
+    let row = outcome_side_rows(inv.remote()?.api_base_url())
         .await?
         .into_iter()
         .find(|row| row.encoding == parsed.encoding)
@@ -188,10 +145,8 @@ pub async fn get_query(
                 args.notation
             ))
         })?;
-    Ok(OutcomeSideResult {
-        output: OutcomeSideOutput::new(row),
-        elapsed: start.elapsed(),
-    })
+    inv.print(&OutcomeSideOutput::new(row));
+    Ok(())
 }
 
 pub async fn outcome_side_rows(api_base_url: &str) -> Result<Vec<OutcomeSideRow>, CliError> {

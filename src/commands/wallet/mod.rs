@@ -15,6 +15,8 @@ use crate::auth::{ResolvedSigner, SignerSelection, SignerSource};
 use crate::commands::{builder, referral};
 use crate::config::Config;
 use crate::errors::CliError;
+use crate::invocation::Invocation;
+use crate::mode::Mode;
 use crate::output::{self as out, OutputFormat};
 use crate::ows::vault::{HyperliquidAccount, Vault};
 use crate::prompt;
@@ -26,18 +28,18 @@ use output::{
 
 const OWS_WALLET_SOURCE: &str = "OWS wallet";
 
-pub(crate) fn prompt_private_key() -> Result<String, CliError> {
-    prompt::read_secret("Private key: ", "a private key on stdin")
+pub(crate) fn prompt_private_key(mode: &Mode) -> Result<String, CliError> {
+    prompt::read_secret(mode, "Private key: ", "a private key on stdin")
 }
 
 /// Fail with missing input naming `input` when this run can't ask a question.
-fn require_promptable(input: &str, format: OutputFormat) -> Result<(), CliError> {
+fn require_promptable(input: &str, format: OutputFormat, mode: &Mode) -> Result<(), CliError> {
     if format == OutputFormat::Json {
         return Err(CliError::MissingInput(format!(
             "Can't prompt for {input} because of JSON output. Pass {input} instead."
         )));
     }
-    prompt::ensure_can_prompt(input)
+    prompt::ensure_can_prompt(mode, input)
 }
 
 fn no_stored_accounts_error() -> CliError {
@@ -89,7 +91,7 @@ fn adopt_as_default(settings: &Settings) -> ConfigEdit<'_> {
     })
 }
 
-fn print_new_wallet(store: &WalletStore, message: &str, new: StoredWallet, format: OutputFormat) {
+fn print_new_wallet(inv: &Invocation, store: &WalletStore, message: &str, new: StoredWallet) {
     let mut receipt = Receipt::new(
         message,
         &new.account.address_text,
@@ -98,26 +100,26 @@ fn print_new_wallet(store: &WalletStore, message: &str, new: StoredWallet, forma
     );
     receipt.is_default = Some(true);
     receipt.config_keys_written = new.config_keys_written;
-    print_receipt(store.settings(), store.vault(), receipt, format);
+    print_receipt(inv, store.settings(), store.vault(), receipt);
 }
 
 fn print_wallet_change(
+    inv: &Invocation,
     store: &WalletStore,
     message: &str,
     wallet: &WalletInfo,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
     let account = WalletStore::account_of(wallet)?;
-    print_wallet_change_with(store, message, wallet, &account, format);
+    print_wallet_change_with(inv, store, message, wallet, &account);
     Ok(())
 }
 
 fn print_wallet_change_with(
+    inv: &Invocation,
     store: &WalletStore,
     message: &str,
     wallet: &WalletInfo,
     account: &HyperliquidAccount,
-    format: OutputFormat,
 ) {
     let receipt = Receipt::new(
         message,
@@ -125,21 +127,21 @@ fn print_wallet_change_with(
         Some(wallet.name.clone()),
         OWS_WALLET_SOURCE,
     );
-    print_receipt(store.settings(), store.vault(), receipt, format);
+    print_receipt(inv, store.settings(), store.vault(), receipt);
 }
 
-pub fn create(format: OutputFormat) -> Result<(), anyhow::Error> {
+pub fn create(inv: &Invocation) -> Result<(), anyhow::Error> {
     let store = WalletStore::open();
     let new = store.add(
         &NewWallet::Create,
         &WalletName::Next("wallet"),
         Some(adopt_as_default(store.settings())),
     )?;
-    print_new_wallet(&store, "Created wallet", new, format);
+    print_new_wallet(inv, &store, "Created wallet", new);
     Ok(())
 }
 
-pub fn import(private_key: Option<&str>, format: OutputFormat) -> Result<(), anyhow::Error> {
+pub fn import(inv: &Invocation, private_key: Option<&str>) -> Result<(), anyhow::Error> {
     let private_key = match private_key {
         Some(private_key) => {
             out::warn(
@@ -147,7 +149,7 @@ pub fn import(private_key: Option<&str>, format: OutputFormat) -> Result<(), any
             );
             private_key.trim().to_string()
         }
-        None => prompt_private_key()?.trim().to_string(),
+        None => prompt_private_key(inv.mode())?.trim().to_string(),
     };
 
     let store = WalletStore::open();
@@ -156,14 +158,14 @@ pub fn import(private_key: Option<&str>, format: OutputFormat) -> Result<(), any
         &WalletName::Next("imported"),
         Some(adopt_as_default(store.settings())),
     )?;
-    print_new_wallet(&store, "Imported wallet", new, format);
+    print_new_wallet(inv, &store, "Imported wallet", new);
     Ok(())
 }
 
 pub fn import_mnemonic(
+    inv: &Invocation,
     mnemonic: Option<&str>,
     alias: Option<&str>,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
     let mnemonic = match mnemonic {
         Some(mnemonic) => {
@@ -172,9 +174,13 @@ pub fn import_mnemonic(
             );
             mnemonic.trim().to_string()
         }
-        None => prompt::read_secret("Mnemonic phrase: ", "a mnemonic phrase on stdin")?
-            .trim()
-            .to_string(),
+        None => prompt::read_secret(
+            inv.mode(),
+            "Mnemonic phrase: ",
+            "a mnemonic phrase on stdin",
+        )?
+        .trim()
+        .to_string(),
     };
 
     let store = WalletStore::open();
@@ -188,7 +194,7 @@ pub fn import_mnemonic(
         &name,
         Some(adopt_as_default(store.settings())),
     )?;
-    print_new_wallet(&store, "Imported wallet", new, format);
+    print_new_wallet(inv, &store, "Imported wallet", new);
     Ok(())
 }
 
@@ -206,10 +212,10 @@ fn signer_display(source: &SignerSource) -> (Option<String>, String) {
 /// `wallet show`: describe the resolved signer. A vault wallet picked by
 /// `--ows-signer` or by default is shown by name; any other signer by its source.
 pub fn show(
+    inv: &Invocation,
     settings: &Settings,
     selection: &SignerSelection,
     signer: &ResolvedSigner,
-    format: OutputFormat,
 ) {
     let address = signer.address().to_string();
     let vault = Vault::from_settings(settings);
@@ -225,23 +231,23 @@ pub fn show(
             Receipt::new("Current wallet", &address, alias, &source)
         }
     };
-    print_receipt(settings, &vault, receipt, format);
+    print_receipt(inv, settings, &vault, receipt);
 }
 
-pub fn address(signer: &ResolvedSigner, format: OutputFormat) {
-    print_wallet_address(&signer.address().to_string(), format);
+pub fn address(inv: &Invocation, signer: &ResolvedSigner) {
+    print_wallet_address(inv, &signer.address().to_string());
 }
 
-pub fn reset(yes: bool, format: OutputFormat) -> Result<(), anyhow::Error> {
+pub fn reset(inv: &Invocation, yes: bool) -> Result<(), anyhow::Error> {
     let settings = Settings::from_process();
     let Some(file) = settings.config_file().filter(|file| file.exists()) else {
-        print_status("noop", "Nothing to reset", format);
+        print_status(inv, "noop", "Nothing to reset");
         return Ok(());
     };
     let path = file.path().display();
 
     if !yes {
-        require_promptable("--yes", format)?;
+        require_promptable("--yes", inv.format(), inv.mode())?;
         eprintln!("This deletes the config file at {path}.");
         eprintln!(
             "It clears the default wallet, network, builder, and referral defaults. Wallets stay in the vault."
@@ -250,24 +256,24 @@ pub fn reset(yes: bool, format: OutputFormat) -> Result<(), anyhow::Error> {
             eprintln!("The file isn't valid config, so its contents are discarded.");
         }
         let question = format!("Delete config file {path}?");
-        if !prompt::confirm(&question, "--yes")? {
-            print_declined("Reset cancelled", format);
+        if !prompt::confirm(inv.mode(), &question, "--yes")? {
+            print_declined(inv, "Reset cancelled");
             return Ok(());
         }
     }
 
     let _lock = file.lock()?;
     file.remove()?;
-    print_status("reset", &format!("Deleted config file {path}"), format);
+    print_status(inv, "reset", &format!("Deleted config file {path}"));
     Ok(())
 }
 
 pub fn account_add(
+    inv: &Invocation,
     private_key: Option<&str>,
     alias: Option<&str>,
     _account_type: Option<&str>,
     make_default: bool,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
     let automation_mode = private_key.is_some() || alias.is_some() || make_default;
     let private_key = match private_key {
@@ -277,7 +283,7 @@ pub fn account_add(
             );
             private_key.trim().to_string()
         }
-        None => prompt_private_key()?.trim().to_string(),
+        None => prompt_private_key(inv.mode())?.trim().to_string(),
     };
 
     let store = WalletStore::open();
@@ -285,8 +291,8 @@ pub fn account_add(
         Some(alias) => alias.trim().to_string(),
         None if automation_mode => String::new(),
         None => {
-            require_promptable("--alias", format)?;
-            prompt::read_line("Wallet name: ", "--alias")?
+            require_promptable("--alias", inv.format(), inv.mode())?;
+            prompt::read_line(inv.mode(), "Wallet name: ", "--alias")?
                 .trim()
                 .to_string()
         }
@@ -310,17 +316,11 @@ pub fn account_add(
         &name,
         make_default_edit,
     )?;
-    print_wallet_change_with(
-        &store,
-        "Account added",
-        &stored.info,
-        &stored.account,
-        format,
-    );
+    print_wallet_change_with(inv, &store, "Account added", &stored.info, &stored.account);
     Ok(())
 }
 
-pub fn account_ls(format: OutputFormat) -> Result<(), anyhow::Error> {
+pub fn account_ls(inv: &Invocation) -> Result<(), anyhow::Error> {
     let store = WalletStore::open();
     let mut listed = Vec::new();
     for wallet in store.list()? {
@@ -343,18 +343,18 @@ pub fn account_ls(format: OutputFormat) -> Result<(), anyhow::Error> {
         })
         .collect();
 
-    crate::output::print_data_no_timing(&AccountsOutput::new(rows), format);
+    inv.print_untimed(&AccountsOutput::new(rows));
     Ok(())
 }
 
 /// Pick one stored wallet by selector, listing the choices when none was given.
 fn choose_wallet(
+    inv: &Invocation,
     store: &WalletStore,
     selector: Option<&str>,
-    format: OutputFormat,
 ) -> Result<WalletInfo, anyhow::Error> {
     if selector.is_none() {
-        require_promptable("<WALLET>", format)?;
+        require_promptable("<WALLET>", inv.format(), inv.mode())?;
     }
     let wallets = store.list()?;
     if wallets.is_empty() {
@@ -364,7 +364,7 @@ fn choose_wallet(
         Some(selector) => selector.trim().to_string(),
         None => {
             print_wallet_choices(&wallets)?;
-            prompt::read_line("Select wallet by name or id: ", "<WALLET>")?
+            prompt::read_line(inv.mode(), "Select wallet by name or id: ", "<WALLET>")?
                 .trim()
                 .to_string()
         }
@@ -372,30 +372,27 @@ fn choose_wallet(
     Ok(WalletStore::find(wallets, &selector)?)
 }
 
-pub fn account_set_default(
-    selector: Option<&str>,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
+pub fn account_set_default(inv: &Invocation, selector: Option<&str>) -> Result<(), anyhow::Error> {
     let store = WalletStore::open();
-    let wallet = choose_wallet(&store, selector, format)?;
+    let wallet = choose_wallet(inv, &store, selector)?;
     store.set_default(&wallet)?;
-    print_wallet_change(&store, "Default account set", &wallet, format)
+    print_wallet_change(inv, &store, "Default account set", &wallet)
 }
 
 pub fn account_remove(
+    inv: &Invocation,
     selector: Option<&str>,
     yes: bool,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
     let store = WalletStore::open();
-    let wallet = choose_wallet(&store, selector, format)?;
+    let wallet = choose_wallet(inv, &store, selector)?;
     let address = WalletStore::account_of(&wallet)
         .map(|account| account.address_text)
         .unwrap_or_else(|_| "no Hyperliquid account".to_string());
     let is_default = store.is_configured_default(&wallet)?;
 
     if !yes {
-        require_promptable("--yes", format)?;
+        require_promptable("--yes", inv.format(), inv.mode())?;
         eprintln!("Wallet:  {}", wallet.name);
         eprintln!("Address: {address}");
         eprintln!("Default: {}", if is_default { "yes" } else { "no" });
@@ -406,15 +403,20 @@ pub fn account_remove(
         eprintln!();
         let confirmed = if out::terminal::stdin_is_terminal() {
             prompt::confirm_typed(
+                inv.mode(),
                 &format!("To confirm, type the wallet name \"{}\": ", wallet.name),
                 &wallet.name,
                 "--yes",
             )?
         } else {
-            prompt::confirm(&format!("Delete wallet {}?", wallet.name), "--yes")?
+            prompt::confirm(
+                inv.mode(),
+                &format!("Delete wallet {}?", wallet.name),
+                "--yes",
+            )?
         };
         if !confirmed {
-            print_declined("Delete cancelled", format);
+            print_declined(inv, "Delete cancelled");
             return Ok(());
         }
     }
@@ -429,24 +431,24 @@ pub fn account_remove(
         Some(wallet.name.clone()),
         "OWS wallet",
     );
-    print_receipt(store.settings(), store.vault(), receipt, format);
+    print_receipt(inv, store.settings(), store.vault(), receipt);
     Ok(())
 }
 
 /// List all wallets in the OWS vault.
-pub fn list(format: OutputFormat) -> Result<(), anyhow::Error> {
-    account_ls(format)
+pub fn list(inv: &Invocation) -> Result<(), anyhow::Error> {
+    account_ls(inv)
 }
 
 /// Delete an OWS wallet by name or id.
-pub fn delete(selector: &str, yes: bool, format: OutputFormat) -> Result<(), anyhow::Error> {
-    account_remove(Some(selector), yes, format)
+pub fn delete(inv: &Invocation, selector: &str, yes: bool) -> Result<(), anyhow::Error> {
+    account_remove(inv, Some(selector), yes)
 }
 
-pub fn rename(selector: &str, new_name: &str, format: OutputFormat) -> Result<(), anyhow::Error> {
+pub fn rename(inv: &Invocation, selector: &str, new_name: &str) -> Result<(), anyhow::Error> {
     let store = WalletStore::open();
     let wallet = store.rename(selector, new_name)?;
-    print_wallet_change(&store, "Wallet renamed", &wallet, format)
+    print_wallet_change(inv, &store, "Wallet renamed", &wallet)
 }
 
 /// Export an OWS wallet's secret.
@@ -456,14 +458,14 @@ pub fn rename(selector: &str, new_name: &str, format: OutputFormat) -> Result<()
 /// commit, or store plaintext private keys." The export is gated behind an
 /// explicit interactive confirmation prompt (or --yes flag) and a warning
 /// banner. The command's sole purpose is secret recovery/export.
-pub fn export(selector: &str, yes: bool, format: OutputFormat) -> Result<(), anyhow::Error> {
+pub fn export(inv: &Invocation, selector: &str, yes: bool) -> Result<(), anyhow::Error> {
     if !yes {
-        require_promptable("--yes", format)?;
+        require_promptable("--yes", inv.format(), inv.mode())?;
         let question = format!(
             "Export secret for wallet '{selector}'? This will display the private key or mnemonic."
         );
-        if !prompt::confirm(&question, "--yes")? {
-            print_declined("Export cancelled", format);
+        if !prompt::confirm(inv.mode(), &question, "--yes")? {
+            print_declined(inv, "Export cancelled");
             return Ok(());
         }
     }
@@ -473,7 +475,7 @@ pub fn export(selector: &str, yes: bool, format: OutputFormat) -> Result<(), any
 
     out::warn("this output contains a plaintext private key or mnemonic. Do not share or log it.");
 
-    if format == OutputFormat::Json {
+    if inv.format() == OutputFormat::Json {
         let output = serde_json::json!({"secret": secret});
         println!(
             "{}",
@@ -514,7 +516,7 @@ mod tests {
 
     #[test]
     fn json_runs_name_the_missing_selector_without_prompting() {
-        let err = require_promptable("<WALLET>", OutputFormat::Json).unwrap_err();
+        let err = require_promptable("<WALLET>", OutputFormat::Json, &Mode::default()).unwrap_err();
         assert_eq!(err.exit_code(), 2);
         assert!(err.to_string().contains("<WALLET>"));
     }

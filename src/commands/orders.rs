@@ -4,7 +4,7 @@ use std::fmt;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use chrono::Utc;
 use clap::{Args, ValueEnum};
@@ -24,10 +24,14 @@ use crate::assets::asset_id::{
 use crate::assets::{
     AssetQuery, AssetResolver, Market, OutcomeAsset, parse_asset_query, qualify_dex_asset,
 };
-use crate::commands::{actions, builder, map_api_error};
+use crate::commands::{actions, builder};
+use crate::errors::from_sdk;
+
 use crate::errors::CliError;
 use crate::http_api::post_info_json;
 use crate::input_hardening::{FilePolicy, read_json_file};
+use crate::invocation::Invocation;
+use crate::mode::Mode;
 use crate::output::{self, OutputFormat, TableData};
 use crate::prompt;
 use crate::response_sanitization::labelled_untrusted_text;
@@ -73,7 +77,7 @@ pub use planning::{
 };
 #[cfg(test)]
 use planning::{build_position_tpsl_batch, prepare_normal_tpsl_batch, prepare_order};
-pub use queries::{history, open, open_snapshot, status, status_query};
+pub use queries::{history, open, open_snapshot, status};
 pub use rendering::OrderListOutput;
 use rendering::{
     CancelAllSummary, CancelAllSummaryOutput, CancelConfirmation, CancelConfirmationOutput,
@@ -206,6 +210,7 @@ pub struct OrderExecutionContext<'a> {
 
 #[derive(Clone, Copy)]
 pub struct OrderSubmissionContext<'a> {
+    pub inv: &'a Invocation,
     pub api_base_url: &'a str,
     pub chain: Chain,
     pub signer: &'a SelectedSigner,
@@ -217,10 +222,8 @@ pub async fn create(
     context: OrderExecutionContext<'_>,
     args: &CreateArgs,
     vault_address: Option<Address>,
-    format: OutputFormat,
     emit_output: bool,
 ) -> Result<(), anyhow::Error> {
-    let start = Instant::now();
     let plan = prepare_create_order_plan(context.client, context.resolver, args).await?;
     let user = vault_address.unwrap_or_else(|| context.submission.signer.query_address());
     match plan.submission {
@@ -253,7 +256,7 @@ pub async fn create(
             )
             .await?;
             let rows = tpsl_confirmation_rows(&prepared, statuses)?;
-            finish_tpsl_batch(rows, format, start, emit_output)
+            finish_tpsl_batch(rows, context.submission.inv, emit_output)
         }
         CreateOrderSubmission::Single(prepared) => {
             let statuses =
@@ -264,8 +267,7 @@ pub async fn create(
                 .collect::<Result<Vec<_>, _>>()?;
             emit_order_output(
                 &OrderConfirmationOutput { rows },
-                format,
-                start.elapsed(),
+                context.submission.inv,
                 emit_output,
             );
             Ok(())
@@ -318,9 +320,8 @@ async fn execute_hip3_helper(
 ) -> Result<(), anyhow::Error> {
     if let Some(plan) = helper {
         execute_hip3_margin_transfer(
-            context.submission.api_base_url,
-            context.submission.chain,
-            context.client,
+            context.submission.inv.mode(),
+            context.submission.inv.remote()?,
             context.submission.signer,
             user,
             plan,
@@ -395,9 +396,7 @@ pub async fn scale(
     context: OrderExecutionContext<'_>,
     args: &ScaleArgs,
     vault_address: Option<Address>,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
-    let start = Instant::now();
     let prepared = prepare_scale_batch(context.client, context.resolver, args).await?;
     if context.submission.require_mainnet_confirmation && !args.yes {
         let target = ConsentTarget::new(context.submission, vault_address, None);
@@ -411,7 +410,7 @@ pub async fn scale(
     }
 
     let rows = place_order_batch(context, prepared, vault_address).await?;
-    finish_order_batch(rows, format, start)
+    finish_order_batch(rows, context.submission.inv)
 }
 
 /// Place an explicit JSON order batch.
@@ -420,9 +419,7 @@ pub async fn batch_create(
     args: &BatchCreateArgs,
     orders: Vec<BatchCreateOrder>,
     vault_address: Option<Address>,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
-    let start = Instant::now();
     let plan =
         prepare_batch_create_order_plan(context.client, context.resolver, args, orders).await?;
     let prepared = plan.prepared;
@@ -438,7 +435,7 @@ pub async fn batch_create(
     }
 
     let rows = place_order_batch(context, prepared, vault_address).await?;
-    finish_order_batch(rows, format, start)
+    finish_order_batch(rows, context.submission.inv)
 }
 
 async fn place_order_batch(
@@ -472,10 +469,8 @@ pub async fn tpsl(
     context: OrderExecutionContext<'_>,
     args: &TpslArgs,
     vault_address: Option<Address>,
-    format: OutputFormat,
     emit_output: bool,
 ) -> Result<(), anyhow::Error> {
-    let start = Instant::now();
     let user = vault_address.unwrap_or_else(|| context.submission.signer.query_address());
     let prepared =
         prepare_position_tpsl_batch(context.client, context.resolver, user, args).await?;
@@ -499,17 +494,12 @@ pub async fn tpsl(
     )
     .await?;
     let rows = tpsl_confirmation_rows(&prepared, statuses)?;
-    finish_tpsl_batch(rows, format, start, emit_output)
+    finish_tpsl_batch(rows, context.submission.inv, emit_output)
 }
 
-fn emit_order_output(
-    data: &dyn TableData,
-    format: OutputFormat,
-    duration: Duration,
-    emit_output: bool,
-) {
+fn emit_order_output(data: &dyn TableData, inv: &Invocation, emit_output: bool) {
     if emit_output {
-        output::print_data(data, format, duration);
+        inv.print(data);
     }
 }
 
@@ -543,8 +533,7 @@ fn finish_with_failures(
     verb: &str,
     action: &str,
     failures: Vec<String>,
-    format: OutputFormat,
-    start: Instant,
+    inv: &Invocation,
 ) -> Result<(), anyhow::Error> {
     let total = legs.rows().len();
     let failed = failures.len();
@@ -562,50 +551,38 @@ fn finish_with_failures(
             plural(total, "order", "orders")
         ),
     };
-    output::print_data(&partial, format, start.elapsed());
+    inv.print(&partial);
     Err(partial.error().into())
 }
 
 /// Print a placed batch, or report its failed legs.
-fn finish_order_batch(
-    rows: Vec<OrderConfirmation>,
-    format: OutputFormat,
-    start: Instant,
-) -> Result<(), anyhow::Error> {
+fn finish_order_batch(rows: Vec<OrderConfirmation>, inv: &Invocation) -> Result<(), anyhow::Error> {
     let legs = OrderConfirmationOutput { rows };
     let failures = legs.rejection_errors();
     if failures.is_empty() {
-        output::print_data(&legs, format, start.elapsed());
+        inv.print(&legs);
         return Ok(());
     }
-    finish_with_failures(legs, "Placed", "place orders", failures, format, start)
+    finish_with_failures(legs, "Placed", "place orders", failures, inv)
 }
 
 /// Print a placed TP/SL batch, or report its failed legs. With `emit_output`
 /// off (bracket protection) a failed leg is returned as an error instead.
 fn finish_tpsl_batch(
     rows: Vec<TpslOrderConfirmation>,
-    format: OutputFormat,
-    start: Instant,
+    inv: &Invocation,
     emit_output: bool,
 ) -> Result<(), anyhow::Error> {
     let legs = TpslOrderConfirmationOutput { rows };
     let failures = legs.rejection_errors();
     if failures.is_empty() {
-        emit_order_output(&legs, format, start.elapsed(), emit_output);
+        emit_order_output(&legs, inv, emit_output);
         return Ok(());
     }
     if !emit_output {
         return Err(rejected_all("place TP/SL orders", &failures).into());
     }
-    finish_with_failures(
-        legs,
-        "Placed",
-        "place TP/SL orders",
-        failures,
-        format,
-        start,
-    )
+    finish_with_failures(legs, "Placed", "place TP/SL orders", failures, inv)
 }
 
 /// Cancel a single open order by exchange OID or client order ID.
@@ -614,13 +591,11 @@ pub async fn cancel(
     user: Address,
     args: &CancelArgs,
     vault_address: Option<Address>,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
     context
         .submission
         .signer
         .ensure_can_attempt_live_signing()?;
-    let start = Instant::now();
     let plan = prepare_cancel_order_plan(context.client, context.resolver, user, args).await?;
     let nonce = Utc::now().timestamp_millis() as u64;
     let response = actions::send_l1_action_raw(
@@ -636,18 +611,14 @@ pub async fn cancel(
     let statuses = order_statuses_from_response(response, "cancel")?;
 
     ensure_action_statuses_ok(&statuses, "cancel order")?;
-    output::print_data(
-        &CancelConfirmationOutput {
-            rows: vec![CancelConfirmation {
-                coin: plan.coin,
-                status: "cancelled".to_string(),
-                order_id: plan.order_id,
-                cloid: plan.cloid,
-            }],
-        },
-        format,
-        start.elapsed(),
-    );
+    context.submission.inv.print(&CancelConfirmationOutput {
+        rows: vec![CancelConfirmation {
+            coin: plan.coin,
+            status: "cancelled".to_string(),
+            order_id: plan.order_id,
+            cloid: plan.cloid,
+        }],
+    });
     Ok(())
 }
 
@@ -657,13 +628,11 @@ pub async fn cancel_all(
     user: Address,
     args: &CancelAllArgs,
     vault_address: Option<Address>,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
     context
         .submission
         .signer
         .ensure_can_attempt_live_signing()?;
-    let start = Instant::now();
     let plan = prepare_cancel_all_orders_plan(context.client, context.resolver, user, args).await?;
 
     if plan.cancelled_orders != 0 {
@@ -705,8 +674,7 @@ pub async fn cancel_all(
                 "Cancelled",
                 "cancel all orders",
                 failures,
-                format,
-                start,
+                context.submission.inv,
             );
         }
         statuses.len()
@@ -714,16 +682,12 @@ pub async fn cancel_all(
         0
     };
 
-    output::print_data(
-        &CancelAllSummaryOutput {
-            rows: vec![CancelAllSummary {
-                coin: plan.summary_coin,
-                cancelled_orders,
-            }],
-        },
-        format,
-        start.elapsed(),
-    );
+    context.submission.inv.print(&CancelAllSummaryOutput {
+        rows: vec![CancelAllSummary {
+            coin: plan.summary_coin,
+            cancelled_orders,
+        }],
+    });
     Ok(())
 }
 
@@ -733,13 +697,11 @@ pub async fn modify(
     user: Address,
     args: &ModifyArgs,
     vault_address: Option<Address>,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
     context
         .submission
         .signer
         .ensure_can_attempt_live_signing()?;
-    let start = Instant::now();
     let plan = prepare_modify_order_plan(context.client, context.resolver, user, args).await?;
     let nonce = Utc::now().timestamp_millis() as u64;
     let response = actions::send_l1_action_raw(
@@ -757,13 +719,9 @@ pub async fn modify(
     let mut confirmation = plan.confirmation;
     confirmation.order_id = modification_result_oid(&statuses).or(confirmation.order_id);
 
-    output::print_data(
-        &ModifyConfirmationOutput {
-            rows: vec![confirmation],
-        },
-        format,
-        start.elapsed(),
-    );
+    context.submission.inv.print(&ModifyConfirmationOutput {
+        rows: vec![confirmation],
+    });
     Ok(())
 }
 
@@ -773,9 +731,7 @@ pub async fn twap_create(
     resolver: &AssetResolver,
     args: &TwapCreateArgs,
     vault_address: Option<Address>,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
-    let start = Instant::now();
     context.signer.ensure_can_attempt_live_signing()?;
     let plan = prepare_twap_create_plan(resolver, args)?;
     if context.require_mainnet_confirmation
@@ -803,21 +759,17 @@ pub async fn twap_create(
     .await?;
     let twap_id = parse_twap_create_response(response)?;
 
-    output::print_data(
-        &TwapCreateOutput {
-            rows: vec![TwapCreateConfirmation {
-                coin: plan.coin,
-                side: plan.side,
-                size: plan.size,
-                duration_seconds: plan.duration_seconds,
-                duration_minutes: plan.duration_minutes,
-                status: "running".to_string(),
-                twap_id,
-            }],
-        },
-        format,
-        start.elapsed(),
-    );
+    context.inv.print(&TwapCreateOutput {
+        rows: vec![TwapCreateConfirmation {
+            coin: plan.coin,
+            side: plan.side,
+            size: plan.size,
+            duration_seconds: plan.duration_seconds,
+            duration_minutes: plan.duration_minutes,
+            status: "running".to_string(),
+            twap_id,
+        }],
+    });
     Ok(())
 }
 
@@ -827,9 +779,7 @@ pub async fn twap_cancel(
     resolver: &AssetResolver,
     args: &TwapCancelArgs,
     vault_address: Option<Address>,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
-    let start = Instant::now();
     context.signer.ensure_can_attempt_live_signing()?;
     let plan = prepare_twap_cancel_plan(resolver, args)?;
     let response = actions::send_raw_l1_json_action(
@@ -843,17 +793,13 @@ pub async fn twap_cancel(
     .await?;
     parse_twap_cancel_response(response)?;
 
-    output::print_data(
-        &TwapCancelOutput {
-            rows: vec![TwapCancelConfirmation {
-                coin: plan.coin,
-                status: "cancelled".to_string(),
-                twap_id: plan.twap_id,
-            }],
-        },
-        format,
-        start.elapsed(),
-    );
+    context.inv.print(&TwapCancelOutput {
+        rows: vec![TwapCancelConfirmation {
+            coin: plan.coin,
+            status: "cancelled".to_string(),
+            twap_id: plan.twap_id,
+        }],
+    });
     Ok(())
 }
 
@@ -862,9 +808,7 @@ pub async fn schedule_cancel(
     context: OrderSubmissionContext<'_>,
     args: &ScheduleCancelArgs,
     vault_address: Option<Address>,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
-    let start = Instant::now();
     context.signer.ensure_can_attempt_live_signing()?;
     let mut plan = prepare_schedule_cancel_plan(args, Utc::now())?;
     if context.require_mainnet_confirmation
@@ -910,25 +854,21 @@ pub async fn schedule_cancel(
         .await?;
     }
 
-    output::print_data(
-        &ScheduleCancelOutput {
-            rows: vec![ScheduleCancelConfirmation {
-                status: if plan.scheduled_at.is_some() {
-                    "scheduled".to_string()
-                } else {
-                    "cleared".to_string()
-                },
-                scheduled_time: plan.scheduled_at.as_ref().map(|value| value.to_rfc3339()),
-                scheduled_time_ms: plan
-                    .scheduled_at
-                    .as_ref()
-                    .map(|value| value.timestamp_millis() as u64),
-                in_seconds: plan.in_seconds,
-            }],
-        },
-        format,
-        start.elapsed(),
-    );
+    context.inv.print(&ScheduleCancelOutput {
+        rows: vec![ScheduleCancelConfirmation {
+            status: if plan.scheduled_at.is_some() {
+                "scheduled".to_string()
+            } else {
+                "cleared".to_string()
+            },
+            scheduled_time: plan.scheduled_at.as_ref().map(|value| value.to_rfc3339()),
+            scheduled_time_ms: plan
+                .scheduled_at
+                .as_ref()
+                .map(|value| value.timestamp_millis() as u64),
+            in_seconds: plan.in_seconds,
+        }],
+    });
     Ok(())
 }
 
@@ -1136,7 +1076,7 @@ async fn lookup_position_for_tpsl(
     client
         .clearinghouse_state(user, dex)
         .await
-        .map_err(map_api_error)?
+        .map_err(from_sdk)?
         .asset_positions
         .into_iter()
         .find(|position| position.position.coin.eq_ignore_ascii_case(coin))
@@ -1504,7 +1444,7 @@ async fn lookup_order(
     let order = client
         .order_status(user, identifier.to_status_identifier())
         .await
-        .map_err(map_api_error)?
+        .map_err(from_sdk)?
         .ok_or_else(|| CliError::Unsupported(format!("unknown order {}", identifier.display())))?;
     Ok(order.order)
 }
@@ -1725,7 +1665,7 @@ async fn market_mid_price(client: &HttpClient, lookup: &MidLookup) -> Result<Dec
     let mids = client
         .all_mids(lookup.dex.clone())
         .await
-        .map_err(map_api_error)?;
+        .map_err(from_sdk)?;
     mids.get(&lookup.coin).copied().ok_or_else(|| {
         CliError::Unavailable(format!(
             "mid price for {} was not available. Retry after market data refresh.",
@@ -1875,6 +1815,7 @@ fn confirm_mainnet_twap(
 
 /// Target facts every consent preview shows before the question.
 struct ConsentTarget<'a> {
+    mode: &'a Mode,
     chain: Chain,
     signer: &'a SelectedSigner,
     vault_address: Option<Address>,
@@ -1888,6 +1829,7 @@ impl<'a> ConsentTarget<'a> {
         builder: Option<&'a OrderBuilderFee>,
     ) -> Self {
         Self {
+            mode: submission.inv.mode(),
             chain: submission.chain,
             signer: submission.signer,
             vault_address,
@@ -1930,12 +1872,12 @@ fn ask_confirmation(
     details: &[String],
     question: &str,
 ) -> Result<bool, CliError> {
-    prompt::ensure_can_prompt("--yes")?;
+    prompt::ensure_can_prompt(target.mode, "--yes")?;
     let mut stderr = io::stderr();
     for line in target.preview_lines().iter().chain(details) {
         writeln!(stderr, "{line}").map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
     }
-    prompt::confirm_warning(question, "--yes")
+    prompt::confirm_warning(target.mode, question, "--yes")
 }
 
 /// Pick the singular or plural noun for `count`.

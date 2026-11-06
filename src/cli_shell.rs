@@ -7,6 +7,7 @@
 use super::*;
 use clap::parser::ValueSource;
 use std::io::Write;
+use std::sync::OnceLock;
 
 const ENV_FORMAT: &str = "HYPERLIQUID_FORMAT";
 const REPORT_URL: &str = "https://github.com/hypurrclaw/hyperliquid-cli/issues/new";
@@ -625,16 +626,16 @@ fn env_output_format() -> Option<Result<output::OutputFormat, errors::CliError>>
 /// An explicit `--format` wins over everything. Otherwise `HYPERLIQUID_FORMAT`,
 /// then JSON for agents and non-terminal stdout, then the option's default.
 pub(super) fn resolve_output_format(
-    explicit_format: bool,
+    env: &output::terminal::OutputEnv,
     cli_format: output::OutputFormat,
 ) -> Result<output::OutputFormat, errors::CliError> {
-    if explicit_format {
+    if env.explicit_format {
         return Ok(cli_format);
     }
     if let Some(format) = env_output_format() {
         return format;
     }
-    if output::terminal::agent_env() || !output::terminal::stdout_is_terminal() {
+    if env.agent || !env.stdout_tty {
         return Ok(output::OutputFormat::Json);
     }
     Ok(cli_format)

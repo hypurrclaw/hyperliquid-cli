@@ -1,6 +1,6 @@
 //! Shared prompts. Questions go to stderr; answers come from stdin.
 //!
-//! Every prompt checks [`crate::mode::can_prompt`] first and fails with
+//! Every prompt checks [`Mode::can_prompt`] first and fails with
 //! [`CliError::MissingInput`] naming the option that supplies the answer, so a
 //! non-interactive run never blocks or guesses. End of input is also missing
 //! input: an empty stdin never accepts a default.
@@ -8,21 +8,21 @@
 use std::io::{self, BufRead, Write};
 
 use crate::errors::CliError;
-use crate::mode;
+use crate::mode::Mode;
 use crate::output::{colors, terminal};
 
 /// Ask a yes/no question. Only `y` or `yes` (any case) confirm.
 ///
 /// `bypass` names the option that answers the question in non-interactive
 /// runs, such as `--yes`.
-pub fn confirm(question: &str, bypass: &str) -> Result<bool, CliError> {
-    let answer = read_line(&format!("{question} [y/N]: "), bypass)?;
+pub fn confirm(mode: &Mode, question: &str, bypass: &str) -> Result<bool, CliError> {
+    let answer = read_line(mode, &format!("{question} [y/N]: "), bypass)?;
     Ok(is_yes(&answer))
 }
 
 /// Like [`confirm`], with the question styled as a warning on stderr.
-pub fn confirm_warning(question: &str, bypass: &str) -> Result<bool, CliError> {
-    confirm(&warning(question), bypass)
+pub fn confirm_warning(mode: &Mode, question: &str, bypass: &str) -> Result<bool, CliError> {
+    confirm(mode, &warning(question), bypass)
 }
 
 /// Style `text` as a warning for a prompt or consent preview written to stderr.
@@ -35,8 +35,8 @@ pub fn warning(text: &str) -> String {
 ///
 /// `input` names the option or argument that supplies the value without a
 /// prompt.
-pub fn read_line(label: &str, input: &str) -> Result<String, CliError> {
-    ensure_can_prompt(input)?;
+pub fn read_line(mode: &Mode, label: &str, input: &str) -> Result<String, CliError> {
+    ensure_can_prompt(mode, input)?;
     let mut stderr = io::stderr().lock();
     write!(stderr, "{label}")
         .and_then(|()| stderr.flush())
@@ -59,8 +59,8 @@ pub fn read_line(label: &str, input: &str) -> Result<String, CliError> {
 }
 
 /// Fail with a missing-input error when this run can't prompt.
-pub fn ensure_can_prompt(input: &str) -> Result<(), CliError> {
-    match mode::prompt_blocker() {
+pub fn ensure_can_prompt(mode: &Mode, input: &str) -> Result<(), CliError> {
+    match mode.prompt_blocker() {
         None => Ok(()),
         Some(reason) => Err(CliError::MissingInput(format!(
             "Can't prompt for {input} because of {reason}. Pass {input} instead."
@@ -75,8 +75,13 @@ pub fn is_yes(input: &str) -> bool {
 
 /// Ask the user to type `expected` exactly. Anything else, including an empty
 /// line, declines. Use for destructive actions that can't be undone.
-pub fn confirm_typed(label: &str, expected: &str, bypass: &str) -> Result<bool, CliError> {
-    let answer = read_line(label, bypass)?;
+pub fn confirm_typed(
+    mode: &Mode,
+    label: &str,
+    expected: &str,
+    bypass: &str,
+) -> Result<bool, CliError> {
+    let answer = read_line(mode, label, bypass)?;
     Ok(answer.trim() == expected)
 }
 
@@ -85,21 +90,21 @@ pub fn confirm_typed(label: &str, expected: &str, bypass: &str) -> Result<bool, 
 /// On a terminal the value is typed at a masked prompt, which needs a run that
 /// can prompt. Piped stdin supplies the secret directly: the first line, without
 /// its line ending. End of input is missing input.
-pub fn read_secret(label: &str, input: &str) -> Result<String, CliError> {
+pub fn read_secret(mode: &Mode, label: &str, input: &str) -> Result<String, CliError> {
     let value = if terminal::stdin_is_terminal() {
-        ensure_can_prompt(input)?;
+        ensure_can_prompt(mode, input)?;
         write_label(label)?;
         let value = rpassword::read_password().map_err(io_error)?;
         eprintln!();
         value
     } else {
-        if mode::can_prompt() {
+        if mode.can_prompt() {
             write_label(label)?;
         }
         let mut line = String::new();
         let read = io::stdin().lock().read_line(&mut line).map_err(io_error)?;
         if read == 0 {
-            if mode::can_prompt() {
+            if mode.can_prompt() {
                 eprintln!();
             }
             return Err(CliError::MissingInput(format!(

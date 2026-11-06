@@ -12,9 +12,10 @@ use hypersdk::{Address, Decimal};
 use serde::Serialize;
 use serde_json::json;
 
-use crate::commands::map_api_error;
 use crate::errors::CliError;
-use crate::output::{self, OutputFormat};
+use crate::errors::from_sdk;
+use crate::invocation::Invocation;
+use crate::output::{self, OutputFormat, Session};
 use crate::stream::{
     self, StreamBoundArgs, StreamBounds, StreamEnd, Ticker, emit_json_line_to_stdout,
     write_stdout_line,
@@ -208,11 +209,12 @@ pub fn parse_watch_user(raw: &str) -> Result<Address, CliError> {
 }
 
 pub async fn watch_risk(
-    client: &HttpClient,
+    inv: &Invocation,
     user: Address,
     args: &WatchRiskArgs,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
+    let client = inv.remote()?.client();
+    let session = inv.session();
     let bounds = StreamBounds::watch_risk(&args.stream);
     if stream::piped_or_agent() && !bounds.is_bounded() {
         return Err(CliError::Configuration(
@@ -226,7 +228,7 @@ pub async fn watch_risk(
     stream::run_stream(async {
         let mut watcher = RiskWatcher::new(client, user, args).await;
         stream::poll_stream(&mut watcher, args.interval, bounds, |alert| {
-            emit_alert(alert, format)
+            emit_alert(alert, session)
         })
         .await?;
         Ok(StreamEnd::Finished)
@@ -234,10 +236,10 @@ pub async fn watch_risk(
     .await
 }
 
-fn emit_alert(alert: RiskAlert, format: OutputFormat) -> Result<(), anyhow::Error> {
-    match format {
-        OutputFormat::Json => emit_json_line_to_stdout(&alert),
-        _ => write_stdout_line(&output::render(&AlertTable(alert), format)),
+fn emit_alert(alert: RiskAlert, session: &Session) -> Result<(), anyhow::Error> {
+    match session.format() {
+        OutputFormat::Json => emit_json_line_to_stdout(&alert, session.json_options()),
+        _ => write_stdout_line(&session.render(&AlertTable(alert))),
     }
 }
 
@@ -274,7 +276,7 @@ impl Ticker for RiskWatcher<'_> {
             .client
             .clearinghouse_state(self.user, None)
             .await
-            .map_err(map_api_error)?;
+            .map_err(from_sdk)?;
         let open_orders = self
             .client
             .open_orders(self.user, None)

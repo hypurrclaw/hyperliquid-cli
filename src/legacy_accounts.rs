@@ -16,6 +16,7 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use sha2::{Digest, Sha256};
 
 use crate::errors::CliError;
+use crate::mode::Mode;
 use crate::settings::{Settings, env};
 
 const ENCRYPTION_VERSION: &str = "v1";
@@ -70,13 +71,13 @@ impl KeySource {
         Ok(Self::Material(hasher.finalize().to_vec()))
     }
 
-    fn load(&self) -> Result<Option<Vec<u8>>, anyhow::Error> {
+    fn load(&self, mode: &Mode) -> Result<Option<Vec<u8>>, anyhow::Error> {
         match self {
             Self::Material(material) => Ok(Some(material.clone())),
             Self::Unavailable => Ok(None),
             Self::Keychain => match load_from_keychain() {
                 Ok(material) => Ok(material),
-                Err(err) => prompt_passphrase_after_keychain_error(&err)?.load(),
+                Err(err) => prompt_passphrase_after_keychain_error(&err, mode)?.load(mode),
             },
         }
     }
@@ -102,8 +103,9 @@ fn load_from_keychain() -> Result<Option<Vec<u8>>, anyhow::Error> {
 
 fn prompt_passphrase_after_keychain_error(
     keychain_error: &anyhow::Error,
+    mode: &Mode,
 ) -> Result<KeySource, anyhow::Error> {
-    if !crate::mode::can_prompt() || !crate::output::terminal::stdin_is_terminal() {
+    if !mode.can_prompt() || !crate::output::terminal::stdin_is_terminal() {
         return Err(CliError::MissingInput(format!(
             "Can't unlock account encryption keys because the OS keychain is unavailable ({keychain_error}). Set {} to use a passphrase instead.",
             env::ACCOUNT_KEY_PASSPHRASE
@@ -115,6 +117,7 @@ fn prompt_passphrase_after_keychain_error(
         "OS keychain is unavailable ({keychain_error}). Using a passphrase-derived account encryption key instead."
     );
     let passphrase = crate::prompt::read_secret(
+        mode,
         "Account encryption passphrase: ",
         env::ACCOUNT_KEY_PASSPHRASE,
     )?;
@@ -162,7 +165,7 @@ impl std::fmt::Debug for LegacyAccounts {
 
 impl LegacyAccounts {
     /// Open the default database for reading. `Ok(None)` when it doesn't exist.
-    pub fn open_default(settings: &Settings) -> Result<Option<Self>, anyhow::Error> {
+    pub fn open_default(settings: &Settings, mode: &Mode) -> Result<Option<Self>, anyhow::Error> {
         let db_path = crate::paths::legacy_accounts_db()
             .ok_or_else(|| CliError::Configuration("Cannot determine data directory".into()))?;
         if !db_path.exists() {
@@ -172,6 +175,7 @@ impl LegacyAccounts {
         Self::open(
             &db_path,
             &key_source,
+            mode,
             crate::paths::legacy_accounts_key().as_deref(),
         )
         .map(Some)
@@ -182,6 +186,7 @@ impl LegacyAccounts {
     fn open(
         db_path: &Path,
         key_source: &KeySource,
+        mode: &Mode,
         legacy_key_path: Option<&Path>,
     ) -> Result<Self, anyhow::Error> {
         let conn = Connection::open_with_flags(
@@ -196,7 +201,7 @@ impl LegacyAccounts {
         Ok(Self {
             conn,
             has_master_address,
-            encryption_key: load_encryption_key(key_source, legacy_key_path)?,
+            encryption_key: load_encryption_key(key_source, mode, legacy_key_path)?,
         })
     }
 
@@ -275,9 +280,10 @@ fn unavailable_key_error() -> CliError {
 
 fn load_encryption_key(
     key_source: &KeySource,
+    mode: &Mode,
     legacy_key_path: Option<&Path>,
 ) -> Result<[u8; 32], anyhow::Error> {
-    if let Some(material) = key_source.load()? {
+    if let Some(material) = key_source.load(mode)? {
         return Ok(derive_key(&material));
     }
 
@@ -364,7 +370,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let db = tmp.path().join("accounts.db");
         fixture::create_accounts_db(&db, &fixture::KEY_MATERIAL, Schema::Current, rows);
-        let accounts = LegacyAccounts::open(&db, &material(), None).unwrap();
+        let accounts = LegacyAccounts::open(&db, &material(), &Mode::default(), None).unwrap();
         (tmp, accounts)
     }
 
@@ -443,7 +449,7 @@ mod tests {
             &[Row::new("main", "0xabc", KEY)],
         );
 
-        let accounts = LegacyAccounts::open(&db, &material(), None).unwrap();
+        let accounts = LegacyAccounts::open(&db, &material(), &Mode::default(), None).unwrap();
         let account = accounts.account_by_selector("main").unwrap().unwrap();
 
         assert_eq!(account.master_address, None);
@@ -463,7 +469,8 @@ mod tests {
             &[Row::new("main", "0xabc", KEY)],
         );
 
-        let err = LegacyAccounts::open(&db, &KeySource::Unavailable, None).unwrap_err();
+        let err =
+            LegacyAccounts::open(&db, &KeySource::Unavailable, &Mode::default(), None).unwrap_err();
         assert!(err.to_string().contains("data directory alone"));
     }
 
@@ -479,7 +486,13 @@ mod tests {
         );
         let before = std::fs::read(&key_file).unwrap();
 
-        let accounts = LegacyAccounts::open(&db, &KeySource::Unavailable, Some(&key_file)).unwrap();
+        let accounts = LegacyAccounts::open(
+            &db,
+            &KeySource::Unavailable,
+            &Mode::default(),
+            Some(&key_file),
+        )
+        .unwrap();
         let account = accounts.default_or_first_account().unwrap().unwrap();
 
         assert_eq!(accounts.decrypt_private_key(&account).unwrap(), KEY);

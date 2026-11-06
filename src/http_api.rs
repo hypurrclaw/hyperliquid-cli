@@ -20,6 +20,7 @@ use serde::de::DeserializeOwned;
 use crate::errors::{
     CliError, http_response_indicates_rate_limit, is_server_status, network_error, transport_cause,
 };
+use crate::output::terminal;
 use crate::response_sanitization::Untrusted;
 
 const DEFAULT_API_TIMEOUT: Duration = Duration::from_secs(10);
@@ -269,9 +270,9 @@ fn read_retry_delay(retries: usize, retry_after: Option<u64>) -> Option<Duration
 }
 
 /// Tell a person at a terminal that a retry is in progress. Never printed for
-/// machine contexts, so JSON and piped output stay clean.
+/// agent or CI runs, or when stderr is piped.
 fn announce_retry() {
-    if std::io::stderr().is_terminal() && crate::mode::can_prompt() {
+    if std::io::stderr().is_terminal() && !terminal::agent_env() && !terminal::ci_env() {
         eprintln!("Retrying automatically…");
     }
 }

@@ -1,6 +1,6 @@
 //! Raw exchange metadata command.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use hypersdk::Decimal;
 use hypersdk::hypercore::HttpClient;
@@ -8,11 +8,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::assets::{SpotListing, load_spot_markets, raw_info_base_url};
-use crate::command_context::CommandContext;
-use crate::commands::map_api_error;
 use crate::errors::CliError;
+use crate::errors::from_sdk;
+use crate::invocation::Invocation;
+use crate::output::TableData;
 use crate::output::format::thousands;
-use crate::output::{OutputFormat, TableData};
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct MetaSpotRow {
@@ -168,12 +168,6 @@ impl TableData for MetaOutput {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct MetaResult {
-    pub output: MetaOutput,
-    pub elapsed: Duration,
-}
-
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 struct MetaAndAssetContexts(Value, Vec<Map<String, Value>>);
 
@@ -209,34 +203,13 @@ enum RawInfoRequest {
     PerpDexs,
 }
 
-/// Fetch exchange metadata: perpetual universe, spot universe, asset contexts, and DEXes.
-pub async fn query(client: &HttpClient) -> Result<MetaResult, anyhow::Error> {
-    let start = Instant::now();
+/// Fetch and render exchange metadata: perpetual universe, spot universe, asset contexts, and DEXes.
+pub async fn show(inv: &Invocation) -> Result<(), anyhow::Error> {
+    let client = inv.remote()?.client();
     let raw_meta_and_contexts = fetch_meta_and_asset_contexts(client).await?;
     let spot_universe = load_spot_universe(client).await?;
     let dexes = fetch_dexes(client).await?;
-    let output = raw_meta_and_contexts.into_output(spot_universe, dexes);
-
-    Ok(MetaResult {
-        output,
-        elapsed: start.elapsed(),
-    })
-}
-
-/// Fetch and render exchange metadata through a per-call output context.
-pub async fn show_with_context(context: &CommandContext<'_>) -> Result<(), anyhow::Error> {
-    let client = context
-        .hypercore_client()
-        .ok_or_else(|| anyhow::anyhow!("meta command requires a Hyperliquid HTTP client"))?;
-    let result = query(client).await?;
-    context.print(&result.output, result.elapsed);
-    Ok(())
-}
-
-/// Fetch and render exchange metadata: perpetual universe, spot universe, asset contexts, and DEXes.
-pub async fn show(client: &HttpClient, format: OutputFormat) -> Result<(), anyhow::Error> {
-    let result = query(client).await?;
-    crate::output::print_data(&result.output, format, result.elapsed);
+    inv.print(&raw_meta_and_contexts.into_output(spot_universe, dexes));
     Ok(())
 }
 
@@ -268,15 +241,15 @@ async fn fetch_raw_info<T: serde::de::DeserializeOwned>(
         .json(request)
         .send()
         .await
-        .map_err(|err| map_api_error(anyhow::Error::new(err)))?;
+        .map_err(|err| from_sdk(anyhow::Error::new(err)))?;
     let status = response.status();
     let text = response
         .text()
         .await
-        .map_err(|err| map_api_error(anyhow::Error::new(err)))?;
+        .map_err(|err| from_sdk(anyhow::Error::new(err)))?;
 
     if !status.is_success() {
-        return Err(map_api_error(anyhow::anyhow!("HTTP {status} body={text}")));
+        return Err(from_sdk(anyhow::anyhow!("HTTP {status} body={text}")));
     }
 
     crate::http_api::decode_json(&text, "loading raw exchange metadata")

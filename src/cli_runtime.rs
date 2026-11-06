@@ -1,23 +1,21 @@
 use super::*;
 
+use hyperliquid_cli::commands::{
+    account, asset, borrowlend, meta, orderbook, outcomes, perps, positions, prio, referral,
+    schema, setup, spot, staking, status, vaults, wallet,
+};
+
 pub(super) async fn run(
     cli: &Cli,
     registry_path: Option<&[String]>,
     confirmation: Confirmation,
-) -> Result<(), anyhow::Error> {
-    run_command(cli, registry_path, confirmation).await
-}
-
-async fn run_command(
-    cli: &Cli,
-    registry_path: Option<&[String]>,
-    confirmation: Confirmation,
+    mut inv: Invocation,
 ) -> Result<(), anyhow::Error> {
     if cli.command.is_none() {
         return print_help_to_stdout(&[]);
     }
     validate_cli_inputs(cli)?;
-    validate_stream_bounds(cli)?;
+    validate_stream_bounds(cli, &inv)?;
 
     if matches!(cli.command, Some(Commands::Update)) {
         if cli.payload_json.is_some() || cli.payload_file.is_some() {
@@ -26,27 +24,27 @@ async fn run_command(
             )
             .into());
         }
-        return hyperliquid_cli::update::update(cli.format, cli.dry_run).await;
+        return hyperliquid_cli::update::update(&inv).await;
     }
 
     let command_contract = command_contract_for_path(registry_path)?;
     if cli.payload_json.is_some() || cli.payload_file.is_some() {
         validate_raw_payload_supported(command_contract.as_ref())?;
     }
-    validate_prompt_policy(cli, command_contract.as_ref(), confirmation)?;
+    validate_prompt_policy(cli, &inv, command_contract.as_ref(), confirmation)?;
 
-    if let Some(result) = run_local_command_without_context(cli).await {
+    if let Some(result) = run_local_command_without_context(cli, &inv).await {
         return result;
     }
 
-    let payload = read_payload_json(cli)?;
-    if cli.dry_run && !command_accepts_mutating_preview(command_contract.as_ref()) {
+    inv.set_payload(read_payload_json(cli)?);
+    if inv.dry_run() && !command_accepts_mutating_preview(command_contract.as_ref()) {
         return Err(errors::CliError::Unsupported(
             "--dry-run is only supported for mutating commands with preview support".to_string(),
         )
         .into());
     }
-    if payload.is_some() && !cli.dry_run {
+    if inv.payload().is_some() && !inv.dry_run() {
         return Err(errors::CliError::Unsupported(
             "payload input currently requires --dry-run so raw payloads can be validated without side effects"
                 .to_string(),
@@ -54,84 +52,63 @@ async fn run_command(
         .into());
     }
 
-    let context = AppContext::resolve(cli)?;
-    if cli.dry_run {
+    let has_api_override = inv.remote()?.has_api_base_url_override();
+    if inv.dry_run() {
         // Signed exchange actions name the signer in their preview. Resolution
         // never prompts; a failure is reported inside the preview instead.
-        let signer = command_contract
-            .as_ref()
-            .is_some_and(|command| {
-                command.auth_required && command.lifecycle == Lifecycle::LiveMutating
-            })
-            .then(|| {
-                context
-                    .resolve_signer()
-                    .map(|signer| signer.address().to_string())
-                    .map_err(|err| err.to_string())
-            });
-        hyperliquid_cli::dry_run::init_run_context(context.network, signer);
+        inv.attach_dry_run_context(command_contract.as_ref().is_some_and(|command| {
+            command.auth_required && command.lifecycle == Lifecycle::LiveMutating
+        }));
     }
-    if context.has_api_base_url_override() && command_uses_api(command_contract.as_ref()) {
-        context.validate_api_override().await?;
+    if has_api_override && command_uses_api(command_contract.as_ref()) {
+        inv.remote()?.validate_api_override().await?;
     }
 
+    dispatch(cli, &inv).await
+}
+
+async fn dispatch(cli: &Cli, inv: &Invocation) -> Result<(), anyhow::Error> {
     match &cli.command {
         None => Ok(()),
         Some(Commands::Wallet {
             subcommand: WalletCommands::Address,
-        }) => context.resolve_signer().map(|signer| {
-            hyperliquid_cli::commands::wallet::address(&signer, cli.format);
-        }),
+        }) => {
+            let signer = inv.resolve_signer()?;
+            wallet::address(inv, &signer);
+            Ok(())
+        }
         Some(Commands::Wallet {
             subcommand: WalletCommands::Show,
-        }) => context.resolve_signer().map(|signer| {
-            hyperliquid_cli::commands::wallet::show(
-                &context.settings,
-                &context.selection,
-                &signer,
-                cli.format,
-            );
-        }),
+        }) => {
+            let signer = inv.resolve_signer()?;
+            let remote = inv.remote()?;
+            wallet::show(inv, remote.settings(), remote.selection(), &signer);
+            Ok(())
+        }
         Some(Commands::Perps {
             subcommand: PerpsCommands::List(args),
-        }) => {
-            let client = context.http_client();
-            let command_context =
-                cli_command_context(&context, cli, Some(&client), payload.is_some());
-            hyperliquid_cli::commands::perps::list_with_context(&command_context, args).await
-        }
+        }) => perps::list(inv, args).await,
         Some(Commands::Perps {
             subcommand: PerpsCommands::Get(args),
-        }) => resolve_and_print_perp(&context, args, cli.format).await,
+        }) => perps::get(inv, args).await,
         Some(Commands::Spot {
             subcommand: SpotCommands::List,
-        }) => {
-            let client = context.http_client();
-            let command_context =
-                cli_command_context(&context, cli, Some(&client), payload.is_some());
-            hyperliquid_cli::commands::spot::list_with_context(&command_context).await
-        }
+        }) => spot::list(inv).await,
         Some(Commands::Spot {
             subcommand: SpotCommands::Get { pair },
-        }) => resolve_and_print_spot(&context, pair, cli.format).await,
+        }) => spot::get(inv, pair).await,
         Some(Commands::Asset {
             subcommand: AssetCommands::Decode(args),
-        }) => {
-            let command_context = cli_command_context(&context, cli, None, payload.is_some());
-            hyperliquid_cli::commands::asset::decode_with_context(&command_context, args).await
-        }
+        }) => asset::decode(inv, args).await,
         Some(Commands::Asset {
             subcommand: AssetCommands::Search(args),
         })
-        | Some(Commands::Search(args)) => {
-            let command_context = cli_command_context(&context, cli, None, payload.is_some());
-            hyperliquid_cli::commands::asset::search_with_context(&command_context, args).await
-        }
+        | Some(Commands::Search(args)) => asset::search(inv, args).await,
         Some(Commands::Book { coin, watch }) => {
             if watch.watch {
-                watch_book(&context, coin, cli.format, watch.max_ticks).await
+                watch_book(inv, coin, watch.max_ticks).await
             } else {
-                resolve_and_print_book(&context, cli, coin, payload.is_some()).await
+                orderbook::book(inv, coin).await
             }
         }
         Some(Commands::Candles {
@@ -141,141 +118,152 @@ async fn run_command(
             watch,
         }) => {
             if watch.watch {
-                watch_candles(
-                    &context,
-                    coin,
-                    *interval,
-                    *limit,
-                    cli.format,
-                    watch.max_ticks,
-                )
-                .await
+                watch_candles(inv, coin, *interval, *limit, watch.max_ticks).await
             } else {
-                resolve_and_print_candles(&context, cli, coin, *interval, *limit, payload.is_some())
-                    .await
+                orderbook::candles(inv, coin, *interval, *limit).await
             }
         }
-        Some(Commands::Spread { coin }) => {
-            resolve_and_print_spread(&context, cli, coin, payload.is_some()).await
-        }
-        Some(Commands::Funding { coin }) => {
-            resolve_and_print_funding(&context, cli, coin, payload.is_some()).await
-        }
+        Some(Commands::Spread { coin }) => orderbook::spread(inv, coin).await,
+        Some(Commands::Funding { coin }) => orderbook::funding(inv, coin).await,
         Some(Commands::Builder {
             subcommand: BuilderCommands::MaxFee(args),
-        }) => builder_max_fee(&context, args, cli.format).await,
+        }) => {
+            let user = inv.resolve_protocol_user(&args.user)?;
+            let builder_address =
+                hyperliquid_cli::commands::builder::parse_builder_address(&args.builder)?;
+            hyperliquid_cli::commands::builder::max_fee(inv, user, builder_address).await
+        }
         Some(Commands::Builder {
             subcommand: BuilderCommands::Approved(args),
-        }) => builder_approved(&context, args, cli.format).await,
+        }) => {
+            let user = inv.resolve_protocol_user(&args.user)?;
+            hyperliquid_cli::commands::builder::approved(inv, user).await
+        }
         Some(Commands::Builder {
             subcommand: BuilderCommands::Approve(args),
-        }) => builder_approve(&context, args, cli.format, cli.dry_run, payload.as_ref()).await,
+        }) => builder_approve(inv, args).await,
         Some(Commands::Outcomes {
             subcommand: OutcomeCommands::List(args),
-        }) => print_outcomes_list(&context, args, cli.format).await,
+        }) => outcomes::list(inv, args).await,
         Some(Commands::Outcomes {
             subcommand: OutcomeCommands::Get(args),
-        }) => print_outcomes_get(&context, args, cli.format).await,
+        }) => outcomes::get(inv, args).await,
         Some(Commands::Mids { watch }) => {
             if watch.watch {
-                watch_mids(&context, cli.format, cli.select.as_deref(), watch.max_ticks).await
+                watch_mids(inv, watch.max_ticks).await
             } else {
-                print_mids(&context, cli, payload.is_some()).await
+                orderbook::mids(inv).await
             }
         }
         Some(Commands::Account {
             subcommand: AccountCommands::Fills(args),
-        }) => print_account_fills(&context, cli, args, payload.is_some()).await,
+        }) => {
+            let address = resolve_user_string(inv, args.address.as_deref())?;
+            account::fills(inv, &address, args).await
+        }
         Some(Commands::Account {
             subcommand: AccountCommands::Fees(args),
-        }) => print_account_fees(&context, cli, args, payload.is_some()).await,
+        }) => {
+            let address = resolve_user_string(inv, args.address.as_deref())?;
+            account::fees(inv, &address).await
+        }
         Some(Commands::Account {
             subcommand: AccountCommands::RateLimit(args),
-        }) => print_account_rate_limit(&context, cli, args, payload.is_some()).await,
+        }) => {
+            let address = resolve_user_string(inv, args.address.as_deref())?;
+            account::rate_limit(inv, &address).await
+        }
         Some(Commands::Account {
             subcommand: AccountCommands::Orders { address },
-        }) => print_account_orders(&context, cli, address.as_deref(), payload.is_some()).await,
+        }) => {
+            let address = resolve_user_string(inv, address.as_deref())?;
+            account::orders(inv, &address).await
+        }
         Some(Commands::Account {
             subcommand: AccountCommands::Portfolio { address },
-        }) => print_account_portfolio(&context, cli, address.as_deref(), payload.is_some()).await,
+        }) => {
+            let address = resolve_user_string(inv, address.as_deref())?;
+            account::portfolio(inv, &address).await
+        }
         Some(Commands::Account {
             subcommand: AccountCommands::Subaccounts { address },
-        }) => print_account_subaccounts(&context, cli, address.as_deref(), payload.is_some()).await,
+        })
+        | Some(Commands::Subaccount {
+            subcommand: SubaccountCommands::List { address },
+        }) => {
+            let address = resolve_user_string(inv, address.as_deref())?;
+            account::subaccounts(inv, &address).await
+        }
         Some(Commands::ApiWallet {
             subcommand: ApiWalletCommands::Create(args),
-        }) => api_wallet_create(&context, args, cli.format, cli.dry_run).await,
+        }) => api_wallet_create(inv, args).await,
         Some(Commands::ApiWallet {
             subcommand: ApiWalletCommands::Approve(args),
-        }) => api_wallet_approve(&context, args, cli.format, cli.dry_run).await,
+        }) => api_wallet_approve(inv, args).await,
         Some(Commands::ApiWallet {
             subcommand: ApiWalletCommands::List { account },
-        }) => api_wallet_list(&context, account.as_deref(), cli.format).await,
+        }) => api_wallet_list(inv, account.as_deref()).await,
         Some(Commands::ApiWallet {
             subcommand: ApiWalletCommands::Revoke(args),
-        }) => api_wallet_revoke(&context, args, cli.format, cli.dry_run).await,
+        }) => api_wallet_revoke(inv, args).await,
         Some(Commands::Account {
             subcommand: AccountCommands::PortfolioHistory(args),
-        }) => print_account_portfolio_history(&context, cli, args, payload.is_some()).await,
+        }) => {
+            let address = resolve_user_string(inv, args.address.as_deref())?;
+            account::portfolio_history(inv, &address).await
+        }
         Some(Commands::Account {
             subcommand: AccountCommands::Ledger(args),
-        }) => print_account_ledger(&context, cli, args, payload.is_some()).await,
+        }) => {
+            let address = resolve_user_string(inv, args.address.as_deref())?;
+            account::ledger(inv, &address, args).await
+        }
         Some(Commands::Account {
             subcommand: AccountCommands::Funding(args),
-        }) => print_account_funding(&context, cli, args, payload.is_some()).await,
+        }) => {
+            let address = resolve_user_string(inv, args.address.as_deref())?;
+            account::funding(inv, &address, args).await
+        }
         Some(Commands::Account {
             subcommand: AccountCommands::TwapHistory(args),
-        }) => print_account_twap_history(&context, cli, args, payload.is_some()).await,
+        }) => {
+            let address = resolve_user_string(inv, args.address.as_deref())?;
+            account::twap_history(inv, &address).await
+        }
         Some(Commands::Account {
             subcommand: AccountCommands::TwapFills(args),
-        }) => print_account_twap_fills(&context, cli, args, payload.is_some()).await,
+        }) => {
+            let address = resolve_user_string(inv, args.address.as_deref())?;
+            account::twap_fills(inv, &address, args).await
+        }
         Some(Commands::Account {
             subcommand: AccountCommands::Abstraction(args),
-        }) => account_abstraction(&context, cli, args, payload.as_ref()).await,
-        Some(Commands::Subaccount {
-            subcommand: SubaccountCommands::List { address },
-        }) => print_account_subaccounts(&context, cli, address.as_deref(), payload.is_some()).await,
+        }) => account_abstraction(inv, args).await,
         Some(Commands::Subaccount {
             subcommand: SubaccountCommands::Create(args),
-        }) => subaccount_create(&context, args, cli.format, cli.dry_run, payload.as_ref()).await,
+        }) => subaccount_create(inv, args).await,
         Some(Commands::Subaccount {
             subcommand: SubaccountCommands::Transfer(args),
-        }) => subaccount_transfer(&context, args, cli.format, cli.dry_run, payload.as_ref()).await,
+        }) => subaccount_transfer(inv, args).await,
         Some(Commands::Subaccount {
             subcommand: SubaccountCommands::SpotTransfer(args),
-        }) => {
-            subaccount_spot_transfer(&context, args, cli.format, cli.dry_run, payload.as_ref())
-                .await
-        }
-        Some(Commands::Status) => print_status(&context, cli, payload.is_some()).await,
-        Some(Commands::Meta) => print_meta(&context, cli, payload.is_some()).await,
+        }) => subaccount_spot_transfer(inv, args).await,
+        Some(Commands::Status) => status::show(inv).await,
+        Some(Commands::Meta) => meta::show(inv).await,
         Some(Commands::Orders {
             subcommand: OrderCommands::Create(args),
-        }) => create_order(&context, args, cli.format, cli.dry_run, payload.as_ref()).await,
+        }) => create_order(inv, args).await,
         Some(Commands::Buy(args)) => {
             let create_args = args
                 .clone()
                 .into_create(hyperliquid_cli::commands::orders::OrderSide::Buy);
-            create_order(
-                &context,
-                &create_args,
-                cli.format,
-                cli.dry_run,
-                payload.as_ref(),
-            )
-            .await
+            create_order(inv, &create_args).await
         }
         Some(Commands::Sell(args)) => {
             let create_args = args
                 .clone()
                 .into_create(hyperliquid_cli::commands::orders::OrderSide::Sell);
-            create_order(
-                &context,
-                &create_args,
-                cli.format,
-                cli.dry_run,
-                payload.as_ref(),
-            )
-            .await
+            create_order(inv, &create_args).await
         }
         Some(Commands::OutcomeBuy(args)) => {
             ensure_outcome_coin(&args.inner.coin)?;
@@ -283,14 +271,7 @@ async fn run_command(
                 .inner
                 .clone()
                 .into_create(hyperliquid_cli::commands::orders::OrderSide::Buy);
-            create_order(
-                &context,
-                &create_args,
-                cli.format,
-                cli.dry_run,
-                payload.as_ref(),
-            )
-            .await
+            create_order(inv, &create_args).await
         }
         Some(Commands::OutcomeSell(args)) => {
             ensure_outcome_coin(&args.inner.coin)?;
@@ -298,253 +279,203 @@ async fn run_command(
                 .inner
                 .clone()
                 .into_create(hyperliquid_cli::commands::orders::OrderSide::Sell);
-            create_order(
-                &context,
-                &create_args,
-                cli.format,
-                cli.dry_run,
-                payload.as_ref(),
-            )
-            .await
+            create_order(inv, &create_args).await
         }
         Some(Commands::Orders {
             subcommand: OrderCommands::Scale(args),
-        }) => scale_orders(&context, args, cli.format, cli.dry_run, payload.as_ref()).await,
+        }) => scale_orders(inv, args).await,
         Some(Commands::Orders {
             subcommand: OrderCommands::BatchCreate(args),
-        }) => batch_create_orders(&context, args, cli.format, cli.dry_run, payload.as_ref()).await,
+        }) => batch_create_orders(inv, args).await,
         Some(Commands::Orders {
             subcommand: OrderCommands::Tpsl(args),
-        }) => create_tpsl(&context, args, cli.format, cli.dry_run, payload.as_ref()).await,
+        }) => create_tpsl(inv, args).await,
         Some(Commands::Orders {
             subcommand: OrderCommands::TrailingStop(args),
-        }) => trailing_stop_order(&context, args, cli.format, cli.dry_run, payload.as_ref()).await,
+        }) => trailing_stop_order(inv, args).await,
         Some(Commands::Orders {
             subcommand: OrderCommands::Cancel(args),
-        }) => cancel_order(&context, args, cli.format, cli.dry_run, payload.as_ref()).await,
+        }) => cancel_order(inv, args).await,
         Some(Commands::Orders {
             subcommand: OrderCommands::CancelAll(args),
-        }) => cancel_all_orders(&context, args, cli.format, cli.dry_run, payload.as_ref()).await,
+        }) => cancel_all_orders(inv, args).await,
         Some(Commands::Orders {
             subcommand: OrderCommands::Modify(args),
-        }) => modify_order(&context, args, cli.format, cli.dry_run, payload.as_ref()).await,
+        }) => modify_order(inv, args).await,
         Some(Commands::Orders {
             subcommand: OrderCommands::Open { watch },
         }) => {
             if watch.watch {
-                watch_open_orders(&context, cli.format, watch.max_ticks).await
+                watch_open_orders(inv, watch.max_ticks).await
             } else {
-                open_orders(&context, cli.format).await
+                open_orders(inv).await
             }
         }
         Some(Commands::Orders {
             subcommand: OrderCommands::History,
-        }) => order_history(&context, cli.format).await,
+        }) => order_history(inv).await,
         Some(Commands::Orders {
             subcommand: OrderCommands::Status(args),
-        }) => order_status(&context, args, cli.format).await,
+        }) => {
+            let user = inv.resolve_protocol_user(&args.user)?;
+            hyperliquid_cli::commands::orders::status(inv, user, args).await
+        }
         Some(Commands::Orders {
             subcommand: OrderCommands::TwapCreate(args),
-        }) => create_twap(&context, args, cli.format, cli.dry_run, payload.as_ref()).await,
+        }) => create_twap(inv, args).await,
         Some(Commands::Orders {
             subcommand: OrderCommands::TwapCancel(args),
-        }) => cancel_twap(&context, args, cli.format, cli.dry_run, payload.as_ref()).await,
+        }) => cancel_twap(inv, args).await,
         Some(Commands::Orders {
             subcommand: OrderCommands::ScheduleCancel(args),
-        }) => schedule_cancel(&context, args, cli.format, cli.dry_run, payload.as_ref()).await,
+        }) => schedule_cancel(inv, args).await,
         Some(Commands::Orders {
             subcommand: OrderCommands::Chase(args),
-        }) => chase_order(&context, args, cli.format, cli.dry_run, payload.as_ref()).await,
+        }) => chase_order(inv, args).await,
         Some(Commands::Orders {
             subcommand: OrderCommands::Bracket(args),
-        }) => bracket_order(&context, args, cli.format, cli.dry_run, payload.as_ref()).await,
+        }) => bracket_order(inv, args).await,
         Some(Commands::Watch {
             subcommand: WatchCommands::Risk(args),
-        }) => watch_risk_command(&context, args, cli.format).await,
+        }) => watch_risk_command(inv, args).await,
         Some(Commands::Positions {
             subcommand: PositionCommands::List { watch },
         }) => {
             if watch.watch {
-                watch_positions(&context, cli.format, watch.max_ticks).await
+                watch_positions(inv, watch.max_ticks).await
             } else {
-                list_positions(&context, cli.format).await
+                let user = inv.resolve_signer()?.query_address();
+                positions::list(inv, user).await
             }
         }
         Some(Commands::Positions {
             subcommand: PositionCommands::UpdateLeverage(args),
-        }) => {
-            update_position_leverage(&context, args, cli.format, cli.dry_run, payload.as_ref())
-                .await
-        }
+        }) => update_position_leverage(inv, args).await,
         Some(Commands::Positions {
             subcommand: PositionCommands::UpdateMargin(args),
-        }) => {
-            update_position_margin(&context, args, cli.format, cli.dry_run, payload.as_ref()).await
-        }
+        }) => update_position_margin(inv, args).await,
         Some(Commands::Transfer {
             subcommand: TransferCommands::SpotToPerp(args),
-        }) => {
-            transfer_spot_to_perp(&context, args, cli.format, cli.dry_run, payload.as_ref()).await
-        }
+        }) => transfer_spot_to_perp(inv, args).await,
         Some(Commands::Transfer {
             subcommand: TransferCommands::PerpToSpot(args),
-        }) => {
-            transfer_perp_to_spot(&context, args, cli.format, cli.dry_run, payload.as_ref()).await
-        }
+        }) => transfer_perp_to_spot(inv, args).await,
         Some(Commands::Transfer {
             subcommand: TransferCommands::Send(args),
-        }) => transfer_send(&context, args, cli.format, cli.dry_run, payload.as_ref()).await,
+        }) => transfer_send(inv, args).await,
         Some(Commands::Transfer {
             subcommand: TransferCommands::SpotSend(args),
-        }) => transfer_spot_send(&context, args, cli.format, cli.dry_run, payload.as_ref()).await,
+        }) => transfer_spot_send(inv, args).await,
         Some(Commands::Transfer {
             subcommand: TransferCommands::SendAsset(args),
-        }) => transfer_send_asset(&context, args, cli.format, cli.dry_run, payload.as_ref()).await,
+        }) => transfer_send_asset(inv, args).await,
         Some(Commands::Transfer {
             subcommand: TransferCommands::Withdraw(args),
-        }) => transfer_withdraw(&context, args, cli.format, cli.dry_run, payload.as_ref()).await,
-        Some(Commands::Setup(args)) => {
-            hyperliquid_cli::commands::setup::run(context.network, args, cli.format).await
-        }
+        }) => transfer_withdraw(inv, args).await,
+        Some(Commands::Setup(args)) => setup::run(inv, args).await,
         Some(Commands::Staking {
             subcommand: StakingCommands::Summary { address },
-        }) => staking_summary(&context, address.as_deref(), cli.format).await,
+        }) => {
+            let address = resolve_user_string(inv, address.as_deref())?;
+            staking::summary(inv, &address).await
+        }
         Some(Commands::Staking {
             subcommand: StakingCommands::Validators,
-        }) => staking_validators(&context, cli.format).await,
+        }) => staking::validators(inv).await,
         Some(Commands::Staking {
             subcommand: StakingCommands::Rewards { address },
-        }) => staking_rewards(&context, address.as_deref(), cli.format).await,
+        }) => {
+            let address = resolve_user_string(inv, address.as_deref())?;
+            staking::rewards(inv, &address).await
+        }
         Some(Commands::Staking {
             subcommand: StakingCommands::History { address },
-        }) => staking_history(&context, address.as_deref(), cli.format).await,
+        }) => {
+            let address = resolve_user_string(inv, address.as_deref())?;
+            staking::history(inv, &address).await
+        }
         Some(Commands::Staking {
             subcommand: StakingCommands::Delegate(args),
-        }) => staking_delegate(&context, args, cli.format, cli.dry_run, payload.as_ref()).await,
+        }) => staking_delegate(inv, args).await,
         Some(Commands::Staking {
             subcommand: StakingCommands::Undelegate(args),
-        }) => staking_undelegate(&context, args, cli.format, cli.dry_run, payload.as_ref()).await,
+        }) => staking_undelegate(inv, args).await,
         Some(Commands::Staking {
             subcommand: StakingCommands::Deposit(args),
-        }) => staking_deposit(&context, args, cli.format, cli.dry_run, payload.as_ref()).await,
+        }) => staking_deposit(inv, args).await,
         Some(Commands::Staking {
             subcommand: StakingCommands::Withdraw(args),
-        }) => staking_withdraw(&context, args, cli.format, cli.dry_run, payload.as_ref()).await,
+        }) => staking_withdraw(inv, args).await,
         Some(Commands::Staking {
             subcommand: StakingCommands::ClaimRewards,
-        }) => staking_claim_rewards(&context, cli.format, cli.dry_run, payload.as_ref()).await,
+        }) => staking_claim_rewards(inv).await,
         Some(Commands::Staking {
             subcommand:
                 StakingCommands::Link {
                     subcommand: StakingLinkCommands::Initiate(args),
                 },
-        }) => {
-            staking_link(
-                &context,
-                args,
-                false,
-                cli.format,
-                cli.dry_run,
-                payload.as_ref(),
-            )
-            .await
-        }
+        }) => staking_link(inv, args, false).await,
         Some(Commands::Staking {
             subcommand:
                 StakingCommands::Link {
                     subcommand: StakingLinkCommands::Finalize(args),
                 },
-        }) => {
-            staking_link(
-                &context,
-                args,
-                true,
-                cli.format,
-                cli.dry_run,
-                payload.as_ref(),
-            )
-            .await
-        }
+        }) => staking_link(inv, args, true).await,
         Some(Commands::Vaults {
             subcommand: VaultCommands::List(args),
-        }) => vault_list(&context, args, cli.format).await,
+        }) => vaults::list(inv, args).await,
         Some(Commands::Vaults {
             subcommand: VaultCommands::Search(args),
-        }) => vault_search(&context, args, cli.format).await,
+        }) => vaults::search(inv, args).await,
         Some(Commands::Vaults {
             subcommand: VaultCommands::Get { address },
-        }) => vault_get(&context, address, cli.format).await,
+        }) => vaults::get(inv, address).await,
         Some(Commands::Vaults {
             subcommand: VaultCommands::Positions { address },
-        }) => vault_positions(&context, address, cli.format).await,
+        }) => vaults::positions(inv, address).await,
         Some(Commands::Vaults {
             subcommand: VaultCommands::Deposit(args),
-        }) => vault_deposit(&context, args, cli.format, cli.dry_run, payload.as_ref()).await,
+        }) => vault_deposit(inv, args).await,
         Some(Commands::Vaults {
             subcommand: VaultCommands::Withdraw(args),
-        }) => vault_withdraw(&context, args, cli.format, cli.dry_run, payload.as_ref()).await,
+        }) => vault_withdraw(inv, args).await,
         Some(Commands::Borrowlend {
             subcommand: BorrowLendCommands::Rates,
-        }) => borrowlend_rates(&context, cli.format).await,
+        }) => borrowlend::rates(inv).await,
         Some(Commands::Borrowlend {
             subcommand: BorrowLendCommands::Get { token },
-        }) => borrowlend_get(&context, token, cli.format).await,
+        }) => borrowlend::get(inv, token).await,
         Some(Commands::Borrowlend {
             subcommand: BorrowLendCommands::User { address },
-        }) => borrowlend_user(&context, address.as_deref(), cli.format).await,
+        }) => {
+            let address = resolve_user_string(inv, address.as_deref())?;
+            borrowlend::user(inv, &address).await
+        }
         Some(Commands::Borrowlend {
             subcommand: BorrowLendCommands::Supply(args),
-        }) => {
-            borrowlend_action(
-                &context,
-                hyperliquid_cli::commands::borrowlend::BorrowLendOperation::Supply,
-                args,
-                cli.format,
-                cli.dry_run,
-                payload.as_ref(),
-            )
-            .await
-        }
+        }) => borrowlend_action(inv, borrowlend::BorrowLendOperation::Supply, args).await,
         Some(Commands::Borrowlend {
             subcommand: BorrowLendCommands::Withdraw(args),
-        }) => {
-            borrowlend_action(
-                &context,
-                hyperliquid_cli::commands::borrowlend::BorrowLendOperation::Withdraw,
-                args,
-                cli.format,
-                cli.dry_run,
-                payload.as_ref(),
-            )
-            .await
-        }
+        }) => borrowlend_action(inv, borrowlend::BorrowLendOperation::Withdraw, args).await,
         Some(Commands::Prio {
             subcommand: PrioCommands::Status,
-        }) => prio_status(&context, cli.format).await,
+        }) => prio::status(inv).await,
         Some(Commands::Prio {
             subcommand: PrioCommands::Bid(args),
-        }) => prio_bid(&context, args, cli.format, cli.dry_run, payload.as_ref()).await,
+        }) => prio_bid(inv, args).await,
         Some(Commands::Referral {
             subcommand: ReferralCommands::Set { code },
-        }) => {
-            set_referral(
-                &context,
-                code.as_deref(),
-                cli.format,
-                cli.dry_run,
-                payload.as_ref(),
-            )
-            .await
-        }
+        }) => set_referral(inv, code.as_deref()).await,
         Some(Commands::Referral {
             subcommand: ReferralCommands::Register { code },
-        }) => register_referrer(&context, code, cli.format, cli.dry_run, payload.as_ref()).await,
+        }) => register_referrer(inv, code).await,
         Some(Commands::Referral {
             subcommand: ReferralCommands::Status,
-        }) => referral_status(&context, cli.format).await,
-        Some(Commands::Subscribe { subcommand }) => {
-            subscribe(&context, subcommand, cli.format).await
+        }) => {
+            let user = inv.resolve_signer()?.query_address();
+            referral::status(inv, user).await
         }
+        Some(Commands::Subscribe { subcommand }) => subscribe(inv, subcommand).await,
         _ => {
             // Placeholder for all other unimplemented commands
             Err(unimplemented_command_error())
@@ -552,115 +483,106 @@ async fn run_command(
     }
 }
 
-async fn run_local_command_without_context(cli: &Cli) -> Option<Result<(), anyhow::Error>> {
+async fn run_local_command_without_context(
+    cli: &Cli,
+    inv: &Invocation,
+) -> Option<Result<(), anyhow::Error>> {
     match &cli.command {
-        Some(Commands::Schema { command_path }) => Some(hyperliquid_cli::commands::schema::show(
-            command_path,
-            cli.format,
-        )),
-        Some(Commands::Feedback(_)) if cli.dry_run => Some(Err(errors::CliError::Unsupported(
+        Some(Commands::Schema { command_path }) => Some(schema::show(inv, command_path)),
+        Some(Commands::Feedback(_)) if inv.dry_run() => Some(Err(errors::CliError::Unsupported(
             "--dry-run is not supported for feedback".to_string(),
         )
         .into())),
         Some(Commands::Feedback(args)) => {
-            Some(hyperliquid_cli::commands::feedback::submit(args, cli.format).await)
+            Some(hyperliquid_cli::commands::feedback::submit(inv, args).await)
         }
         Some(Commands::Wallet {
             subcommand: WalletCommands::Create,
-        }) if cli.dry_run => Some(print_dry_run(
+        }) if inv.dry_run() => Some(print_dry_run(
+            inv,
             "wallet create",
             serde_json::json!({"would_execute": "create_and_store_encrypted_wallet"}),
-            cli.format,
         )),
         Some(Commands::Wallet {
             subcommand: WalletCommands::Create,
-        }) => Some(hyperliquid_cli::commands::wallet::create(cli.format)),
+        }) => Some(wallet::create(inv)),
         Some(Commands::Wallet {
             subcommand: WalletCommands::Import { private_key },
-        }) if cli.dry_run => Some(print_dry_run(
+        }) if inv.dry_run() => Some(print_dry_run(
+            inv,
             "wallet import",
             serde_json::json!({
                 "would_execute": "validate_and_store_encrypted_wallet",
                 "args": {"private_key_supplied": private_key.is_some()}
             }),
-            cli.format,
         )),
         Some(Commands::Wallet {
             subcommand: WalletCommands::Import { private_key },
-        }) => Some(hyperliquid_cli::commands::wallet::import(
-            private_key.as_deref(),
-            cli.format,
-        )),
+        }) => Some(wallet::import(inv, private_key.as_deref())),
         Some(Commands::Wallet {
             subcommand: WalletCommands::Reset { yes },
-        }) if cli.dry_run => Some(print_dry_run(
+        }) if inv.dry_run() => Some(print_dry_run(
+            inv,
             "wallet reset",
             serde_json::json!({
                 "would_execute": "remove_wallet_configuration",
                 "args": {"yes": yes}
             }),
-            cli.format,
         )),
         Some(Commands::Wallet {
             subcommand: WalletCommands::Reset { yes },
-        }) => Some(hyperliquid_cli::commands::wallet::reset(*yes, cli.format)),
+        }) => Some(wallet::reset(inv, *yes)),
         Some(Commands::Wallet {
             subcommand: WalletCommands::ImportMnemonic { mnemonic, alias },
-        }) if cli.dry_run => Some(print_dry_run(
+        }) if inv.dry_run() => Some(print_dry_run(
+            inv,
             "wallet import-mnemonic",
             serde_json::json!({
                 "would_execute": "import_mnemonic_to_ows_vault",
                 "args": {"mnemonic_supplied": mnemonic.is_some(), "alias": alias}
             }),
-            cli.format,
         )),
         Some(Commands::Wallet {
             subcommand: WalletCommands::ImportMnemonic { mnemonic, alias },
-        }) => Some(hyperliquid_cli::commands::wallet::import_mnemonic(
+        }) => Some(wallet::import_mnemonic(
+            inv,
             mnemonic.as_deref(),
             alias.as_deref(),
-            cli.format,
         )),
         Some(Commands::Wallet {
             subcommand: WalletCommands::List,
-        }) => Some(hyperliquid_cli::commands::wallet::list(cli.format)),
+        }) => Some(wallet::list(inv)),
         Some(Commands::Wallet {
             subcommand: WalletCommands::Rename { .. },
-        }) if cli.dry_run => Some(Err(errors::CliError::Unsupported(
+        }) if inv.dry_run() => Some(Err(errors::CliError::Unsupported(
             "--dry-run is not supported for wallet rename".to_string(),
         )
         .into())),
         Some(Commands::Wallet {
             subcommand: WalletCommands::Rename { selector, new_name },
-        }) => Some(hyperliquid_cli::commands::wallet::rename(
-            selector, new_name, cli.format,
-        )),
+        }) => Some(wallet::rename(inv, selector, new_name)),
         Some(Commands::Wallet {
             subcommand: WalletCommands::Delete { selector, yes },
-        }) if cli.dry_run => Some(print_dry_run(
+        }) if inv.dry_run() => Some(print_dry_run(
+            inv,
             "wallet delete",
             serde_json::json!({
                 "would_execute": "delete_ows_wallet",
                 "args": {"selector": selector, "yes": yes}
             }),
-            cli.format,
         )),
         Some(Commands::Wallet {
             subcommand: WalletCommands::Delete { selector, yes },
-        }) => Some(hyperliquid_cli::commands::wallet::delete(
-            selector, *yes, cli.format,
-        )),
+        }) => Some(wallet::delete(inv, selector, *yes)),
         Some(Commands::Wallet {
             subcommand: WalletCommands::Export { .. },
-        }) if cli.dry_run => Some(Err(errors::CliError::Unsupported(
+        }) if inv.dry_run() => Some(Err(errors::CliError::Unsupported(
             "--dry-run is not supported for wallet export".to_string(),
         )
         .into())),
         Some(Commands::Wallet {
             subcommand: WalletCommands::Export { selector, yes },
-        }) => Some(hyperliquid_cli::commands::wallet::export(
-            selector, *yes, cli.format,
-        )),
+        }) => Some(wallet::export(inv, selector, *yes)),
         Some(Commands::Account {
             subcommand:
                 AccountCommands::Add {
@@ -669,7 +591,8 @@ async fn run_local_command_without_context(cli: &Cli) -> Option<Result<(), anyho
                     account_type,
                     default,
                 },
-        }) if cli.dry_run => Some(print_dry_run(
+        }) if inv.dry_run() => Some(print_dry_run(
+            inv,
             "account add",
             serde_json::json!({
                 "would_execute": "store_encrypted_signing_account",
@@ -680,7 +603,6 @@ async fn run_local_command_without_context(cli: &Cli) -> Option<Result<(), anyho
                     "default": default
                 }
             }),
-            cli.format,
         )),
         Some(Commands::Account {
             subcommand:
@@ -690,49 +612,42 @@ async fn run_local_command_without_context(cli: &Cli) -> Option<Result<(), anyho
                     account_type,
                     default,
                 },
-        }) => Some(hyperliquid_cli::commands::wallet::account_add(
+        }) => Some(wallet::account_add(
+            inv,
             private_key.as_deref(),
             alias.as_deref(),
             account_type.as_deref(),
             *default,
-            cli.format,
         )),
         Some(Commands::Account {
             subcommand: AccountCommands::Ls,
-        }) => Some(hyperliquid_cli::commands::wallet::account_ls(cli.format)),
+        }) => Some(wallet::account_ls(inv)),
         Some(Commands::Account {
             subcommand: AccountCommands::SetDefault { selector },
-        }) if cli.dry_run => Some(print_dry_run(
+        }) if inv.dry_run() => Some(print_dry_run(
+            inv,
             "account set-default",
             serde_json::json!({
                 "would_execute": "set_default_account",
                 "args": {"selector": selector}
             }),
-            cli.format,
         )),
         Some(Commands::Account {
             subcommand: AccountCommands::SetDefault { selector },
-        }) => Some(hyperliquid_cli::commands::wallet::account_set_default(
-            selector.as_deref(),
-            cli.format,
-        )),
+        }) => Some(wallet::account_set_default(inv, selector.as_deref())),
         Some(Commands::Account {
             subcommand: AccountCommands::Remove { selector, yes },
-        }) if cli.dry_run => Some(print_dry_run(
+        }) if inv.dry_run() => Some(print_dry_run(
+            inv,
             "account remove",
             serde_json::json!({
                 "would_execute": "remove_stored_account",
                 "args": {"selector": selector, "yes": yes}
             }),
-            cli.format,
         )),
         Some(Commands::Account {
             subcommand: AccountCommands::Remove { selector, yes },
-        }) => Some(hyperliquid_cli::commands::wallet::account_remove(
-            selector.as_deref(),
-            *yes,
-            cli.format,
-        )),
+        }) => Some(wallet::account_remove(inv, selector.as_deref(), *yes)),
         _ => None,
     }
 }
@@ -779,20 +694,21 @@ fn validate_raw_payload_supported(
 
 fn validate_prompt_policy(
     cli: &Cli,
+    inv: &Invocation,
     command: Option<&CommandContract>,
     confirmation: Confirmation,
 ) -> Result<(), errors::CliError> {
     let Some(command) = command else {
         return Ok(());
     };
-    if machine_context(cli) && argv_secret_supplied(&cli.command) {
+    if machine_context(inv) && argv_secret_supplied(&cli.command) {
         return Err(errors::CliError::Unsupported(
             "argv secret input is not supported in machine-readable contexts; use an interactive prompt or a future safe stdin/file secret input"
                 .to_string(),
         ));
     }
-    if cli.dry_run
-        || hyperliquid_cli::mode::can_prompt()
+    if inv.dry_run()
+        || inv.mode().can_prompt()
         || command.confirmation != ConfirmationPolicy::Prompt
         || !prompt_required_for_invocation(cli, command)
         || confirmation.given
@@ -1301,8 +1217,8 @@ fn validate_cli_inputs(cli: &Cli) -> Result<(), errors::CliError> {
     Ok(())
 }
 
-fn validate_stream_bounds(cli: &Cli) -> Result<(), errors::CliError> {
-    if !machine_context(cli) {
+fn validate_stream_bounds(cli: &Cli, inv: &Invocation) -> Result<(), errors::CliError> {
+    if !machine_context(inv) {
         return Ok(());
     }
     if let Some(watch) = snapshot_watch_args(&cli.command).filter(|watch| watch.watch) {
@@ -1314,8 +1230,8 @@ fn validate_stream_bounds(cli: &Cli) -> Result<(), errors::CliError> {
     Ok(())
 }
 
-fn machine_context(cli: &Cli) -> bool {
-    cli.format == output::OutputFormat::Json || output::terminal::agent_env()
+fn machine_context(inv: &Invocation) -> bool {
+    inv.format() == output::OutputFormat::Json || inv.session().env().agent
 }
 
 fn snapshot_watch_args(command: &Option<Commands>) -> Option<&SnapshotWatchArgs> {
@@ -1388,25 +1304,22 @@ fn validate_api_wallet_args(
 }
 
 fn print_dry_run(
+    inv: &Invocation,
     command: impl Into<String>,
     details: serde_json::Value,
-    format: output::OutputFormat,
 ) -> Result<(), anyhow::Error> {
-    print_dry_run_envelope(DryRunEnvelope::from_details(command, details), format)
+    print_dry_run_envelope(inv, DryRunEnvelope::from_details(command, details))
 }
 
-fn print_dry_run_envelope(
-    envelope: DryRunEnvelope,
-    format: output::OutputFormat,
-) -> Result<(), anyhow::Error> {
-    output::print_data_no_timing(&envelope, format);
+fn print_dry_run_envelope(inv: &Invocation, envelope: DryRunEnvelope) -> Result<(), anyhow::Error> {
+    inv.print_dry_run(envelope);
     Ok(())
 }
 
 fn dry_run_details(
+    inv: &Invocation,
     would_execute: &str,
     args: serde_json::Value,
-    payload: Option<&serde_json::Value>,
 ) -> serde_json::Value {
     let mut details = serde_json::Map::new();
     details.insert(
@@ -1414,21 +1327,21 @@ fn dry_run_details(
         serde_json::json!(would_execute),
     );
     details.insert("args".to_string(), args);
-    if let Some(payload) = payload {
+    if let Some(payload) = inv.payload() {
         details.insert("payload".to_string(), redact_payload(payload.clone()));
     }
     serde_json::Value::Object(details)
 }
 
 fn dry_run_signed_details(
+    inv: &Invocation,
     would_execute: &str,
     args: serde_json::Value,
-    payload: Option<&serde_json::Value>,
     signer: Option<String>,
     acting_as: Option<String>,
     vault_address: Option<String>,
 ) -> serde_json::Value {
-    let mut details = match dry_run_details(would_execute, args, payload) {
+    let mut details = match dry_run_details(inv, would_execute, args) {
         serde_json::Value::Object(details) => details,
         _ => serde_json::Map::new(),
     };
@@ -1442,11 +1355,11 @@ fn dry_run_signed_details(
 }
 
 fn transfer_dry_run_envelope(
+    inv: &Invocation,
     command: &str,
     action: hyperliquid_cli::commands::transfers::TransferActionKind,
     would_execute: &str,
     args: serde_json::Value,
-    payload: Option<&serde_json::Value>,
 ) -> DryRunEnvelope {
     let plan = ActionPlan::signed_exchange_action(
         would_execute,
@@ -1454,15 +1367,15 @@ fn transfer_dry_run_envelope(
         LiveSubmissionPolicy::ValidateConfirmSignSubmit,
     );
     DryRunEnvelope::from_action_plan(command, &plan, args)
-        .with_payload(payload.map(|payload| redact_payload(payload.clone())))
+        .with_payload(inv.payload().map(|payload| redact_payload(payload.clone())))
 }
 
 fn signed_action_dry_run_envelope(
+    inv: &Invocation,
     command: &str,
     would_execute: &str,
     reversibility: ActionReversibility,
     args: serde_json::Value,
-    payload: Option<&serde_json::Value>,
     signing_context: DryRunSigningContext,
 ) -> DryRunEnvelope {
     let plan = ActionPlan::signed_exchange_action(
@@ -1471,17 +1384,16 @@ fn signed_action_dry_run_envelope(
         LiveSubmissionPolicy::ValidateConfirmSignSubmit,
     );
     DryRunEnvelope::from_action_plan(command, &plan, args)
-        .with_payload(payload.map(|payload| redact_payload(payload.clone())))
+        .with_payload(inv.payload().map(|payload| redact_payload(payload.clone())))
         .with_signing_context(signing_context)
 }
 
-fn dry_run_signer_address(context: &AppContext) -> Option<String> {
-    dry_run_signing_addresses(context).0
+fn dry_run_signer_address(inv: &Invocation) -> Option<String> {
+    dry_run_signing_addresses(inv).0
 }
 
-fn dry_run_signing_addresses(context: &AppContext) -> (Option<String>, Option<String>) {
-    context
-        .resolve_signer()
+fn dry_run_signing_addresses(inv: &Invocation) -> (Option<String>, Option<String>) {
+    inv.resolve_signer()
         .ok()
         .map(|resolved| {
             (
@@ -1493,16 +1405,16 @@ fn dry_run_signing_addresses(context: &AppContext) -> (Option<String>, Option<St
 }
 
 fn dry_run_vault_signing_addresses(
-    context: &AppContext,
+    inv: &Invocation,
     vault_address: Option<String>,
 ) -> (Option<String>, Option<String>, Option<String>) {
-    let (signer, query_address) = dry_run_signing_addresses(context);
+    let (signer, query_address) = dry_run_signing_addresses(inv);
     let acting_as = vault_address.clone().or(query_address);
     (signer, acting_as, vault_address)
 }
 
-fn default_dry_run_signing_context(context: &AppContext) -> DryRunSigningContext {
-    let (signer, acting_as) = dry_run_signing_addresses(context);
+fn default_dry_run_signing_context(inv: &Invocation) -> DryRunSigningContext {
+    let (signer, acting_as) = dry_run_signing_addresses(inv);
     DryRunSigningContext::new(signer, acting_as, None)
 }
 
@@ -1529,252 +1441,43 @@ fn parse_payload_json(raw: &str) -> Result<serde_json::Value, anyhow::Error> {
     hyperliquid_cli::input_hardening::parse_json_text(raw, "payload").map_err(Into::into)
 }
 
-/// Runtime settings resolved from CLI flags, environment variables, and config file.
-#[derive(Debug)]
-struct AppContext {
-    settings: hyperliquid_cli::settings::Settings,
-    selection: hyperliquid_cli::auth::SignerSelection,
-    network: Network,
-    api_base_url_override: Option<reqwest::Url>,
-    signer: std::sync::OnceLock<hyperliquid_cli::auth::ResolvedSigner>,
-}
-
-impl AppContext {
-    fn resolve(cli: &Cli) -> Result<Self, anyhow::Error> {
-        let settings = hyperliquid_cli::settings::Settings::from_process();
-        let network = settings.network(cli.testnet)?;
-        let selection = hyperliquid_cli::auth::SignerSelection::from_flags(
-            &settings,
-            cli.private_key.as_deref(),
-            cli.keystore.clone(),
-            cli.keystore_password.clone(),
-            cli.account.clone(),
-            cli.ows_signer.clone(),
-        )?;
-        let api_base_url_override = settings.api_base_url_override(network)?;
-        Ok(Self {
-            settings,
-            selection,
-            network,
-            api_base_url_override,
-            signer: std::sync::OnceLock::new(),
-        })
-    }
-
-    fn api_base_url(&self) -> String {
-        self.api_base_url_override
-            .as_ref()
-            .map(std::string::ToString::to_string)
-            .unwrap_or_else(|| self.network.api_base_url().to_string())
-    }
-
-    fn chain(&self) -> Chain {
-        self.network.chain()
-    }
-
-    fn http_client(&self) -> HttpClient {
-        self.network.http_client(self.api_base_url_override.clone())
-    }
-
-    /// The selected signer, resolved once per run. A failed resolution is not cached.
-    fn resolve_signer(&self) -> Result<hyperliquid_cli::auth::ResolvedSigner, anyhow::Error> {
-        if let Some(signer) = self.signer.get() {
-            return Ok(signer.clone());
-        }
-        let signer = hyperliquid_cli::auth::resolve_signer(&self.selection, &self.settings)?;
-        Ok(self.signer.get_or_init(|| signer).clone())
-    }
-
-    fn has_api_base_url_override(&self) -> bool {
-        self.api_base_url_override.is_some()
-    }
-
-    async fn validate_api_override(&self) -> Result<(), errors::CliError> {
-        let Some(api_base_url) = self.api_base_url_override.as_ref() else {
-            return Ok(());
-        };
-
-        let mut url = api_base_url.clone();
-        url.set_path("/info");
-        url.set_query(None);
-
-        let response = reqwest::Client::builder()
-            .timeout(Duration::from_secs(5))
-            .build()
-            .map_err(|err| errors::CliError::Internal(anyhow::anyhow!(err)))?
-            .post(url)
-            .json(&serde_json::json!({ "type": "allMids" }))
-            .send()
-            .await
-            .map_err(|err| errors::network_error(&err, Some(Duration::from_secs(5))))?;
-
-        let status = response.status();
-        let body = response
-            .text()
-            .await
-            .map_err(|err| errors::network_error(&err, Some(Duration::from_secs(5))))?;
-
-        if errors::http_response_indicates_rate_limit(status.as_u16(), &body) {
-            return Err(errors::CliError::rate_limited());
-        }
-
-        if !status.is_success() {
-            return Err(errors::CliError::api_status(status, &body));
-        }
-
-        Ok(())
-    }
-}
-
 fn order_submission_context<'a>(
-    context: &AppContext,
-    api_base_url: &'a str,
+    inv: &'a Invocation,
     signer: &'a hyperliquid_cli::signing::SelectedSigner,
-) -> hyperliquid_cli::commands::orders::OrderSubmissionContext<'a> {
-    hyperliquid_cli::commands::orders::OrderSubmissionContext {
-        api_base_url,
-        chain: context.chain(),
+) -> Result<hyperliquid_cli::commands::orders::OrderSubmissionContext<'a>, errors::CliError> {
+    let remote = inv.remote()?;
+    Ok(hyperliquid_cli::commands::orders::OrderSubmissionContext {
+        inv,
+        api_base_url: remote.api_base_url(),
+        chain: remote.chain(),
         signer,
-        require_mainnet_confirmation: context.network == Network::Mainnet,
-    }
+        require_mainnet_confirmation: remote.network() == Network::Mainnet,
+    })
 }
 
 fn order_execution_context<'a>(
-    context: &AppContext,
-    api_base_url: &'a str,
-    client: &'a HttpClient,
+    inv: &'a Invocation,
     resolver: &'a AssetResolver,
     signer: &'a hyperliquid_cli::signing::SelectedSigner,
-) -> hyperliquid_cli::commands::orders::OrderExecutionContext<'a> {
-    hyperliquid_cli::commands::orders::OrderExecutionContext {
-        submission: order_submission_context(context, api_base_url, signer),
-        client,
+) -> Result<hyperliquid_cli::commands::orders::OrderExecutionContext<'a>, errors::CliError> {
+    Ok(hyperliquid_cli::commands::orders::OrderExecutionContext {
+        submission: order_submission_context(inv, signer)?,
+        client: inv.remote()?.client(),
         resolver,
-    }
-}
-
-async fn resolve_and_print_perp(
-    context: &AppContext,
-    args: &hyperliquid_cli::commands::perps::PerpsGetArgs,
-    format: output::OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let client = context.http_client();
-    let resolver = load_asset_resolver(context).await?;
-    hyperliquid_cli::commands::perps::get(
-        &client,
-        &resolver,
-        &args.coin,
-        args.dex.as_deref(),
-        format,
-    )
-    .await
-}
-
-async fn resolve_and_print_spot(
-    context: &AppContext,
-    pair: &str,
-    format: output::OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let client = context.http_client();
-    let resolver = load_asset_resolver(context).await?;
-    hyperliquid_cli::commands::spot::get(&client, &resolver, pair, format).await
-}
-
-async fn resolve_and_print_book(
-    context: &AppContext,
-    cli: &Cli,
-    coin: &str,
-    payload_present: bool,
-) -> Result<(), anyhow::Error> {
-    let resolver = load_asset_resolver(context).await?;
-    let command_context = cli_command_context(context, cli, None, payload_present);
-    hyperliquid_cli::commands::orderbook::book_with_context(
-        &command_context,
-        context.chain(),
-        &resolver,
-        coin,
-    )
-    .await
-}
-
-async fn resolve_and_print_candles(
-    context: &AppContext,
-    cli: &Cli,
-    coin: &str,
-    interval: hypersdk::hypercore::CandleInterval,
-    limit: usize,
-    payload_present: bool,
-) -> Result<(), anyhow::Error> {
-    let client = context.http_client();
-    let resolver = load_asset_resolver(context).await?;
-    let command_context = cli_command_context(context, cli, Some(&client), payload_present);
-    hyperliquid_cli::commands::orderbook::candles_with_context(
-        &command_context,
-        &resolver,
-        coin,
-        interval,
-        limit,
-    )
-    .await
-}
-
-async fn resolve_and_print_spread(
-    context: &AppContext,
-    cli: &Cli,
-    coin: &str,
-    payload_present: bool,
-) -> Result<(), anyhow::Error> {
-    let resolver = load_asset_resolver(context).await?;
-    let command_context = cli_command_context(context, cli, None, payload_present);
-    hyperliquid_cli::commands::orderbook::spread_with_context(
-        &command_context,
-        context.chain(),
-        &resolver,
-        coin,
-    )
-    .await
-}
-
-async fn resolve_and_print_funding(
-    context: &AppContext,
-    cli: &Cli,
-    coin: &str,
-    payload_present: bool,
-) -> Result<(), anyhow::Error> {
-    let client = context.http_client();
-    let resolver = load_asset_resolver(context).await?;
-    let command_context = cli_command_context(context, cli, Some(&client), payload_present);
-    hyperliquid_cli::commands::orderbook::funding_with_context(
-        &command_context,
-        context.chain(),
-        &resolver,
-        coin,
-    )
-    .await
-}
-
-async fn print_mids(
-    context: &AppContext,
-    cli: &Cli,
-    payload_present: bool,
-) -> Result<(), anyhow::Error> {
-    let client = context.http_client();
-    let command_context = cli_command_context(context, cli, Some(&client), payload_present);
-    hyperliquid_cli::commands::orderbook::mids_with_context(&command_context, cli.select.as_deref())
-        .await
+    })
 }
 
 async fn watch_book(
-    context: &AppContext,
+    inv: &Invocation,
     coin: &str,
-    format: output::OutputFormat,
     max_ticks: Option<usize>,
 ) -> Result<(), anyhow::Error> {
-    let resolver = std::sync::Arc::new(load_asset_resolver(context).await?);
+    let resolver = std::sync::Arc::new(inv.asset_resolver().await?);
     let subscription_coin = resolve_subscription_coin(&resolver, coin)?;
-    let chain = context.chain();
+    let chain = inv.remote()?.chain();
 
     hyperliquid_cli::watch::run_snapshot_watch(
+        inv.session(),
         &format!("Live order book: {subscription_coin}"),
         chain,
         vec![Subscription::L2Book {
@@ -1783,7 +1486,6 @@ async fn watch_book(
             mantissa: None,
             fast: false,
         }],
-        format,
         max_ticks,
         move || {
             let resolver = std::sync::Arc::clone(&resolver);
@@ -1795,62 +1497,50 @@ async fn watch_book(
     .await
 }
 
-async fn watch_mids(
-    context: &AppContext,
-    format: output::OutputFormat,
-    select: Option<&str>,
-    max_ticks: Option<usize>,
-) -> Result<(), anyhow::Error> {
-    let client = std::sync::Arc::new(context.http_client());
-    let chain = context.chain();
-    let select = select.map(str::to_string);
+async fn watch_mids(inv: &Invocation, max_ticks: Option<usize>) -> Result<(), anyhow::Error> {
+    let remote = inv.remote()?;
+    let client = remote.client();
+    let selected = inv.session().json_options().selected_fields();
 
     hyperliquid_cli::watch::run_snapshot_watch(
+        inv.session(),
         "Live mid prices",
-        chain,
+        remote.chain(),
         vec![Subscription::AllMids { dex: None }],
-        format,
         max_ticks,
-        move || {
-            let client = std::sync::Arc::clone(&client);
-            let select = select.clone();
-            async move {
-                hyperliquid_cli::commands::orderbook::mids_snapshot(&client, select.as_deref())
-                    .await
-            }
+        move || async move {
+            hyperliquid_cli::commands::orderbook::mids_snapshot(client, selected).await
         },
     )
     .await
 }
 
 async fn watch_candles(
-    context: &AppContext,
+    inv: &Invocation,
     coin: &str,
     interval: hypersdk::hypercore::CandleInterval,
     limit: usize,
-    format: output::OutputFormat,
     max_ticks: Option<usize>,
 ) -> Result<(), anyhow::Error> {
-    let client = std::sync::Arc::new(context.http_client());
-    let resolver = std::sync::Arc::new(load_asset_resolver(context).await?);
+    let remote = inv.remote()?;
+    let client = remote.client();
+    let resolver = std::sync::Arc::new(inv.asset_resolver().await?);
     let subscription_coin = resolve_subscription_coin(&resolver, coin)?;
-    let chain = context.chain();
 
     hyperliquid_cli::watch::run_snapshot_watch(
+        inv.session(),
         &format!("Live candles: {subscription_coin} {interval}"),
-        chain,
+        remote.chain(),
         vec![Subscription::Candle {
             coin: subscription_coin,
             interval: interval.to_string(),
         }],
-        format,
         max_ticks,
         move || {
-            let client = std::sync::Arc::clone(&client);
             let resolver = std::sync::Arc::clone(&resolver);
             async move {
                 hyperliquid_cli::commands::orderbook::candles_snapshot(
-                    &client, &resolver, coin, interval, limit,
+                    client, &resolver, coin, interval, limit,
                 )
                 .await
             }
@@ -1860,68 +1550,57 @@ async fn watch_candles(
 }
 
 async fn watch_open_orders(
-    context: &AppContext,
-    format: output::OutputFormat,
+    inv: &Invocation,
     max_ticks: Option<usize>,
 ) -> Result<(), anyhow::Error> {
-    let client = std::sync::Arc::new(context.http_client());
-    let resolver = std::sync::Arc::new(load_asset_resolver(context).await?);
-    let resolved = context.resolve_signer()?;
+    let remote = inv.remote()?;
+    let client = remote.client();
+    let resolver = std::sync::Arc::new(inv.asset_resolver().await?);
+    let resolved = inv.resolve_signer()?;
     let user = resolved.query_address();
 
     hyperliquid_cli::watch::run_snapshot_watch(
+        inv.session(),
         "Live open orders",
-        context.chain(),
+        remote.chain(),
         vec![Subscription::OrderUpdates { user }],
-        format,
         max_ticks,
         move || {
-            let client = std::sync::Arc::clone(&client);
             let resolver = std::sync::Arc::clone(&resolver);
             async move {
-                hyperliquid_cli::commands::orders::open_snapshot(&client, &resolver, user).await
+                hyperliquid_cli::commands::orders::open_snapshot(client, &resolver, user).await
             }
         },
     )
     .await
 }
 
-async fn watch_positions(
-    context: &AppContext,
-    format: output::OutputFormat,
-    max_ticks: Option<usize>,
-) -> Result<(), anyhow::Error> {
-    let client = std::sync::Arc::new(context.http_client());
-    let resolved = context.resolve_signer()?;
+async fn watch_positions(inv: &Invocation, max_ticks: Option<usize>) -> Result<(), anyhow::Error> {
+    let remote = inv.remote()?;
+    let client = remote.client();
+    let resolved = inv.resolve_signer()?;
     let user = resolved.query_address();
 
     hyperliquid_cli::watch::run_snapshot_watch(
+        inv.session(),
         "Live positions",
-        context.chain(),
+        remote.chain(),
         vec![Subscription::WebData3 { user }],
-        format,
         max_ticks,
-        move || {
-            let client = std::sync::Arc::clone(&client);
-            async move { hyperliquid_cli::commands::positions::list_snapshot(&client, user).await }
-        },
+        move || async move { hyperliquid_cli::commands::positions::list_snapshot(client, user).await },
     )
     .await
 }
 
-async fn subscribe(
-    context: &AppContext,
-    command: &SubscribeCommands,
-    format: output::OutputFormat,
-) -> Result<(), anyhow::Error> {
+async fn subscribe(inv: &Invocation, command: &SubscribeCommands) -> Result<(), anyhow::Error> {
     let (target, stream) = match command {
         SubscribeCommands::Trades { asset, stream } => {
-            let resolver = load_asset_resolver(context).await?;
+            let resolver = inv.asset_resolver().await?;
             let coin = resolve_subscription_coin(&resolver, asset)?;
             (SubscribeTarget::trades(coin), stream)
         }
         SubscribeCommands::Orderbook { asset, stream } => {
-            let resolver = load_asset_resolver(context).await?;
+            let resolver = inv.asset_resolver().await?;
             let coin = resolve_subscription_coin(&resolver, asset)?;
             (SubscribeTarget::orderbook(coin), stream)
         }
@@ -1932,25 +1611,25 @@ async fn subscribe(
         } => {
             hyperliquid_cli::commands::orderbook::parse_candle_interval(interval)
                 .map_err(errors::CliError::Configuration)?;
-            let resolver = load_asset_resolver(context).await?;
+            let resolver = inv.asset_resolver().await?;
             let coin = resolve_subscription_coin(&resolver, asset)?;
             (SubscribeTarget::candles(coin, interval.clone()), stream)
         }
         SubscribeCommands::AllMids { stream } => (SubscribeTarget::all_mids(), stream),
         SubscribeCommands::OrderUpdates { stream } => {
-            let user = context.resolve_signer()?.query_address();
+            let user = inv.resolve_signer()?.query_address();
             (SubscribeTarget::order_updates(user), stream)
         }
         SubscribeCommands::Fills { stream } => {
-            let user = context.resolve_signer()?.query_address();
+            let user = inv.resolve_signer()?.query_address();
             (SubscribeTarget::fills(user), stream)
         }
     };
     hyperliquid_cli::stream::stream_subscription(
-        context.chain(),
+        inv.session(),
+        inv.remote()?.chain(),
         target,
         StreamBounds::subscribe(stream),
-        format != output::OutputFormat::Json,
     )
     .await
 }
@@ -1962,166 +1641,47 @@ fn resolve_subscription_coin(
     hyperliquid_cli::commands::orderbook::resolve_subscription_info_coin(resolver, asset)
 }
 
-fn resolve_protocol_user_string(selector: &str) -> Result<String, anyhow::Error> {
-    Ok(resolve_protocol_user_address(selector)?.to_string())
-}
-
-fn resolve_protocol_user_address(selector: &str) -> Result<Address, anyhow::Error> {
-    Ok(hyperliquid_cli::resolvers::resolve_protocol_user_address(
-        selector,
-        &hyperliquid_cli::settings::Settings::from_process(),
-    )?
-    .address())
-}
-
-fn resolve_protocol_user_string_or_selected(
-    context: &AppContext,
-    selector: Option<&str>,
-) -> Result<String, anyhow::Error> {
-    match selector {
-        Some(selector) => resolve_protocol_user_string(selector),
-        None => Ok(context.resolve_signer()?.query_address().to_string()),
-    }
-}
-
-fn resolve_acting_account_address(selector: &str) -> Result<Address, anyhow::Error> {
-    Ok(hyperliquid_cli::resolvers::resolve_acting_account_address(
-        selector,
-        &hyperliquid_cli::settings::Settings::from_process(),
-    )?
-    .address())
+/// The account a read command queries: the explicit selector, else the signer's.
+fn resolve_user_string(inv: &Invocation, selector: Option<&str>) -> Result<String, anyhow::Error> {
+    Ok(inv.resolve_user(selector)?.to_string())
 }
 
 fn resolve_optional_acting_account_target(
+    inv: &Invocation,
     selector: Option<&str>,
 ) -> Result<Option<Address>, anyhow::Error> {
-    selector.map(resolve_acting_account_address).transpose()
-}
-
-async fn print_account_fills(
-    context: &AppContext,
-    cli: &Cli,
-    args: &hyperliquid_cli::commands::account::FillsArgs,
-    payload_present: bool,
-) -> Result<(), anyhow::Error> {
-    let client = context.http_client();
-    let address = resolve_protocol_user_string_or_selected(context, args.address.as_deref())?;
-    let command_context = cli_command_context(context, cli, Some(&client), payload_present);
-    hyperliquid_cli::commands::account::fills_with_context(&command_context, &address, args).await
-}
-
-async fn print_account_fees(
-    context: &AppContext,
-    cli: &Cli,
-    args: &hyperliquid_cli::commands::account::AddressArgs,
-    payload_present: bool,
-) -> Result<(), anyhow::Error> {
-    let address = resolve_protocol_user_string_or_selected(context, args.address.as_deref())?;
-    let command_context = cli_command_context(context, cli, None, payload_present);
-    hyperliquid_cli::commands::account::fees_with_context(&command_context, &address).await
-}
-
-async fn print_account_rate_limit(
-    context: &AppContext,
-    cli: &Cli,
-    args: &hyperliquid_cli::commands::account::AddressArgs,
-    payload_present: bool,
-) -> Result<(), anyhow::Error> {
-    let address = resolve_protocol_user_string_or_selected(context, args.address.as_deref())?;
-    let command_context = cli_command_context(context, cli, None, payload_present);
-    hyperliquid_cli::commands::account::rate_limit_with_context(&command_context, &address).await
-}
-
-async fn print_account_orders(
-    context: &AppContext,
-    cli: &Cli,
-    address: Option<&str>,
-    payload_present: bool,
-) -> Result<(), anyhow::Error> {
-    let client = context.http_client();
-    let address = resolve_protocol_user_string_or_selected(context, address)?;
-    let command_context = cli_command_context(context, cli, Some(&client), payload_present);
-    hyperliquid_cli::commands::account::orders_with_context(&command_context, &address).await
-}
-
-async fn print_account_portfolio(
-    context: &AppContext,
-    cli: &Cli,
-    address: Option<&str>,
-    payload_present: bool,
-) -> Result<(), anyhow::Error> {
-    let client = context.http_client();
-    let address = resolve_protocol_user_string_or_selected(context, address)?;
-    let command_context = cli_command_context(context, cli, Some(&client), payload_present);
-    hyperliquid_cli::commands::account::portfolio_with_context(&command_context, &address).await
-}
-
-async fn print_account_subaccounts(
-    context: &AppContext,
-    cli: &Cli,
-    address: Option<&str>,
-    payload_present: bool,
-) -> Result<(), anyhow::Error> {
-    let client = context.http_client();
-    let address = resolve_protocol_user_string_or_selected(context, address)?;
-    let command_context = cli_command_context(context, cli, Some(&client), payload_present);
-    hyperliquid_cli::commands::account::subaccounts_with_context(&command_context, &address).await
+    selector
+        .map(|selector| inv.resolve_acting_account(selector))
+        .transpose()
 }
 
 async fn api_wallet_create(
-    context: &AppContext,
+    inv: &Invocation,
     args: &hyperliquid_cli::commands::api_wallet::CreateArgs,
-    format: output::OutputFormat,
-    dry_run: bool,
 ) -> Result<(), anyhow::Error> {
-    let signer = api_wallet_approval_signer(context, dry_run)?;
-    hyperliquid_cli::commands::api_wallet::create(
-        &context.api_base_url(),
-        context.chain(),
-        signer.as_ref(),
-        args,
-        dry_run,
-        format,
-    )
-    .await
+    let signer = api_wallet_approval_signer(inv)?;
+    hyperliquid_cli::commands::api_wallet::create(inv, signer.as_ref(), args).await
 }
 
 async fn api_wallet_approve(
-    context: &AppContext,
+    inv: &Invocation,
     args: &hyperliquid_cli::commands::api_wallet::ApproveArgs,
-    format: output::OutputFormat,
-    dry_run: bool,
 ) -> Result<(), anyhow::Error> {
-    let signer = api_wallet_approval_signer(context, dry_run)?;
-    hyperliquid_cli::commands::api_wallet::approve(
-        &context.api_base_url(),
-        context.chain(),
-        signer.as_ref(),
-        args,
-        dry_run,
-        format,
-    )
-    .await
+    let signer = api_wallet_approval_signer(inv)?;
+    hyperliquid_cli::commands::api_wallet::approve(inv, signer.as_ref(), args).await
 }
 
-async fn api_wallet_list(
-    context: &AppContext,
-    account: Option<&str>,
-    format: output::OutputFormat,
-) -> Result<(), anyhow::Error> {
+async fn api_wallet_list(inv: &Invocation, account: Option<&str>) -> Result<(), anyhow::Error> {
     let master_address = match account {
-        Some(account) => resolve_protocol_user_address(account)?,
-        None => context.resolve_signer()?.query_address(),
+        Some(account) => inv.resolve_protocol_user(account)?,
+        None => inv.resolve_signer()?.query_address(),
     };
-    let client = context.http_client();
-    hyperliquid_cli::commands::api_wallet::list(&client, master_address, format).await
+    hyperliquid_cli::commands::api_wallet::list(inv, master_address).await
 }
 
 async fn api_wallet_revoke(
-    context: &AppContext,
+    inv: &Invocation,
     args: &hyperliquid_cli::commands::api_wallet::RevokeArgs,
-    format: output::OutputFormat,
-    dry_run: bool,
 ) -> Result<(), anyhow::Error> {
     if args.name.chars().count() > hyperliquid_cli::commands::api_wallet::MAX_AGENT_NAME_LEN {
         return Err(errors::CliError::Configuration(format!(
@@ -2130,26 +1690,17 @@ async fn api_wallet_revoke(
         ))
         .into());
     }
-    let signer = api_wallet_approval_signer(context, dry_run)?;
-    hyperliquid_cli::commands::api_wallet::revoke(
-        &context.api_base_url(),
-        context.chain(),
-        signer.as_ref(),
-        args,
-        dry_run,
-        format,
-    )
-    .await
+    let signer = api_wallet_approval_signer(inv)?;
+    hyperliquid_cli::commands::api_wallet::revoke(inv, signer.as_ref(), args).await
 }
 
 fn api_wallet_approval_signer(
-    context: &AppContext,
-    dry_run: bool,
+    inv: &Invocation,
 ) -> Result<Option<hyperliquid_cli::signing::SelectedSigner>, anyhow::Error> {
-    if dry_run {
+    if inv.dry_run() {
         return Ok(None);
     }
-    let resolved = context.resolve_signer()?;
+    let resolved = inv.resolve_signer()?;
     if resolved.query_address() != resolved.address() {
         return Err(errors::CliError::Unsupported(
             "approveAgent must be signed by the master account; select the master wallet, not a stored API wallet"
@@ -2160,112 +1711,16 @@ fn api_wallet_approval_signer(
     Ok(Some(resolved.selected_signer()))
 }
 
-async fn print_account_portfolio_history(
-    context: &AppContext,
-    cli: &Cli,
-    args: &hyperliquid_cli::commands::account::AddressArgs,
-    payload_present: bool,
-) -> Result<(), anyhow::Error> {
-    let address = resolve_protocol_user_string_or_selected(context, args.address.as_deref())?;
-    let command_context = cli_command_context(context, cli, None, payload_present);
-    hyperliquid_cli::commands::account::portfolio_history_with_context(&command_context, &address)
-        .await
-}
-
-async fn print_account_ledger(
-    context: &AppContext,
-    cli: &Cli,
-    args: &hyperliquid_cli::commands::account::TimeRangeArgs,
-    payload_present: bool,
-) -> Result<(), anyhow::Error> {
-    let address = resolve_protocol_user_string_or_selected(context, args.address.as_deref())?;
-    let command_context = cli_command_context(context, cli, None, payload_present);
-    hyperliquid_cli::commands::account::ledger_with_context(&command_context, &address, args).await
-}
-
-async fn print_account_funding(
-    context: &AppContext,
-    cli: &Cli,
-    args: &hyperliquid_cli::commands::account::TimeRangeArgs,
-    payload_present: bool,
-) -> Result<(), anyhow::Error> {
-    let address = resolve_protocol_user_string_or_selected(context, args.address.as_deref())?;
-    let command_context = cli_command_context(context, cli, None, payload_present);
-    hyperliquid_cli::commands::account::funding_with_context(&command_context, &address, args).await
-}
-
-async fn print_account_twap_history(
-    context: &AppContext,
-    cli: &Cli,
-    args: &hyperliquid_cli::commands::account::AddressArgs,
-    payload_present: bool,
-) -> Result<(), anyhow::Error> {
-    let address = resolve_protocol_user_string_or_selected(context, args.address.as_deref())?;
-    let command_context = cli_command_context(context, cli, None, payload_present);
-    hyperliquid_cli::commands::account::twap_history_with_context(&command_context, &address).await
-}
-
-async fn print_account_twap_fills(
-    context: &AppContext,
-    cli: &Cli,
-    args: &hyperliquid_cli::commands::account::TwapFillsArgs,
-    payload_present: bool,
-) -> Result<(), anyhow::Error> {
-    let address = resolve_protocol_user_string_or_selected(context, args.address.as_deref())?;
-    let command_context = cli_command_context(context, cli, None, payload_present);
-    hyperliquid_cli::commands::account::twap_fills_with_context(&command_context, &address, args)
-        .await
-}
-
-async fn print_outcomes_list(
-    context: &AppContext,
-    args: &hyperliquid_cli::commands::outcomes::OutcomeListArgs,
-    format: output::OutputFormat,
-) -> Result<(), anyhow::Error> {
-    hyperliquid_cli::commands::outcomes::list(&context.api_base_url(), args, format).await
-}
-
-async fn print_outcomes_get(
-    context: &AppContext,
-    args: &hyperliquid_cli::commands::outcomes::OutcomeGetArgs,
-    format: output::OutputFormat,
-) -> Result<(), anyhow::Error> {
-    hyperliquid_cli::commands::outcomes::get(&context.api_base_url(), args, format).await
-}
-
-async fn builder_max_fee(
-    context: &AppContext,
-    args: &hyperliquid_cli::commands::builder::MaxFeeArgs,
-    format: output::OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let user = resolve_protocol_user_address(&args.user)?;
-    let builder = hyperliquid_cli::commands::builder::parse_builder_address(&args.builder)?;
-    hyperliquid_cli::commands::builder::max_fee(&context.api_base_url(), user, builder, format)
-        .await
-}
-
-async fn builder_approved(
-    context: &AppContext,
-    args: &hyperliquid_cli::commands::builder::ApprovedArgs,
-    format: output::OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let user = resolve_protocol_user_address(&args.user)?;
-    hyperliquid_cli::commands::builder::approved(&context.api_base_url(), user, format).await
-}
-
 async fn builder_approve(
-    context: &AppContext,
+    inv: &Invocation,
     args: &hyperliquid_cli::commands::builder::ApproveArgs,
-    format: output::OutputFormat,
-    dry_run: bool,
-    payload: Option<&serde_json::Value>,
 ) -> Result<(), anyhow::Error> {
     let builder = hyperliquid_cli::commands::builder::parse_builder_address(&args.builder)?;
     hyperliquid_cli::commands::builder::validate_max_fee_rate(&args.max_fee_rate)?;
-    if dry_run {
-        let signer_context = context.resolve_signer().ok();
+    if inv.dry_run() {
+        let signer_context = inv.resolve_signer().ok();
         let preview_args = hyperliquid_cli::commands::builder::approve_dry_run_value(
-            context.chain(),
+            inv.remote()?.chain(),
             signer_context.as_ref().map(|resolved| resolved.address()),
             signer_context
                 .as_ref()
@@ -2274,16 +1729,16 @@ async fn builder_approve(
             args,
         )?;
         let envelope = signed_action_dry_run_envelope(
+            inv,
             "builder approve",
             "approve_builder_fee",
             hyperliquid_cli::commands::builder::BuilderActionKind::ApproveFee.reversibility(),
             preview_args,
-            payload,
-            default_dry_run_signing_context(context),
+            default_dry_run_signing_context(inv),
         );
-        return print_dry_run_envelope(envelope, format);
+        return print_dry_run_envelope(inv, envelope);
     }
-    let resolved = context.resolve_signer()?;
+    let resolved = inv.resolve_signer()?;
     if resolved.query_address() != resolved.address() {
         return Err(errors::CliError::Unsupported(
             "approveBuilderFee must be signed by the master account; select the master wallet, not a stored API wallet"
@@ -2292,55 +1747,50 @@ async fn builder_approve(
         .into());
     }
     hyperliquid_cli::commands::builder::approve(
-        &context.api_base_url(),
-        context.chain(),
+        inv,
         &resolved.selected_signer(),
         builder,
         args,
         true,
-        format,
     )
     .await
 }
 
 async fn account_abstraction(
-    context: &AppContext,
-    cli: &Cli,
+    inv: &Invocation,
     args: &hyperliquid_cli::commands::account::AbstractionArgs,
-    payload: Option<&serde_json::Value>,
 ) -> Result<(), anyhow::Error> {
     use hyperliquid_cli::commands::account::{
-        AbstractionCommand, abstraction_set_dry_run_value, abstraction_with_context,
-        set_abstraction,
+        AbstractionCommand, abstraction, abstraction_set_dry_run_value, set_abstraction,
     };
 
     match args.command.as_ref() {
         Some(AbstractionCommand::Set(set_args)) => {
-            if cli.dry_run {
-                let signer_address = context.resolve_signer().ok().map(|r| r.address());
+            if inv.dry_run() {
+                let signer_address = inv.resolve_signer().ok().map(|r| r.address());
                 let fallback_address: Address = "0x0000000000000000000000000000000000000001"
                     .parse()
                     .expect("valid placeholder address");
                 let preview_args = abstraction_set_dry_run_value(
-                    context.chain(),
+                    inv.remote()?.chain(),
                     signer_address.unwrap_or(fallback_address),
                     set_args,
                 );
-                let signer = dry_run_signer_address(context);
+                let signer = dry_run_signer_address(inv);
                 return print_dry_run(
+                    inv,
                     "account abstraction set",
                     dry_run_signed_details(
+                        inv,
                         "set_abstraction",
                         preview_args,
-                        payload,
                         signer,
                         None,
                         None,
                     ),
-                    cli.format,
                 );
             }
-            let resolved = context.resolve_signer()?;
+            let resolved = inv.resolve_signer()?;
             if resolved.query_address() != resolved.address() {
                 return Err(errors::CliError::Unsupported(
                     "userSetAbstraction must be signed by the master account; select the master wallet, not a stored API wallet"
@@ -2348,233 +1798,153 @@ async fn account_abstraction(
                 )
                 .into());
             }
-            set_abstraction(
-                &context.api_base_url(),
-                context.chain(),
-                &resolved.selected_signer(),
-                set_args,
-                true,
-                cli.format,
-            )
-            .await
+            set_abstraction(inv, &resolved.selected_signer(), set_args, true).await
         }
         None => {
-            let address = match args.address.as_deref() {
-                Some(addr) => resolve_protocol_user_string(addr)?,
-                None => context.resolve_signer()?.query_address().to_string(),
-            };
-            let command_context = cli_command_context(context, cli, None, payload.is_some());
-            abstraction_with_context(&command_context, &address).await
+            let address = resolve_user_string(inv, args.address.as_deref())?;
+            abstraction(inv, &address).await
         }
     }
 }
 
 async fn subaccount_create(
-    context: &AppContext,
+    inv: &Invocation,
     args: &hyperliquid_cli::commands::subaccounts::CreateArgs,
-    format: output::OutputFormat,
-    dry_run: bool,
-    payload: Option<&serde_json::Value>,
 ) -> Result<(), anyhow::Error> {
     hyperliquid_cli::commands::subaccounts::validate_create_args(args)?;
-    if dry_run {
+    if inv.dry_run() {
         let envelope = signed_action_dry_run_envelope(
+            inv,
             "subaccount create",
             "create_subaccount",
             hyperliquid_cli::commands::subaccounts::SubaccountActionKind::Create.reversibility(),
-            hyperliquid_cli::commands::subaccounts::create_dry_run_value(context.chain(), args),
-            payload,
-            default_dry_run_signing_context(context),
+            hyperliquid_cli::commands::subaccounts::create_dry_run_value(
+                inv.remote()?.chain(),
+                args,
+            ),
+            default_dry_run_signing_context(inv),
         );
-        return print_dry_run_envelope(envelope, format);
+        return print_dry_run_envelope(inv, envelope);
     }
-    let resolved = context.resolve_signer()?;
-    let signer = resolved.selected_signer();
-    hyperliquid_cli::commands::subaccounts::create(
-        &context.api_base_url(),
-        context.chain(),
-        &signer,
-        args,
-        format,
-    )
-    .await
+    let resolved = inv.resolve_signer()?;
+    hyperliquid_cli::commands::subaccounts::create(inv, &resolved.selected_signer(), args).await
 }
 
 async fn subaccount_transfer(
-    context: &AppContext,
+    inv: &Invocation,
     args: &hyperliquid_cli::commands::subaccounts::TransferArgs,
-    format: output::OutputFormat,
-    dry_run: bool,
-    payload: Option<&serde_json::Value>,
 ) -> Result<(), anyhow::Error> {
     hyperliquid_cli::commands::subaccounts::validate_transfer_args(args)?;
-    let subaccount = resolve_acting_account_address(&args.subaccount)?;
-    if dry_run {
+    let subaccount = inv.resolve_acting_account(&args.subaccount)?;
+    if inv.dry_run() {
         let envelope = signed_action_dry_run_envelope(
+            inv,
             "subaccount transfer",
             "subaccount_usdc_transfer",
             hyperliquid_cli::commands::subaccounts::SubaccountActionKind::TransferUsdc
                 .reversibility(),
             hyperliquid_cli::commands::subaccounts::transfer_dry_run_value(
-                context.chain(),
+                inv.remote()?.chain(),
                 subaccount,
                 args,
             )?,
-            payload,
-            default_dry_run_signing_context(context),
+            default_dry_run_signing_context(inv),
         );
-        return print_dry_run_envelope(envelope, format);
+        return print_dry_run_envelope(inv, envelope);
     }
-    let resolved = context.resolve_signer()?;
-    let signer = resolved.selected_signer();
+    let resolved = inv.resolve_signer()?;
     hyperliquid_cli::commands::subaccounts::transfer(
-        &context.api_base_url(),
-        context.chain(),
-        &signer,
+        inv,
+        &resolved.selected_signer(),
         subaccount,
         args,
-        format,
     )
     .await
 }
 
 async fn subaccount_spot_transfer(
-    context: &AppContext,
+    inv: &Invocation,
     args: &hyperliquid_cli::commands::subaccounts::SpotTransferArgs,
-    format: output::OutputFormat,
-    dry_run: bool,
-    payload: Option<&serde_json::Value>,
 ) -> Result<(), anyhow::Error> {
     hyperliquid_cli::commands::subaccounts::validate_spot_transfer_args(args)?;
-    let subaccount = resolve_acting_account_address(&args.subaccount)?;
-    if dry_run {
+    let subaccount = inv.resolve_acting_account(&args.subaccount)?;
+    if inv.dry_run() {
         let envelope = signed_action_dry_run_envelope(
+            inv,
             "subaccount spot-transfer",
             "subaccount_spot_transfer",
             hyperliquid_cli::commands::subaccounts::SubaccountActionKind::TransferSpot
                 .reversibility(),
             hyperliquid_cli::commands::subaccounts::spot_transfer_dry_run_value(
-                context.chain(),
+                inv.remote()?.chain(),
                 subaccount,
                 args,
             )?,
-            payload,
-            default_dry_run_signing_context(context),
+            default_dry_run_signing_context(inv),
         );
-        return print_dry_run_envelope(envelope, format);
+        return print_dry_run_envelope(inv, envelope);
     }
-    let resolved = context.resolve_signer()?;
-    let signer = resolved.selected_signer();
+    let resolved = inv.resolve_signer()?;
     hyperliquid_cli::commands::subaccounts::spot_transfer(
-        &context.api_base_url(),
-        context.chain(),
-        &signer,
+        inv,
+        &resolved.selected_signer(),
         subaccount,
         args,
-        format,
     )
     .await
 }
 
-async fn print_status(
-    context: &AppContext,
-    cli: &Cli,
-    payload_present: bool,
-) -> Result<(), anyhow::Error> {
-    let client = context.http_client();
-    let command_context = cli_command_context(context, cli, Some(&client), payload_present);
-
-    hyperliquid_cli::commands::status::show_with_context(&command_context).await
-}
-
-async fn print_meta(
-    context: &AppContext,
-    cli: &Cli,
-    payload_present: bool,
-) -> Result<(), anyhow::Error> {
-    let client = context.http_client();
-    let command_context = cli_command_context(context, cli, Some(&client), payload_present);
-
-    hyperliquid_cli::commands::meta::show_with_context(&command_context).await
-}
-
-fn cli_command_context<'a>(
-    context: &AppContext,
-    cli: &Cli,
-    client: Option<&'a HttpClient>,
-    payload_present: bool,
-) -> CommandContext<'a> {
-    let command_context = CommandContext::new(
-        context.network.to_string(),
-        context.api_base_url().to_string(),
-        CommandOutputContext::new(
-            cli.format,
-            cli.select.as_deref(),
-            cli.results_only,
-            cli.max_results,
-        ),
-        CommandTransportPolicy::CliProcess,
-    );
-    let command_context = if let Some(client) = client {
-        command_context.with_clients(CommandClients::with_hypercore(client))
-    } else {
-        command_context
-    };
-    command_context
-        .with_account_selector(cli.account.as_deref())
-        .with_dry_run(cli.dry_run)
-        .with_payload(PayloadMetadata::from_presence(payload_present))
-}
-
 async fn create_order(
-    context: &AppContext,
+    inv: &Invocation,
     args: &hyperliquid_cli::commands::orders::CreateArgs,
-    format: output::OutputFormat,
-    dry_run: bool,
-    payload: Option<&serde_json::Value>,
 ) -> Result<(), anyhow::Error> {
     hyperliquid_cli::commands::orders::validate_create_args(args)?;
-    let client = context.http_client();
-    let resolver = load_trading_resolver(context).await?;
+    let client = inv.remote()?.client();
+    let resolver = inv.trading_resolver().await?;
     let coin_query = qualify_dex_asset(args.dex.as_deref(), &args.coin);
-    let vault_address = resolve_optional_acting_account_target(args.on_behalf_of.as_deref())?;
+    let vault_address = resolve_optional_acting_account_target(inv, args.on_behalf_of.as_deref())?;
     let vault_address_string = vault_address.map(|address| address.to_string());
-    if dry_run {
-        let plan = hyperliquid_cli::commands::orders::create_dry_run_plan(&client, &resolver, args)
-            .await?;
+    if inv.dry_run() {
+        let plan =
+            hyperliquid_cli::commands::orders::create_dry_run_plan(client, &resolver, args).await?;
         let command = plan.command();
         let would_execute = plan.would_execute();
         let (signer, acting_as, vault_address_string) =
-            dry_run_vault_signing_addresses(context, vault_address_string);
+            dry_run_vault_signing_addresses(inv, vault_address_string);
         let mut details = plan.into_args();
-        if let Ok(resolved) = context.resolve_signer()
+        if let Ok(resolved) = inv.resolve_signer()
             && let Some(object) = details.as_object_mut()
         {
             let user = vault_address.unwrap_or_else(|| resolved.query_address());
-            if let Some(helper) =
-                maybe_hip3_dry_run_side_effect(&client, &context.api_base_url(), user, args, object)
-                    .await?
+            if let Some(helper) = maybe_hip3_dry_run_side_effect(
+                client,
+                inv.remote()?.api_base_url(),
+                user,
+                args,
+                object,
+            )
+            .await?
             {
                 object.insert("side_effects".to_string(), serde_json::json!([helper]));
             }
         }
         return print_dry_run(
+            inv,
             command,
             dry_run_signed_details(
+                inv,
                 would_execute,
                 details,
-                payload,
                 signer,
                 acting_as,
                 vault_address_string,
             ),
-            format,
         );
     }
     let margin_validation_target =
         if !matches!(parse_asset_query(&args.coin), AssetQuery::Outcome(_)) {
             let resolved = resolver
-                .resolve_or_fetch(&client, &coin_query)
+                .resolve_or_fetch(client, &coin_query)
                 .await
                 .map_err(errors::CliError::from)?;
             hyperliquid_cli::commands::orders::validate_create_resolved_asset(args, &resolved)?;
@@ -2590,11 +1960,11 @@ async fn create_order(
         } else {
             None
         };
-    let resolved_signer = context.resolve_signer()?;
+    let resolved_signer = inv.resolve_signer()?;
     if let Some((coin, dex)) = margin_validation_target {
         let margin_mode_user = vault_address.unwrap_or_else(|| resolved_signer.query_address());
         validate_order_margin_mode(
-            &client,
+            client,
             margin_mode_user,
             coin.as_str(),
             dex.as_deref(),
@@ -2603,52 +1973,47 @@ async fn create_order(
         .await?;
     }
     let signer = resolved_signer.selected_signer();
-    let api_base_url = context.api_base_url();
     hyperliquid_cli::commands::orders::create(
-        order_execution_context(context, &api_base_url, &client, &resolver, &signer),
+        order_execution_context(inv, &resolver, &signer)?,
         args,
         vault_address,
-        format,
         true,
     )
     .await
 }
 
 async fn scale_orders(
-    context: &AppContext,
+    inv: &Invocation,
     args: &hyperliquid_cli::commands::orders::ScaleArgs,
-    format: output::OutputFormat,
-    dry_run: bool,
-    payload: Option<&serde_json::Value>,
 ) -> Result<(), anyhow::Error> {
     hyperliquid_cli::commands::orders::validate_scale_args(args)?;
-    let client = context.http_client();
-    let resolver = load_trading_resolver(context).await?;
-    let vault_address = resolve_optional_acting_account_target(args.on_behalf_of.as_deref())?;
+    let client = inv.remote()?.client();
+    let resolver = inv.trading_resolver().await?;
+    let vault_address = resolve_optional_acting_account_target(inv, args.on_behalf_of.as_deref())?;
     let vault_address_string = vault_address.map(|address| address.to_string());
-    if dry_run {
+    if inv.dry_run() {
         let plan =
-            hyperliquid_cli::commands::orders::scale_dry_run_plan(&client, &resolver, args).await?;
+            hyperliquid_cli::commands::orders::scale_dry_run_plan(client, &resolver, args).await?;
         let (signer, acting_as, vault_address_string) =
-            dry_run_vault_signing_addresses(context, vault_address_string);
+            dry_run_vault_signing_addresses(inv, vault_address_string);
         return print_dry_run(
+            inv,
             plan.command(),
             dry_run_signed_details(
+                inv,
                 plan.would_execute(),
                 plan.into_args(),
-                payload,
                 signer,
                 acting_as,
                 vault_address_string,
             ),
-            format,
         );
     }
     let coin_query = qualify_dex_asset(args.dex.as_deref(), &args.coin);
     let margin_validation_target =
         if !matches!(parse_asset_query(&args.coin), AssetQuery::Outcome(_)) {
             match resolver
-                .resolve_or_fetch(&client, &coin_query)
+                .resolve_or_fetch(client, &coin_query)
                 .await
                 .map_err(errors::CliError::from)?
             {
@@ -2672,11 +2037,11 @@ async fn scale_orders(
         } else {
             None
         };
-    let resolved_signer = context.resolve_signer()?;
+    let resolved_signer = inv.resolve_signer()?;
     if let Some((coin, dex)) = margin_validation_target {
         let margin_mode_user = vault_address.unwrap_or_else(|| resolved_signer.query_address());
         validate_order_margin_mode(
-            &client,
+            client,
             margin_mode_user,
             coin.as_str(),
             dex.as_deref(),
@@ -2685,100 +2050,90 @@ async fn scale_orders(
         .await?;
     }
     let signer = resolved_signer.selected_signer();
-    let api_base_url = context.api_base_url();
     hyperliquid_cli::commands::orders::scale(
-        order_execution_context(context, &api_base_url, &client, &resolver, &signer),
+        order_execution_context(inv, &resolver, &signer)?,
         args,
         vault_address,
-        format,
     )
     .await
 }
 
 async fn batch_create_orders(
-    context: &AppContext,
+    inv: &Invocation,
     args: &hyperliquid_cli::commands::orders::BatchCreateArgs,
-    format: output::OutputFormat,
-    dry_run: bool,
-    payload: Option<&serde_json::Value>,
 ) -> Result<(), anyhow::Error> {
     hyperliquid_cli::commands::orders::validate_batch_create_args(args)?;
     let orders = hyperliquid_cli::commands::orders::read_validated_batch_create_orders(args)?;
-    let client = context.http_client();
-    let resolver = load_trading_resolver(context).await?;
-    let vault_address = resolve_optional_acting_account_target(args.on_behalf_of.as_deref())?;
+    let client = inv.remote()?.client();
+    let resolver = inv.trading_resolver().await?;
+    let vault_address = resolve_optional_acting_account_target(inv, args.on_behalf_of.as_deref())?;
     let vault_address_string = vault_address.map(|address| address.to_string());
-    if dry_run {
+    if inv.dry_run() {
         let plan = hyperliquid_cli::commands::orders::batch_create_dry_run_plan(
-            &client, &resolver, args, orders,
+            client, &resolver, args, orders,
         )
         .await?;
         let (signer, acting_as, vault_address_string) =
-            dry_run_vault_signing_addresses(context, vault_address_string);
+            dry_run_vault_signing_addresses(inv, vault_address_string);
         return print_dry_run(
+            inv,
             plan.command(),
             dry_run_signed_details(
+                inv,
                 plan.would_execute(),
                 plan.into_args(),
-                payload,
                 signer,
                 acting_as,
                 vault_address_string,
             ),
-            format,
         );
     }
-    let resolved_signer = context.resolve_signer()?;
+    let resolved_signer = inv.resolve_signer()?;
     let signer = resolved_signer.selected_signer();
-    let api_base_url = context.api_base_url();
     hyperliquid_cli::commands::orders::batch_create(
-        order_execution_context(context, &api_base_url, &client, &resolver, &signer),
+        order_execution_context(inv, &resolver, &signer)?,
         args,
         orders,
         vault_address,
-        format,
     )
     .await
 }
 
 async fn create_tpsl(
-    context: &AppContext,
+    inv: &Invocation,
     args: &hyperliquid_cli::commands::orders::TpslArgs,
-    format: output::OutputFormat,
-    dry_run: bool,
-    payload: Option<&serde_json::Value>,
 ) -> Result<(), anyhow::Error> {
     hyperliquid_cli::commands::orders::validate_tpsl_args(args)?;
-    let client = context.http_client();
-    let resolver = load_trading_resolver(context).await?;
+    let client = inv.remote()?.client();
+    let resolver = inv.trading_resolver().await?;
     let coin_query = qualify_dex_asset(args.dex.as_deref(), &args.coin);
     let (resolver, resolved_tpsl_perp) = resolver
-        .with_resolved_perp(&client, &coin_query)
+        .with_resolved_perp(client, &coin_query)
         .await
         .map_err(errors::CliError::from)?;
-    let vault_address = resolve_optional_acting_account_target(args.on_behalf_of.as_deref())?;
+    let vault_address = resolve_optional_acting_account_target(inv, args.on_behalf_of.as_deref())?;
     let vault_address_string = vault_address.map(|address| address.to_string());
-    if dry_run {
+    if inv.dry_run() {
         let plan = hyperliquid_cli::commands::orders::tpsl_dry_run_plan(&resolver, args)?;
         let (signer, acting_as, vault_address_string) =
-            dry_run_vault_signing_addresses(context, vault_address_string);
+            dry_run_vault_signing_addresses(inv, vault_address_string);
         return print_dry_run(
+            inv,
             plan.command(),
             dry_run_signed_details(
+                inv,
                 plan.would_execute(),
                 plan.into_args(),
-                payload,
                 signer,
                 acting_as,
                 vault_address_string,
             ),
-            format,
         );
     }
-    let resolved_signer = context.resolve_signer()?;
+    let resolved_signer = inv.resolve_signer()?;
     let margin_mode_user = vault_address.unwrap_or_else(|| resolved_signer.query_address());
     validate_order_margin_mode(
-        &client,
+        client,
         margin_mode_user,
         resolved_tpsl_perp.name.as_str(),
         resolved_tpsl_perp.dex.as_deref(),
@@ -2786,212 +2141,172 @@ async fn create_tpsl(
     )
     .await?;
     let signer = resolved_signer.selected_signer();
-    let api_base_url = context.api_base_url();
     hyperliquid_cli::commands::orders::tpsl(
-        order_execution_context(context, &api_base_url, &client, &resolver, &signer),
+        order_execution_context(inv, &resolver, &signer)?,
         args,
         vault_address,
-        format,
         true,
     )
     .await
 }
 
 async fn cancel_order(
-    context: &AppContext,
+    inv: &Invocation,
     args: &hyperliquid_cli::commands::orders::CancelArgs,
-    format: output::OutputFormat,
-    dry_run: bool,
-    payload: Option<&serde_json::Value>,
 ) -> Result<(), anyhow::Error> {
-    let vault_address = resolve_optional_acting_account_target(args.on_behalf_of.as_deref())?;
+    let vault_address = resolve_optional_acting_account_target(inv, args.on_behalf_of.as_deref())?;
     let vault_address_string = vault_address.map(|address| address.to_string());
-    if dry_run {
+    if inv.dry_run() {
         let plan = hyperliquid_cli::commands::orders::cancel_dry_run_plan(args)?;
         let (signer, acting_as, vault_address_string) =
-            dry_run_vault_signing_addresses(context, vault_address_string);
+            dry_run_vault_signing_addresses(inv, vault_address_string);
         return print_dry_run(
+            inv,
             plan.command(),
             dry_run_signed_details(
+                inv,
                 plan.would_execute(),
                 plan.into_args(),
-                payload,
                 signer,
                 acting_as,
                 vault_address_string,
             ),
-            format,
         );
     }
-    let client = context.http_client();
-    let resolver = load_trading_resolver(context).await?;
-    let resolved = context.resolve_signer()?;
+    let resolver = inv.trading_resolver().await?;
+    let resolved = inv.resolve_signer()?;
     let user = vault_address.unwrap_or_else(|| resolved.query_address());
     let signer = resolved.selected_signer();
-    let api_base_url = context.api_base_url();
     hyperliquid_cli::commands::orders::cancel(
-        order_execution_context(context, &api_base_url, &client, &resolver, &signer),
+        order_execution_context(inv, &resolver, &signer)?,
         user,
         args,
         vault_address,
-        format,
     )
     .await
 }
 
 async fn cancel_all_orders(
-    context: &AppContext,
+    inv: &Invocation,
     args: &hyperliquid_cli::commands::orders::CancelAllArgs,
-    format: output::OutputFormat,
-    dry_run: bool,
-    payload: Option<&serde_json::Value>,
 ) -> Result<(), anyhow::Error> {
-    let vault_address = resolve_optional_acting_account_target(args.on_behalf_of.as_deref())?;
+    let vault_address = resolve_optional_acting_account_target(inv, args.on_behalf_of.as_deref())?;
     let vault_address_string = vault_address.map(|address| address.to_string());
-    if dry_run {
-        let resolver = load_trading_resolver(context).await?;
+    if inv.dry_run() {
+        let resolver = inv.trading_resolver().await?;
         let plan = hyperliquid_cli::commands::orders::cancel_all_dry_run_plan(&resolver, args)?;
         let (signer, acting_as, vault_address_string) =
-            dry_run_vault_signing_addresses(context, vault_address_string);
+            dry_run_vault_signing_addresses(inv, vault_address_string);
         return print_dry_run(
+            inv,
             plan.command(),
             dry_run_signed_details(
+                inv,
                 plan.would_execute(),
                 plan.into_args(),
-                payload,
                 signer,
                 acting_as,
                 vault_address_string,
             ),
-            format,
         );
     }
-    let client = context.http_client();
-    let resolver = load_trading_resolver(context).await?;
-    let resolved = context.resolve_signer()?;
+    let resolver = inv.trading_resolver().await?;
+    let resolved = inv.resolve_signer()?;
     let user = vault_address.unwrap_or_else(|| resolved.query_address());
     let signer = resolved.selected_signer();
-    let api_base_url = context.api_base_url();
     hyperliquid_cli::commands::orders::cancel_all(
-        order_execution_context(context, &api_base_url, &client, &resolver, &signer),
+        order_execution_context(inv, &resolver, &signer)?,
         user,
         args,
         vault_address,
-        format,
     )
     .await
 }
 
 async fn modify_order(
-    context: &AppContext,
+    inv: &Invocation,
     args: &hyperliquid_cli::commands::orders::ModifyArgs,
-    format: output::OutputFormat,
-    dry_run: bool,
-    payload: Option<&serde_json::Value>,
 ) -> Result<(), anyhow::Error> {
     hyperliquid_cli::commands::orders::validate_modify_args(args)?;
-    let vault_address = resolve_optional_acting_account_target(args.on_behalf_of.as_deref())?;
+    let vault_address = resolve_optional_acting_account_target(inv, args.on_behalf_of.as_deref())?;
     let vault_address_string = vault_address.map(|address| address.to_string());
-    if dry_run {
+    if inv.dry_run() {
         let plan = hyperliquid_cli::commands::orders::modify_dry_run_plan(args)?;
         let (signer, acting_as, vault_address_string) =
-            dry_run_vault_signing_addresses(context, vault_address_string);
+            dry_run_vault_signing_addresses(inv, vault_address_string);
         return print_dry_run(
+            inv,
             plan.command(),
             dry_run_signed_details(
+                inv,
                 plan.would_execute(),
                 plan.into_args(),
-                payload,
                 signer,
                 acting_as,
                 vault_address_string,
             ),
-            format,
         );
     }
-    let client = context.http_client();
-    let resolver = load_trading_resolver(context).await?;
-    let resolved = context.resolve_signer()?;
+    let resolver = inv.trading_resolver().await?;
+    let resolved = inv.resolve_signer()?;
     let user = vault_address.unwrap_or_else(|| resolved.query_address());
     let signer = resolved.selected_signer();
-    let api_base_url = context.api_base_url();
     hyperliquid_cli::commands::orders::modify(
-        order_execution_context(context, &api_base_url, &client, &resolver, &signer),
+        order_execution_context(inv, &resolver, &signer)?,
         user,
         args,
         vault_address,
-        format,
     )
     .await
 }
 
-async fn open_orders(
-    context: &AppContext,
-    format: output::OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let client = context.http_client();
-    let resolver = load_asset_resolver(context).await?;
-    let user = context.resolve_signer()?.query_address();
-    hyperliquid_cli::commands::orders::open(&client, &resolver, user, format).await
+async fn open_orders(inv: &Invocation) -> Result<(), anyhow::Error> {
+    let resolver = inv.asset_resolver().await?;
+    let user = inv.resolve_signer()?.query_address();
+    hyperliquid_cli::commands::orders::open(inv, &resolver, user).await
 }
 
-async fn order_history(
-    context: &AppContext,
-    format: output::OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let client = context.http_client();
-    let resolver = load_asset_resolver(context).await?;
-    let user = context.resolve_signer()?.query_address();
-    hyperliquid_cli::commands::orders::history(&client, &resolver, user, format).await
-}
-
-async fn order_status(
-    context: &AppContext,
-    args: &hyperliquid_cli::commands::orders::StatusArgs,
-    format: output::OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let user = resolve_protocol_user_address(&args.user)?;
-    hyperliquid_cli::commands::orders::status(&context.api_base_url(), user, args, format).await
+async fn order_history(inv: &Invocation) -> Result<(), anyhow::Error> {
+    let resolver = inv.asset_resolver().await?;
+    let user = inv.resolve_signer()?.query_address();
+    hyperliquid_cli::commands::orders::history(inv, &resolver, user).await
 }
 
 async fn create_twap(
-    context: &AppContext,
+    inv: &Invocation,
     args: &hyperliquid_cli::commands::orders::TwapCreateArgs,
-    format: output::OutputFormat,
-    dry_run: bool,
-    payload: Option<&serde_json::Value>,
 ) -> Result<(), anyhow::Error> {
-    let client = context.http_client();
-    let resolver = load_trading_resolver(context).await?;
+    let client = inv.remote()?.client();
+    let resolver = inv.trading_resolver().await?;
     let coin_query = qualify_dex_asset(args.dex.as_deref(), &args.coin);
     let (resolver, resolved_twap_perp) = resolver
-        .with_resolved_perp(&client, &coin_query)
+        .with_resolved_perp(client, &coin_query)
         .await
         .map_err(errors::CliError::from)?;
     let dry_run_plan =
         hyperliquid_cli::commands::orders::twap_create_dry_run_plan(&resolver, args)?;
-    let vault_address = resolve_optional_acting_account_target(args.on_behalf_of.as_deref())?;
+    let vault_address = resolve_optional_acting_account_target(inv, args.on_behalf_of.as_deref())?;
     let vault_address_string = vault_address.map(|address| address.to_string());
-    if dry_run {
+    if inv.dry_run() {
         let (signer, acting_as, vault_address_string) =
-            dry_run_vault_signing_addresses(context, vault_address_string);
+            dry_run_vault_signing_addresses(inv, vault_address_string);
         return print_dry_run(
+            inv,
             dry_run_plan.command(),
             dry_run_signed_details(
+                inv,
                 dry_run_plan.would_execute(),
                 dry_run_plan.into_args(),
-                payload,
                 signer,
                 acting_as,
                 vault_address_string,
             ),
-            format,
         );
     }
-    let resolved = context.resolve_signer()?;
+    let resolved = inv.resolve_signer()?;
     let margin_mode_user = vault_address.unwrap_or_else(|| resolved.query_address());
     validate_order_margin_mode(
-        &client,
+        client,
         margin_mode_user,
         resolved_twap_perp.name.as_str(),
         resolved_twap_perp.dex.as_deref(),
@@ -2999,108 +2314,96 @@ async fn create_twap(
     )
     .await?;
     let signer = resolved.selected_signer();
-    let api_base_url = context.api_base_url();
     hyperliquid_cli::commands::orders::twap_create(
-        order_submission_context(context, &api_base_url, &signer),
+        order_submission_context(inv, &signer)?,
         &resolver,
         args,
         vault_address,
-        format,
     )
     .await
 }
 
 async fn trailing_stop_order(
-    context: &AppContext,
+    inv: &Invocation,
     args: &hyperliquid_cli::commands::orders::TrailingStopArgs,
-    format: output::OutputFormat,
-    dry_run: bool,
-    payload: Option<&serde_json::Value>,
 ) -> Result<(), anyhow::Error> {
     hyperliquid_cli::commands::orders::validate_trailing_stop_args(args)?;
-    let client = context.http_client();
-    let resolver = load_trading_resolver(context).await?;
+    let client = inv.remote()?.client();
+    let resolver = inv.trading_resolver().await?;
     let coin_query = qualify_dex_asset(args.dex.as_deref(), &args.coin);
     let (resolver, _) = resolver
-        .with_resolved_perp(&client, &coin_query)
+        .with_resolved_perp(client, &coin_query)
         .await
         .map_err(errors::CliError::from)?;
     let dry_run_plan =
         hyperliquid_cli::commands::orders::trailing_stop_dry_run_plan(&resolver, args)?;
-    let vault_address = resolve_optional_acting_account_target(args.on_behalf_of.as_deref())?;
+    let vault_address = resolve_optional_acting_account_target(inv, args.on_behalf_of.as_deref())?;
     let vault_address_string = vault_address.map(|address| address.to_string());
-    if dry_run {
+    if inv.dry_run() {
         let (signer, acting_as, vault_address_string) =
-            dry_run_vault_signing_addresses(context, vault_address_string);
+            dry_run_vault_signing_addresses(inv, vault_address_string);
         return print_dry_run(
+            inv,
             dry_run_plan.command(),
             dry_run_signed_details(
+                inv,
                 dry_run_plan.would_execute(),
                 dry_run_plan.into_args(),
-                payload,
                 signer,
                 acting_as,
                 vault_address_string,
             ),
-            format,
         );
     }
-    let resolved = context.resolve_signer()?;
+    let resolved = inv.resolve_signer()?;
     let signer = resolved.selected_signer();
-    let api_base_url = context.api_base_url();
     hyperliquid_cli::commands::orders::trailing_stop(
-        order_submission_context(context, &api_base_url, &signer),
+        order_submission_context(inv, &signer)?,
         &resolver,
         args,
         vault_address,
-        format,
     )
     .await
 }
 
 async fn cancel_twap(
-    context: &AppContext,
+    inv: &Invocation,
     args: &hyperliquid_cli::commands::orders::TwapCancelArgs,
-    format: output::OutputFormat,
-    dry_run: bool,
-    payload: Option<&serde_json::Value>,
 ) -> Result<(), anyhow::Error> {
-    let client = context.http_client();
-    let resolver = load_trading_resolver(context).await?;
+    let client = inv.remote()?.client();
+    let resolver = inv.trading_resolver().await?;
     let coin_query = qualify_dex_asset(args.dex.as_deref(), &args.coin);
     let (resolver, _) = resolver
-        .with_resolved_perp(&client, &coin_query)
+        .with_resolved_perp(client, &coin_query)
         .await
         .map_err(errors::CliError::from)?;
     let dry_run_plan =
         hyperliquid_cli::commands::orders::twap_cancel_dry_run_plan(&resolver, args)?;
-    let vault_address = resolve_optional_acting_account_target(args.on_behalf_of.as_deref())?;
+    let vault_address = resolve_optional_acting_account_target(inv, args.on_behalf_of.as_deref())?;
     let vault_address_string = vault_address.map(|address| address.to_string());
-    if dry_run {
+    if inv.dry_run() {
         let (signer, acting_as, vault_address_string) =
-            dry_run_vault_signing_addresses(context, vault_address_string);
+            dry_run_vault_signing_addresses(inv, vault_address_string);
         return print_dry_run(
+            inv,
             dry_run_plan.command(),
             dry_run_signed_details(
+                inv,
                 dry_run_plan.would_execute(),
                 dry_run_plan.into_args(),
-                payload,
                 signer,
                 acting_as,
                 vault_address_string,
             ),
-            format,
         );
     }
-    let resolved = context.resolve_signer()?;
+    let resolved = inv.resolve_signer()?;
     let signer = resolved.selected_signer();
-    let api_base_url = context.api_base_url();
     hyperliquid_cli::commands::orders::twap_cancel(
-        order_submission_context(context, &api_base_url, &signer),
+        order_submission_context(inv, &signer)?,
         &resolver,
         args,
         vault_address,
-        format,
     )
     .await
 }
@@ -3172,566 +2475,388 @@ async fn validate_order_margin_mode(
 }
 
 async fn schedule_cancel(
-    context: &AppContext,
+    inv: &Invocation,
     args: &hyperliquid_cli::commands::orders::ScheduleCancelArgs,
-    format: output::OutputFormat,
-    dry_run: bool,
-    payload: Option<&serde_json::Value>,
 ) -> Result<(), anyhow::Error> {
-    let vault_address = resolve_optional_acting_account_target(args.on_behalf_of.as_deref())?;
+    let vault_address = resolve_optional_acting_account_target(inv, args.on_behalf_of.as_deref())?;
     let vault_address_string = vault_address.map(|address| address.to_string());
-    if dry_run {
+    if inv.dry_run() {
         let plan = hyperliquid_cli::commands::orders::schedule_cancel_dry_run_plan(args)?;
         let (signer, acting_as, vault_address_string) =
-            dry_run_vault_signing_addresses(context, vault_address_string);
+            dry_run_vault_signing_addresses(inv, vault_address_string);
         return print_dry_run(
+            inv,
             plan.command(),
             dry_run_signed_details(
+                inv,
                 plan.would_execute(),
                 plan.into_args(),
-                payload,
                 signer,
                 acting_as,
                 vault_address_string,
             ),
-            format,
         );
     }
-    let resolved = context.resolve_signer()?;
+    let resolved = inv.resolve_signer()?;
     let signer = resolved.selected_signer();
-    let api_base_url = context.api_base_url();
     hyperliquid_cli::commands::orders::schedule_cancel(
-        order_submission_context(context, &api_base_url, &signer),
+        order_submission_context(inv, &signer)?,
         args,
         vault_address,
-        format,
     )
     .await
 }
 
-async fn list_positions(
-    context: &AppContext,
-    format: output::OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let client = context.http_client();
-    let user = context.resolve_signer()?.query_address();
-    hyperliquid_cli::commands::positions::list(&client, user, format).await
-}
-
 async fn update_position_leverage(
-    context: &AppContext,
+    inv: &Invocation,
     args: &hyperliquid_cli::commands::positions::UpdateLeverageArgs,
-    format: output::OutputFormat,
-    dry_run: bool,
-    payload: Option<&serde_json::Value>,
 ) -> Result<(), anyhow::Error> {
     hyperliquid_cli::commands::positions::validate_update_leverage_args(args)?;
-    let resolver = load_trading_resolver(context).await?;
+    let resolver = inv.trading_resolver().await?;
     let prepared = hyperliquid_cli::commands::positions::prepare_update_leverage(&resolver, args)?;
-    if dry_run {
-        let (signer, acting_as) = dry_run_signing_addresses(context);
+    if inv.dry_run() {
+        let (signer, acting_as) = dry_run_signing_addresses(inv);
         return print_dry_run(
+            inv,
             "positions update-leverage",
             dry_run_signed_details(
+                inv,
                 "update_position_leverage",
                 hyperliquid_cli::commands::positions::update_leverage_dry_run_value(
-                    context.network.to_string(),
+                    inv.remote()?.network().to_string(),
                     args,
                     &prepared,
                 ),
-                payload,
                 signer,
                 acting_as,
                 None,
             ),
-            format,
         );
     }
-    let resolved = context.resolve_signer()?;
+    let resolved = inv.resolve_signer()?;
     hyperliquid_cli::commands::positions::submit_update_leverage(
-        &context.api_base_url(),
-        context.chain(),
+        inv,
         &resolved.selected_signer(),
         prepared,
-        format,
     )
     .await
 }
 
 async fn update_position_margin(
-    context: &AppContext,
+    inv: &Invocation,
     args: &hyperliquid_cli::commands::positions::UpdateMarginArgs,
-    format: output::OutputFormat,
-    dry_run: bool,
-    payload: Option<&serde_json::Value>,
 ) -> Result<(), anyhow::Error> {
     hyperliquid_cli::commands::positions::validate_update_margin_args(args)?;
-    let resolver = load_trading_resolver(context).await?;
+    let resolver = inv.trading_resolver().await?;
     let prepared = hyperliquid_cli::commands::positions::prepare_update_margin(&resolver, args)?;
-    if dry_run {
-        let (signer, acting_as) = dry_run_signing_addresses(context);
+    if inv.dry_run() {
+        let (signer, acting_as) = dry_run_signing_addresses(inv);
         return print_dry_run(
+            inv,
             "positions update-margin",
             dry_run_signed_details(
+                inv,
                 "update_isolated_margin",
                 hyperliquid_cli::commands::positions::update_margin_dry_run_value(
-                    context.network.to_string(),
+                    inv.remote()?.network().to_string(),
                     args,
                     &prepared,
                 ),
-                payload,
                 signer,
                 acting_as,
                 None,
             ),
-            format,
         );
     }
-    let resolved = context.resolve_signer()?;
+    let resolved = inv.resolve_signer()?;
     let signer = resolved.selected_signer();
-    hyperliquid_cli::commands::positions::submit_update_margin(
-        &context.api_base_url(),
-        context.chain(),
-        &signer,
-        prepared,
-        format,
-    )
-    .await
+    hyperliquid_cli::commands::positions::submit_update_margin(inv, &signer, prepared).await
 }
 
 async fn transfer_spot_to_perp(
-    context: &AppContext,
+    inv: &Invocation,
     args: &hyperliquid_cli::commands::transfers::ClassTransferArgs,
-    format: output::OutputFormat,
-    dry_run: bool,
-    payload: Option<&serde_json::Value>,
 ) -> Result<(), anyhow::Error> {
     hyperliquid_cli::commands::transfers::validate_class_transfer_args(args)?;
-    if dry_run {
+    if inv.dry_run() {
         let envelope = transfer_dry_run_envelope(
+            inv,
             "transfer spot-to-perp",
             hyperliquid_cli::commands::transfers::TransferActionKind::SpotToPerp,
             "transfer_spot_to_perp",
             serde_json::json!({"amount": args.amount.to_string()}),
-            payload,
         );
-        return print_dry_run_envelope(envelope, format);
+        return print_dry_run_envelope(inv, envelope);
     }
-    let client = context.http_client();
-    let resolved = context.resolve_signer()?;
+    let resolved = inv.resolve_signer()?;
     let signer = resolved.selected_signer();
-    hyperliquid_cli::commands::transfers::spot_to_perp(
-        &context.api_base_url(),
-        context.chain(),
-        &client,
-        &signer,
-        resolved.query_address(),
-        args,
-        format,
-    )
-    .await
+    hyperliquid_cli::commands::transfers::spot_to_perp(inv, &signer, resolved.query_address(), args)
+        .await
 }
 
 async fn transfer_perp_to_spot(
-    context: &AppContext,
+    inv: &Invocation,
     args: &hyperliquid_cli::commands::transfers::ClassTransferArgs,
-    format: output::OutputFormat,
-    dry_run: bool,
-    payload: Option<&serde_json::Value>,
 ) -> Result<(), anyhow::Error> {
     hyperliquid_cli::commands::transfers::validate_class_transfer_args(args)?;
-    if dry_run {
+    if inv.dry_run() {
         let envelope = transfer_dry_run_envelope(
+            inv,
             "transfer perp-to-spot",
             hyperliquid_cli::commands::transfers::TransferActionKind::PerpToSpot,
             "transfer_perp_to_spot",
             serde_json::json!({"amount": args.amount.to_string()}),
-            payload,
         );
-        return print_dry_run_envelope(envelope, format);
+        return print_dry_run_envelope(inv, envelope);
     }
-    let client = context.http_client();
-    let resolved = context.resolve_signer()?;
+    let resolved = inv.resolve_signer()?;
     let signer = resolved.selected_signer();
-    hyperliquid_cli::commands::transfers::perp_to_spot(
-        &context.api_base_url(),
-        context.chain(),
-        &client,
-        &signer,
-        resolved.query_address(),
-        args,
-        format,
-    )
-    .await
+    hyperliquid_cli::commands::transfers::perp_to_spot(inv, &signer, resolved.query_address(), args)
+        .await
 }
 
 async fn transfer_send(
-    context: &AppContext,
+    inv: &Invocation,
     args: &hyperliquid_cli::commands::transfers::SendArgs,
-    format: output::OutputFormat,
-    dry_run: bool,
-    payload: Option<&serde_json::Value>,
 ) -> Result<(), anyhow::Error> {
     hyperliquid_cli::commands::transfers::validate_send_args(args)?;
-    if dry_run {
+    if inv.dry_run() {
         let envelope = transfer_dry_run_envelope(
+            inv,
             "transfer send",
             hyperliquid_cli::commands::transfers::TransferActionKind::Send,
             "send_usdc",
             serde_json::json!({"to": args.to, "amount": args.amount.to_string()}),
-            payload,
         );
-        return print_dry_run_envelope(envelope, format);
+        return print_dry_run_envelope(inv, envelope);
     }
-    let client = context.http_client();
-    let resolved = context.resolve_signer()?;
+    let resolved = inv.resolve_signer()?;
     hyperliquid_cli::commands::transfers::send(
-        &context.api_base_url(),
-        context.chain(),
-        &client,
+        inv,
         &resolved.selected_signer(),
         resolved.query_address(),
         args,
-        format,
     )
     .await
 }
 
 async fn transfer_spot_send(
-    context: &AppContext,
+    inv: &Invocation,
     args: &hyperliquid_cli::commands::transfers::SpotSendArgs,
-    format: output::OutputFormat,
-    dry_run: bool,
-    payload: Option<&serde_json::Value>,
 ) -> Result<(), anyhow::Error> {
     hyperliquid_cli::commands::transfers::validate_spot_send_args(args)?;
-    let client = context.http_client();
+    let client = inv.remote()?.client();
     let args_json =
-        hyperliquid_cli::commands::transfers::spot_send_dry_run_args(&client, args).await?;
-    if dry_run {
-        let signer = dry_run_signer_address(context);
+        hyperliquid_cli::commands::transfers::spot_send_dry_run_args(client, args).await?;
+    if inv.dry_run() {
+        let signer = dry_run_signer_address(inv);
         let envelope = transfer_dry_run_envelope(
+            inv,
             "transfer spot-send",
             hyperliquid_cli::commands::transfers::TransferActionKind::SpotSend,
             "spot_send",
             args_json,
-            payload,
         )
         .with_signing_context(DryRunSigningContext::new(
             signer,
             Some(args.to.clone()),
             None,
         ));
-        return print_dry_run_envelope(envelope, format);
+        return print_dry_run_envelope(inv, envelope);
     }
-    let resolved = context.resolve_signer()?;
-    hyperliquid_cli::commands::transfers::spot_send(
-        &context.api_base_url(),
-        context.chain(),
-        &client,
-        &resolved.selected_signer(),
-        args,
-        format,
-    )
-    .await
+    let resolved = inv.resolve_signer()?;
+    hyperliquid_cli::commands::transfers::spot_send(inv, &resolved.selected_signer(), args).await
 }
 
 async fn transfer_send_asset(
-    context: &AppContext,
+    inv: &Invocation,
     args: &hyperliquid_cli::commands::transfers::SendAssetArgs,
-    format: output::OutputFormat,
-    dry_run: bool,
-    payload: Option<&serde_json::Value>,
 ) -> Result<(), anyhow::Error> {
     hyperliquid_cli::commands::transfers::validate_send_asset_args(args)?;
-    let client = context.http_client();
+    let client = inv.remote()?.client();
     let args_json =
-        hyperliquid_cli::commands::transfers::send_asset_dry_run_args(&client, args).await?;
-    if dry_run {
-        let signer = dry_run_signer_address(context);
+        hyperliquid_cli::commands::transfers::send_asset_dry_run_args(client, args).await?;
+    if inv.dry_run() {
+        let signer = dry_run_signer_address(inv);
         let envelope = transfer_dry_run_envelope(
+            inv,
             "transfer send-asset",
             hyperliquid_cli::commands::transfers::TransferActionKind::SendAsset,
             "send_asset",
             args_json,
-            payload,
         )
         .with_signing_context(DryRunSigningContext::new(
             signer,
             Some(args.to.clone()),
             None,
         ));
-        return print_dry_run_envelope(envelope, format);
+        return print_dry_run_envelope(inv, envelope);
     }
-    let resolved = context.resolve_signer()?;
-    hyperliquid_cli::commands::transfers::send_asset(
-        &context.api_base_url(),
-        context.chain(),
-        &client,
-        &resolved.selected_signer(),
-        args,
-        format,
-        true,
-    )
-    .await
+    let resolved = inv.resolve_signer()?;
+    hyperliquid_cli::commands::transfers::send_asset(inv, &resolved.selected_signer(), args).await
 }
 
 async fn transfer_withdraw(
-    context: &AppContext,
+    inv: &Invocation,
     args: &hyperliquid_cli::commands::transfers::WithdrawArgs,
-    format: output::OutputFormat,
-    dry_run: bool,
-    payload: Option<&serde_json::Value>,
 ) -> Result<(), anyhow::Error> {
     hyperliquid_cli::commands::transfers::validate_withdraw_args(args)?;
-    if dry_run {
+    if inv.dry_run() {
         let envelope = transfer_dry_run_envelope(
+            inv,
             "transfer withdraw",
             hyperliquid_cli::commands::transfers::TransferActionKind::Withdraw,
             "withdraw_usdc",
             serde_json::json!({"to": args.to, "amount": args.amount.to_string()}),
-            payload,
         );
-        return print_dry_run_envelope(envelope, format);
+        return print_dry_run_envelope(inv, envelope);
     }
-    let client = context.http_client();
-    let resolved = context.resolve_signer()?;
+    let resolved = inv.resolve_signer()?;
     hyperliquid_cli::commands::transfers::withdraw(
-        &context.api_base_url(),
-        context.chain(),
-        &client,
+        inv,
         &resolved.selected_signer(),
         resolved.query_address(),
         args,
-        format,
     )
     .await
 }
 
-async fn staking_summary(
-    context: &AppContext,
-    address: Option<&str>,
-    format: output::OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let address = resolve_protocol_user_string_or_selected(context, address)?;
-    hyperliquid_cli::commands::staking::summary(&context.api_base_url(), &address, format).await
-}
-
-async fn staking_validators(
-    context: &AppContext,
-    format: output::OutputFormat,
-) -> Result<(), anyhow::Error> {
-    hyperliquid_cli::commands::staking::validators(&context.api_base_url(), format).await
-}
-
-async fn staking_rewards(
-    context: &AppContext,
-    address: Option<&str>,
-    format: output::OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let address = resolve_protocol_user_string_or_selected(context, address)?;
-    hyperliquid_cli::commands::staking::rewards(&context.api_base_url(), &address, format).await
-}
-
-async fn staking_history(
-    context: &AppContext,
-    address: Option<&str>,
-    format: output::OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let address = resolve_protocol_user_string_or_selected(context, address)?;
-    hyperliquid_cli::commands::staking::history(&context.api_base_url(), &address, format).await
-}
-
 async fn staking_delegate(
-    context: &AppContext,
+    inv: &Invocation,
     args: &hyperliquid_cli::commands::staking::DelegateArgs,
-    format: output::OutputFormat,
-    dry_run: bool,
-    payload: Option<&serde_json::Value>,
 ) -> Result<(), anyhow::Error> {
     hyperliquid_cli::commands::staking::validate_delegate_args(args)?;
-    if dry_run {
+    if inv.dry_run() {
         let action_kind = hyperliquid_cli::commands::staking::StakingActionKind::Delegate;
         let args_json = hyperliquid_cli::commands::staking::delegate_dry_run_value(
-            context.chain(),
+            inv.remote()?.chain(),
             args,
             action_kind,
         )?;
         let envelope = signed_action_dry_run_envelope(
+            inv,
             "staking delegate",
             action_kind.would_execute(),
             action_kind.reversibility(),
             args_json,
-            payload,
-            default_dry_run_signing_context(context),
+            default_dry_run_signing_context(inv),
         );
-        return print_dry_run_envelope(envelope, format);
+        return print_dry_run_envelope(inv, envelope);
     }
-    let resolved = context.resolve_signer()?;
+    let resolved = inv.resolve_signer()?;
     let signer = resolved.selected_signer();
-    hyperliquid_cli::commands::staking::delegate(
-        &context.api_base_url(),
-        context.chain(),
-        &signer,
-        args,
-        format,
-    )
-    .await
+    hyperliquid_cli::commands::staking::delegate(inv, &signer, args).await
 }
 
 async fn staking_undelegate(
-    context: &AppContext,
+    inv: &Invocation,
     args: &hyperliquid_cli::commands::staking::DelegateArgs,
-    format: output::OutputFormat,
-    dry_run: bool,
-    payload: Option<&serde_json::Value>,
 ) -> Result<(), anyhow::Error> {
     hyperliquid_cli::commands::staking::validate_delegate_args(args)?;
-    if dry_run {
+    if inv.dry_run() {
         let action_kind = hyperliquid_cli::commands::staking::StakingActionKind::Undelegate;
         let args_json = hyperliquid_cli::commands::staking::delegate_dry_run_value(
-            context.chain(),
+            inv.remote()?.chain(),
             args,
             action_kind,
         )?;
         let envelope = signed_action_dry_run_envelope(
+            inv,
             "staking undelegate",
             action_kind.would_execute(),
             action_kind.reversibility(),
             args_json,
-            payload,
-            default_dry_run_signing_context(context),
+            default_dry_run_signing_context(inv),
         );
-        return print_dry_run_envelope(envelope, format);
+        return print_dry_run_envelope(inv, envelope);
     }
-    let resolved = context.resolve_signer()?;
+    let resolved = inv.resolve_signer()?;
     let signer = resolved.selected_signer();
-    hyperliquid_cli::commands::staking::undelegate(
-        &context.api_base_url(),
-        context.chain(),
-        &signer,
-        args,
-        format,
-    )
-    .await
+    hyperliquid_cli::commands::staking::undelegate(inv, &signer, args).await
 }
 
 async fn staking_deposit(
-    context: &AppContext,
+    inv: &Invocation,
     args: &hyperliquid_cli::commands::staking::AmountArgs,
-    format: output::OutputFormat,
-    dry_run: bool,
-    payload: Option<&serde_json::Value>,
 ) -> Result<(), anyhow::Error> {
     hyperliquid_cli::commands::staking::validate_amount_args(args)?;
-    if dry_run {
+    if inv.dry_run() {
         let action_kind = hyperliquid_cli::commands::staking::StakingActionKind::Deposit;
         let args_json = hyperliquid_cli::commands::staking::amount_dry_run_value(
-            context.chain(),
+            inv.remote()?.chain(),
             args,
             action_kind,
         )?;
         let envelope = signed_action_dry_run_envelope(
+            inv,
             "staking deposit",
             action_kind.would_execute(),
             action_kind.reversibility(),
             args_json,
-            payload,
-            default_dry_run_signing_context(context),
+            default_dry_run_signing_context(inv),
         );
-        return print_dry_run_envelope(envelope, format);
+        return print_dry_run_envelope(inv, envelope);
     }
-    let resolved = context.resolve_signer()?;
+    let resolved = inv.resolve_signer()?;
     let signer = resolved.selected_signer();
-    hyperliquid_cli::commands::staking::deposit(
-        &context.api_base_url(),
-        context.chain(),
-        &signer,
-        args,
-        format,
-    )
-    .await
+    hyperliquid_cli::commands::staking::deposit(inv, &signer, args).await
 }
 
 async fn staking_withdraw(
-    context: &AppContext,
+    inv: &Invocation,
     args: &hyperliquid_cli::commands::staking::AmountArgs,
-    format: output::OutputFormat,
-    dry_run: bool,
-    payload: Option<&serde_json::Value>,
 ) -> Result<(), anyhow::Error> {
     hyperliquid_cli::commands::staking::validate_amount_args(args)?;
-    if dry_run {
+    if inv.dry_run() {
         let action_kind = hyperliquid_cli::commands::staking::StakingActionKind::Withdraw;
         let args_json = hyperliquid_cli::commands::staking::amount_dry_run_value(
-            context.chain(),
+            inv.remote()?.chain(),
             args,
             action_kind,
         )?;
         let envelope = signed_action_dry_run_envelope(
+            inv,
             "staking withdraw",
             action_kind.would_execute(),
             action_kind.reversibility(),
             args_json,
-            payload,
-            default_dry_run_signing_context(context),
+            default_dry_run_signing_context(inv),
         );
-        return print_dry_run_envelope(envelope, format);
+        return print_dry_run_envelope(inv, envelope);
     }
-    let resolved = context.resolve_signer()?;
+    let resolved = inv.resolve_signer()?;
     let signer = resolved.selected_signer();
-    hyperliquid_cli::commands::staking::withdraw(
-        &context.api_base_url(),
-        context.chain(),
-        &signer,
-        args,
-        format,
-    )
-    .await
+    hyperliquid_cli::commands::staking::withdraw(inv, &signer, args).await
 }
 
-async fn staking_claim_rewards(
-    context: &AppContext,
-    format: output::OutputFormat,
-    dry_run: bool,
-    payload: Option<&serde_json::Value>,
-) -> Result<(), anyhow::Error> {
-    if dry_run {
+async fn staking_claim_rewards(inv: &Invocation) -> Result<(), anyhow::Error> {
+    if inv.dry_run() {
         let action_kind = hyperliquid_cli::commands::staking::StakingActionKind::ClaimRewards;
         let envelope = signed_action_dry_run_envelope(
+            inv,
             "staking claim-rewards",
             action_kind.would_execute(),
             action_kind.reversibility(),
-            hyperliquid_cli::commands::staking::claim_rewards_dry_run_value(context.chain()),
-            payload,
-            default_dry_run_signing_context(context),
+            hyperliquid_cli::commands::staking::claim_rewards_dry_run_value(inv.remote()?.chain()),
+            default_dry_run_signing_context(inv),
         );
-        return print_dry_run_envelope(envelope, format);
+        return print_dry_run_envelope(inv, envelope);
     }
-    let resolved = context.resolve_signer()?;
+    let resolved = inv.resolve_signer()?;
     let signer = resolved.selected_signer();
-    hyperliquid_cli::commands::staking::claim_rewards(
-        &context.api_base_url(),
-        context.chain(),
-        &signer,
-        format,
-    )
-    .await
+    hyperliquid_cli::commands::staking::claim_rewards(inv, &signer).await
 }
 
 async fn staking_link(
-    context: &AppContext,
+    inv: &Invocation,
     args: &hyperliquid_cli::commands::staking::LinkArgs,
     is_finalize: bool,
-    format: output::OutputFormat,
-    dry_run: bool,
-    payload: Option<&serde_json::Value>,
 ) -> Result<(), anyhow::Error> {
     hyperliquid_cli::commands::staking::validate_link_args(args)?;
     let phase = if is_finalize { "finalize" } else { "initiate" };
-    if dry_run {
+    if inv.dry_run() {
         let args_json = hyperliquid_cli::commands::staking::link_dry_run_value(
-            context.chain(),
+            inv.remote()?.chain(),
             args,
             is_finalize,
         )?;
@@ -3741,255 +2866,128 @@ async fn staking_link(
             hyperliquid_cli::commands::staking::StakingActionKind::LinkInitiate
         };
         let envelope = signed_action_dry_run_envelope(
+            inv,
             &format!("staking link {phase}"),
             action_kind.would_execute(),
             action_kind.reversibility(),
             args_json,
-            payload,
-            default_dry_run_signing_context(context),
+            default_dry_run_signing_context(inv),
         );
-        return print_dry_run_envelope(envelope, format);
+        return print_dry_run_envelope(inv, envelope);
     }
-    let resolved = context.resolve_signer()?;
+    let resolved = inv.resolve_signer()?;
     let signer = resolved.selected_signer();
-    hyperliquid_cli::commands::staking::link_staking_user(
-        &context.api_base_url(),
-        context.chain(),
-        &signer,
-        args,
-        is_finalize,
-        format,
-    )
-    .await
-}
-
-async fn vault_get(
-    context: &AppContext,
-    address: &str,
-    format: output::OutputFormat,
-) -> Result<(), anyhow::Error> {
-    hyperliquid_cli::commands::vaults::get(&context.api_base_url(), address, format).await
-}
-
-async fn vault_list(
-    context: &AppContext,
-    args: &hyperliquid_cli::commands::vaults::VaultListArgs,
-    format: output::OutputFormat,
-) -> Result<(), anyhow::Error> {
-    hyperliquid_cli::commands::vaults::list(&context.api_base_url(), args, format).await
-}
-
-async fn vault_search(
-    context: &AppContext,
-    args: &hyperliquid_cli::commands::vaults::VaultSearchArgs,
-    format: output::OutputFormat,
-) -> Result<(), anyhow::Error> {
-    hyperliquid_cli::commands::vaults::search(&context.api_base_url(), args, format).await
-}
-
-async fn vault_positions(
-    context: &AppContext,
-    address: &str,
-    format: output::OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let client = context.http_client();
-    hyperliquid_cli::commands::vaults::positions(&client, address, format).await
+    hyperliquid_cli::commands::staking::link_staking_user(inv, &signer, args, is_finalize).await
 }
 
 async fn vault_deposit(
-    context: &AppContext,
+    inv: &Invocation,
     args: &hyperliquid_cli::commands::vaults::VaultTransferArgs,
-    format: output::OutputFormat,
-    dry_run: bool,
-    payload: Option<&serde_json::Value>,
 ) -> Result<(), anyhow::Error> {
     hyperliquid_cli::commands::vaults::validate_transfer_args(args)?;
-    if dry_run {
+    if inv.dry_run() {
         let args_json = hyperliquid_cli::commands::vaults::transfer_dry_run_value(
-            context.chain(),
+            inv.remote()?.chain(),
             args,
             hyperliquid_cli::commands::vaults::VaultTransferActionKind::Deposit,
         )?;
         let envelope = signed_action_dry_run_envelope(
+            inv,
             "vault deposit",
             "deposit_usdc_to_vault",
             hyperliquid_cli::commands::vaults::VaultTransferActionKind::Deposit.reversibility(),
             args_json,
-            payload,
-            default_dry_run_signing_context(context),
+            default_dry_run_signing_context(inv),
         );
-        return print_dry_run_envelope(envelope, format);
+        return print_dry_run_envelope(inv, envelope);
     }
-    let resolved = context.resolve_signer()?;
-    hyperliquid_cli::commands::vaults::deposit(
-        &context.api_base_url(),
-        context.chain(),
-        &resolved.selected_signer(),
-        args,
-        format,
-    )
-    .await
+    let resolved = inv.resolve_signer()?;
+    hyperliquid_cli::commands::vaults::deposit(inv, &resolved.selected_signer(), args).await
 }
 
 async fn vault_withdraw(
-    context: &AppContext,
+    inv: &Invocation,
     args: &hyperliquid_cli::commands::vaults::VaultTransferArgs,
-    format: output::OutputFormat,
-    dry_run: bool,
-    payload: Option<&serde_json::Value>,
 ) -> Result<(), anyhow::Error> {
     hyperliquid_cli::commands::vaults::validate_transfer_args(args)?;
-    if dry_run {
+    if inv.dry_run() {
         let args_json = hyperliquid_cli::commands::vaults::transfer_dry_run_value(
-            context.chain(),
+            inv.remote()?.chain(),
             args,
             hyperliquid_cli::commands::vaults::VaultTransferActionKind::Withdraw,
         )?;
         let envelope = signed_action_dry_run_envelope(
+            inv,
             "vault withdraw",
             "withdraw_usdc_from_vault",
             hyperliquid_cli::commands::vaults::VaultTransferActionKind::Withdraw.reversibility(),
             args_json,
-            payload,
-            default_dry_run_signing_context(context),
+            default_dry_run_signing_context(inv),
         );
-        return print_dry_run_envelope(envelope, format);
+        return print_dry_run_envelope(inv, envelope);
     }
-    let resolved = context.resolve_signer()?;
-    hyperliquid_cli::commands::vaults::withdraw(
-        &context.api_base_url(),
-        context.chain(),
-        &resolved.selected_signer(),
-        args,
-        format,
-    )
-    .await
-}
-
-async fn borrowlend_rates(
-    context: &AppContext,
-    format: output::OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let client = context.http_client();
-    hyperliquid_cli::commands::borrowlend::rates(&client, &context.api_base_url(), format).await
-}
-
-async fn borrowlend_get(
-    context: &AppContext,
-    token: &str,
-    format: output::OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let client = context.http_client();
-    hyperliquid_cli::commands::borrowlend::get(&client, &context.api_base_url(), token, format)
-        .await
-}
-
-async fn borrowlend_user(
-    context: &AppContext,
-    address: Option<&str>,
-    format: output::OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let client = context.http_client();
-    let address = resolve_protocol_user_string_or_selected(context, address)?;
-    hyperliquid_cli::commands::borrowlend::user(&client, &address, format).await
+    let resolved = inv.resolve_signer()?;
+    hyperliquid_cli::commands::vaults::withdraw(inv, &resolved.selected_signer(), args).await
 }
 
 async fn borrowlend_action(
-    context: &AppContext,
+    inv: &Invocation,
     operation: hyperliquid_cli::commands::borrowlend::BorrowLendOperation,
     args: &hyperliquid_cli::commands::borrowlend::ActionArgs,
-    format: output::OutputFormat,
-    dry_run: bool,
-    payload: Option<&serde_json::Value>,
 ) -> Result<(), anyhow::Error> {
-    let client = context.http_client();
+    let client = inv.remote()?.client();
     let preview = hyperliquid_cli::commands::borrowlend::action_preview(
-        &client,
-        context.chain(),
+        client,
+        inv.remote()?.chain(),
         operation,
         args,
     )
     .await?;
-    if dry_run {
+    if inv.dry_run() {
         let envelope = signed_action_dry_run_envelope(
+            inv,
             &format!("borrowlend {}", operation.as_str()),
             &format!("{}_borrowlend", operation.as_str()),
             operation.reversibility(),
             preview,
-            payload,
-            default_dry_run_signing_context(context),
+            default_dry_run_signing_context(inv),
         );
-        return print_dry_run_envelope(envelope, format);
+        return print_dry_run_envelope(inv, envelope);
     }
 
-    let resolved = context.resolve_signer()?;
+    let resolved = inv.resolve_signer()?;
     let signer = resolved.selected_signer();
-    hyperliquid_cli::commands::borrowlend::action(
-        &client,
-        &context.api_base_url(),
-        context.chain(),
-        &signer,
-        operation,
-        args,
-        format,
-    )
-    .await
-}
-
-async fn prio_status(
-    context: &AppContext,
-    format: output::OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let client = context.http_client();
-    hyperliquid_cli::commands::prio::status(&client, format).await
+    hyperliquid_cli::commands::borrowlend::action(inv, &signer, operation, args).await
 }
 
 async fn prio_bid(
-    context: &AppContext,
+    inv: &Invocation,
     args: &hyperliquid_cli::commands::prio::BidArgs,
-    format: output::OutputFormat,
-    dry_run: bool,
-    payload: Option<&serde_json::Value>,
 ) -> Result<(), anyhow::Error> {
-    if dry_run {
+    if inv.dry_run() {
         return print_dry_run(
+            inv,
             "prio bid",
             dry_run_details(
+                inv,
                 "place_priority_auction_bid",
                 serde_json::json!({"ip": args.ip, "max": args.max.to_string(), "slot": args.slot}),
-                payload,
             ),
-            format,
         );
     }
-    let client = context.http_client();
-    let resolved = context.resolve_signer()?;
-    let signer = resolved.selected_signer();
-    hyperliquid_cli::commands::prio::bid(
-        &context.api_base_url(),
-        &client,
-        &signer,
-        context.chain(),
-        args,
-        format,
-    )
-    .await
+    let resolved = inv.resolve_signer()?;
+    hyperliquid_cli::commands::prio::bid(inv, &resolved.selected_signer(), args).await
 }
 
-async fn set_referral(
-    context: &AppContext,
-    code: Option<&str>,
-    format: output::OutputFormat,
-    dry_run: bool,
-    payload: Option<&serde_json::Value>,
-) -> Result<(), anyhow::Error> {
+async fn set_referral(inv: &Invocation, code: Option<&str>) -> Result<(), anyhow::Error> {
     let owned_default: Option<String>;
     let code: &str = match code {
         Some(code) => code,
         None => {
+            let remote = inv.remote()?;
             owned_default = hyperliquid_cli::commands::referral::resolve_default_referral_code(
-                &context.settings,
-                context.network.is_testnet(),
+                remote.settings(),
+                remote.network().is_testnet(),
             )?;
             match owned_default.as_deref() {
                 Some(default_code) => default_code,
@@ -4004,14 +3002,15 @@ async fn set_referral(
         }
     };
     hyperliquid_cli::commands::referral::validate_referral_code(code)?;
-    if dry_run {
-        let signer_context = context.resolve_signer().ok();
+    if inv.dry_run() {
+        let signer_context = inv.resolve_signer().ok();
         let envelope = signed_action_dry_run_envelope(
+            inv,
             "referral set",
             "set_referral_code",
             hyperliquid_cli::commands::referral::ReferralActionKind::Set.reversibility(),
             hyperliquid_cli::commands::referral::referral_dry_run_value(
-                context.chain(),
+                inv.remote()?.chain(),
                 signer_context.as_ref().map(|resolved| resolved.address()),
                 signer_context
                     .as_ref()
@@ -4019,39 +3018,26 @@ async fn set_referral(
                 code,
                 hyperliquid_cli::commands::referral::ReferralActionKind::Set,
             ),
-            payload,
-            default_dry_run_signing_context(context),
+            default_dry_run_signing_context(inv),
         );
-        return print_dry_run_envelope(envelope, format);
+        return print_dry_run_envelope(inv, envelope);
     }
-    let resolved = context.resolve_signer()?;
+    let resolved = inv.resolve_signer()?;
     let signer = resolved.selected_signer();
-    hyperliquid_cli::commands::referral::set(
-        &context.api_base_url(),
-        context.chain(),
-        &signer,
-        code,
-        format,
-    )
-    .await
+    hyperliquid_cli::commands::referral::set(inv, &signer, code).await
 }
 
-async fn register_referrer(
-    context: &AppContext,
-    code: &str,
-    format: output::OutputFormat,
-    dry_run: bool,
-    payload: Option<&serde_json::Value>,
-) -> Result<(), anyhow::Error> {
+async fn register_referrer(inv: &Invocation, code: &str) -> Result<(), anyhow::Error> {
     hyperliquid_cli::commands::referral::validate_referrer_code(code)?;
-    if dry_run {
-        let signer_context = context.resolve_signer().ok();
+    if inv.dry_run() {
+        let signer_context = inv.resolve_signer().ok();
         let envelope = signed_action_dry_run_envelope(
+            inv,
             "referral register",
             "register_referrer_code",
             hyperliquid_cli::commands::referral::ReferralActionKind::Register.reversibility(),
             hyperliquid_cli::commands::referral::referral_dry_run_value(
-                context.chain(),
+                inv.remote()?.chain(),
                 signer_context.as_ref().map(|resolved| resolved.address()),
                 signer_context
                     .as_ref()
@@ -4059,45 +3045,13 @@ async fn register_referrer(
                 code,
                 hyperliquid_cli::commands::referral::ReferralActionKind::Register,
             ),
-            payload,
-            default_dry_run_signing_context(context),
+            default_dry_run_signing_context(inv),
         );
-        return print_dry_run_envelope(envelope, format);
+        return print_dry_run_envelope(inv, envelope);
     }
-    let resolved = context.resolve_signer()?;
+    let resolved = inv.resolve_signer()?;
     let signer = resolved.selected_signer();
-    hyperliquid_cli::commands::referral::register(
-        &context.api_base_url(),
-        context.chain(),
-        &signer,
-        code,
-        format,
-    )
-    .await
-}
-
-async fn referral_status(
-    context: &AppContext,
-    format: output::OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let user = context.resolve_signer()?.query_address();
-    hyperliquid_cli::commands::referral::status(&context.api_base_url(), user, format).await
-}
-
-async fn load_trading_resolver(context: &AppContext) -> Result<AssetResolver, errors::CliError> {
-    match load_asset_resolver(context).await {
-        Ok(resolver) => Ok(resolver),
-        Err(_) => AssetResolver::load_raw(&context.api_base_url()).await,
-    }
-}
-
-async fn load_asset_resolver(context: &AppContext) -> Result<AssetResolver, errors::CliError> {
-    let client = context.http_client();
-    let metadata = ASSET_METADATA_CACHE
-        .get_or_init(MetadataCache::new)
-        .get_or_load(context.chain(), &client)
-        .await?;
-    Ok(AssetResolver::new(metadata))
+    hyperliquid_cli::commands::referral::register(inv, &signer, code).await
 }
 
 fn unimplemented_command_error() -> anyhow::Error {
@@ -4113,7 +3067,7 @@ fn ensure_outcome_coin(coin: &str) -> Result<(), errors::CliError> {
 }
 
 async fn maybe_hip3_dry_run_side_effect(
-    client: &HttpClient,
+    client: &hypersdk::hypercore::HttpClient,
     api_base_url: &str,
     user: hypersdk::Address,
     args: &hyperliquid_cli::commands::orders::CreateArgs,
@@ -4154,18 +3108,15 @@ fn preview_notional(
 }
 
 async fn chase_order(
-    context: &AppContext,
+    inv: &Invocation,
     args: &hyperliquid_cli::commands::orders::ChaseArgs,
-    format: output::OutputFormat,
-    dry_run: bool,
-    payload: Option<&serde_json::Value>,
 ) -> Result<(), anyhow::Error> {
     hyperliquid_cli::commands::orders::chase_dry_run_plan(args, None)?;
-    let client = context.http_client();
-    let resolver = load_trading_resolver(context).await?;
-    let vault_address = resolve_optional_acting_account_target(args.on_behalf_of.as_deref())?;
+    let client = inv.remote()?.client();
+    let resolver = inv.trading_resolver().await?;
+    let vault_address = resolve_optional_acting_account_target(inv, args.on_behalf_of.as_deref())?;
     let vault_address_string = vault_address.map(|address| address.to_string());
-    if dry_run {
+    if inv.dry_run() {
         let coin_key = qualify_dex_asset(args.dex.as_deref(), &args.coin);
         let mid = client
             .all_mids(None)
@@ -4174,87 +3125,70 @@ async fn chase_order(
             .and_then(|mids| mids.get(&coin_key).copied());
         let plan = hyperliquid_cli::commands::orders::chase_dry_run_plan(args, mid)?;
         let (signer, acting_as, vault_address_string) =
-            dry_run_vault_signing_addresses(context, vault_address_string);
+            dry_run_vault_signing_addresses(inv, vault_address_string);
         return print_dry_run(
+            inv,
             "orders chase",
-            dry_run_signed_details(
-                "chase",
-                plan,
-                payload,
-                signer,
-                acting_as,
-                vault_address_string,
-            ),
-            format,
+            dry_run_signed_details(inv, "chase", plan, signer, acting_as, vault_address_string),
         );
     }
-    let resolved_signer = context.resolve_signer()?;
+    let resolved_signer = inv.resolve_signer()?;
     let signer = resolved_signer.selected_signer();
-    let api_base_url = context.api_base_url();
     hyperliquid_cli::commands::orders::chase(
-        order_execution_context(context, &api_base_url, &client, &resolver, &signer),
+        order_execution_context(inv, &resolver, &signer)?,
         args,
         vault_address,
-        format,
     )
     .await
 }
 
 async fn bracket_order(
-    context: &AppContext,
+    inv: &Invocation,
     args: &hyperliquid_cli::commands::orders::BracketArgs,
-    format: output::OutputFormat,
-    dry_run: bool,
-    payload: Option<&serde_json::Value>,
 ) -> Result<(), anyhow::Error> {
     hyperliquid_cli::commands::orders::validate_bracket_args(args)?;
-    let client = context.http_client();
-    let resolver = load_trading_resolver(context).await?;
-    let vault_address = resolve_optional_acting_account_target(args.on_behalf_of.as_deref())?;
+    let client = inv.remote()?.client();
+    let resolver = inv.trading_resolver().await?;
+    let vault_address = resolve_optional_acting_account_target(inv, args.on_behalf_of.as_deref())?;
     let vault_address_string = vault_address.map(|address| address.to_string());
-    if dry_run {
-        let plan =
-            hyperliquid_cli::commands::orders::bracket_dry_run_plan(&client, &resolver, args)
-                .await?;
+    if inv.dry_run() {
+        let plan = hyperliquid_cli::commands::orders::bracket_dry_run_plan(client, &resolver, args)
+            .await?;
         let (signer, acting_as, vault_address_string) =
-            dry_run_vault_signing_addresses(context, vault_address_string);
+            dry_run_vault_signing_addresses(inv, vault_address_string);
         return print_dry_run(
+            inv,
             "orders bracket",
             dry_run_signed_details(
+                inv,
                 "bracket",
                 plan,
-                payload,
                 signer,
                 acting_as,
                 vault_address_string,
             ),
-            format,
         );
     }
-    let resolved_signer = context.resolve_signer()?;
+    let resolved_signer = inv.resolve_signer()?;
     let signer = resolved_signer.selected_signer();
-    let api_base_url = context.api_base_url();
     hyperliquid_cli::commands::orders::bracket(
-        order_execution_context(context, &api_base_url, &client, &resolver, &signer),
+        order_execution_context(inv, &resolver, &signer)?,
         args,
         vault_address,
-        format,
     )
     .await
 }
 
 async fn watch_risk_command(
-    context: &AppContext,
+    inv: &Invocation,
     args: &hyperliquid_cli::commands::watch_risk::WatchRiskArgs,
-    format: output::OutputFormat,
 ) -> Result<(), anyhow::Error> {
-    let client = context.http_client();
     let user = if let Some(raw) = args.user.as_deref() {
         hyperliquid_cli::commands::watch_risk::parse_watch_user(raw)?
     } else {
-        context.resolve_signer()?.query_address()
+        inv.resolve_signer()?.query_address()
     };
-    hyperliquid_cli::commands::watch_risk::watch_risk(&client, user, args, format).await
+    hyperliquid_cli::commands::watch_risk::watch_risk(inv, user, args).await
 }
 
 #[cfg(test)]

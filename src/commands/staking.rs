@@ -1,7 +1,5 @@
 //! Staking public queries and authenticated staking actions.
 
-use std::time::{Duration, Instant};
-
 use alloy::sol;
 use clap::Args;
 use hypersdk::hypercore::Chain;
@@ -13,7 +11,9 @@ use crate::commands::actions;
 use crate::dry_run::ActionReversibility;
 use crate::errors::CliError;
 use crate::http_api::post_info_json;
-use crate::output::{self, JsonValueOutput, OutputFormat, TableData};
+use crate::invocation::Invocation;
+use crate::mode::Mode;
+use crate::output::{self, JsonValueOutput, TableData};
 use crate::signing::SelectedSigner;
 
 const HYPE_WEI_SCALE: u64 = 100_000_000;
@@ -193,12 +193,6 @@ pub struct RewardsOutput {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ValidatorsOutput {
     rows: Vec<ValidatorSummary>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct StakingQueryResult<T> {
-    pub output: T,
-    pub elapsed: Duration,
 }
 
 struct ActionConfirmationContext<'a> {
@@ -557,110 +551,50 @@ impl TableData for LinkStakingOutput {
 }
 
 /// Show staking balance, delegations, and reward summary for an address.
-pub async fn summary(
-    api_base_url: &str,
-    address: &str,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let result = summary_query(api_base_url, address).await?;
-    output::print_data(&result.output, format, result.elapsed);
-    Ok(())
-}
-
-/// Show staking balance, delegations, and reward summary without printing it.
-pub async fn summary_query(
-    api_base_url: &str,
-    address: &str,
-) -> Result<StakingQueryResult<StakingSummaryOutput>, anyhow::Error> {
-    let start = Instant::now();
+pub async fn summary(inv: &Invocation, address: &str) -> Result<(), anyhow::Error> {
+    let api_base_url = inv.remote()?.api_base_url();
     validate_address(address)?;
     let summary = delegator_summary(api_base_url, address).await?;
     let delegations = delegations(api_base_url, address).await?;
     let rewards = rewards_rows(api_base_url, address).await?;
     let pending_rewards = rewards.iter().map(|row| row.total_amount).sum();
-    Ok(StakingQueryResult {
-        output: StakingSummaryOutput {
-            address: address.to_string(),
-            summary,
-            pending_rewards,
-            delegations,
-            rewards,
-        },
-        elapsed: start.elapsed(),
-    })
-}
-
-/// List validator summaries.
-pub async fn validators(api_base_url: &str, format: OutputFormat) -> Result<(), anyhow::Error> {
-    let result = validators_query(api_base_url).await?;
-    output::print_data(&result.output, format, result.elapsed);
+    inv.print(&StakingSummaryOutput {
+        address: address.to_string(),
+        summary,
+        pending_rewards,
+        delegations,
+        rewards,
+    });
     Ok(())
 }
 
-/// List validator summaries without printing them.
-pub async fn validators_query(
-    api_base_url: &str,
-) -> Result<StakingQueryResult<ValidatorsOutput>, anyhow::Error> {
-    let start = Instant::now();
+/// List validator summaries.
+pub async fn validators(inv: &Invocation) -> Result<(), anyhow::Error> {
     let rows = post_info::<Vec<ValidatorSummary>>(
-        api_base_url,
+        inv.remote()?.api_base_url(),
         &InfoRequest {
             request_type: "validatorSummaries",
             user: None,
         },
     )
     .await?;
-    Ok(StakingQueryResult {
-        output: ValidatorsOutput { rows },
-        elapsed: start.elapsed(),
-    })
+    inv.print(&ValidatorsOutput { rows });
+    Ok(())
 }
 
 /// Show staking reward rows for an address.
-pub async fn rewards(
-    api_base_url: &str,
-    address: &str,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let result = rewards_query(api_base_url, address).await?;
-    output::print_data(&result.output, format, result.elapsed);
-    Ok(())
-}
-
-/// Show staking reward rows without printing them.
-pub async fn rewards_query(
-    api_base_url: &str,
-    address: &str,
-) -> Result<StakingQueryResult<RewardsOutput>, anyhow::Error> {
-    let start = Instant::now();
+pub async fn rewards(inv: &Invocation, address: &str) -> Result<(), anyhow::Error> {
     validate_address(address)?;
-    let rows = rewards_rows(api_base_url, address).await?;
-    Ok(StakingQueryResult {
-        output: RewardsOutput { rows },
-        elapsed: start.elapsed(),
-    })
+    let rows = rewards_rows(inv.remote()?.api_base_url(), address).await?;
+    inv.print(&RewardsOutput { rows });
+    Ok(())
 }
 
 /// Show staking delegation and withdrawal history for an address.
-pub async fn history(
-    api_base_url: &str,
-    address: &str,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let result = history_query(api_base_url, address).await?;
-    output::print_data(&result.output, format, result.elapsed);
-    Ok(())
-}
-
-/// Show staking delegation and withdrawal history without printing it.
-pub async fn history_query(
-    api_base_url: &str,
-    address: &str,
-) -> Result<StakingQueryResult<JsonValueOutput>, anyhow::Error> {
-    let start = Instant::now();
+pub async fn history(inv: &Invocation, address: &str) -> Result<(), anyhow::Error> {
     validate_address(address)?;
     let value = post_info_json::<serde_json::Value>(
-        api_base_url,
+        inv.remote()?.api_base_url(),
         &InfoRequest {
             request_type: "delegatorHistory",
             user: Some(address),
@@ -668,43 +602,36 @@ pub async fn history_query(
         "loading staking history",
     )
     .await?;
-    Ok(StakingQueryResult {
-        output: JsonValueOutput::new(value, "No staking history."),
-        elapsed: start.elapsed(),
-    })
+    inv.print(&JsonValueOutput::new(value, "No staking history."));
+    Ok(())
 }
 
 /// Delegate HYPE to a validator.
 pub async fn delegate(
-    api_base_url: &str,
-    chain: Chain,
+    inv: &Invocation,
     signer: &SelectedSigner,
     args: &DelegateArgs,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
-    token_delegate(api_base_url, chain, signer, args, false, format).await
+    token_delegate(inv, signer, args, false).await
 }
 
 /// Undelegate HYPE from a validator.
 pub async fn undelegate(
-    api_base_url: &str,
-    chain: Chain,
+    inv: &Invocation,
     signer: &SelectedSigner,
     args: &DelegateArgs,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
-    token_delegate(api_base_url, chain, signer, args, true, format).await
+    token_delegate(inv, signer, args, true).await
 }
 
 /// Move HYPE from spot to staking balance.
 pub async fn deposit(
-    api_base_url: &str,
-    chain: Chain,
+    inv: &Invocation,
     signer: &SelectedSigner,
     args: &AmountArgs,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
-    let start = Instant::now();
+    let remote = inv.remote()?;
+    let (api_base_url, chain) = (remote.api_base_url(), remote.chain());
     let wei = validate_amount_to_wei(args.amount)?;
     let nonce = actions::nonce_now();
     let signature_chain_id = chain.arbitrum_id().to_string();
@@ -730,6 +657,7 @@ pub async fn deposit(
     )
     .await?;
     print_action_confirmation(
+        inv,
         ActionConfirmationContext {
             chain,
             signer,
@@ -739,21 +667,18 @@ pub async fn deposit(
         args.amount,
         None,
         None,
-        format,
-        start,
     );
     Ok(())
 }
 
 /// Queue HYPE withdrawal from staking to spot balance.
 pub async fn withdraw(
-    api_base_url: &str,
-    chain: Chain,
+    inv: &Invocation,
     signer: &SelectedSigner,
     args: &AmountArgs,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
-    let start = Instant::now();
+    let remote = inv.remote()?;
+    let (api_base_url, chain) = (remote.api_base_url(), remote.chain());
     let wei = validate_amount_to_wei(args.amount)?;
     let nonce = actions::nonce_now();
     let signature_chain_id = chain.arbitrum_id().to_string();
@@ -779,6 +704,7 @@ pub async fn withdraw(
     )
     .await?;
     print_action_confirmation(
+        inv,
         ActionConfirmationContext {
             chain,
             signer,
@@ -788,20 +714,14 @@ pub async fn withdraw(
         args.amount,
         None,
         Some("7-day withdrawal queue before funds become available in spot".to_string()),
-        format,
-        start,
     );
     Ok(())
 }
 
 /// Claim available staking rewards.
-pub async fn claim_rewards(
-    api_base_url: &str,
-    chain: Chain,
-    signer: &SelectedSigner,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let start = Instant::now();
+pub async fn claim_rewards(inv: &Invocation, signer: &SelectedSigner) -> Result<(), anyhow::Error> {
+    let remote = inv.remote()?;
+    let (api_base_url, chain) = (remote.api_base_url(), remote.chain());
     actions::send_raw_l1_json_action(
         api_base_url,
         chain,
@@ -814,6 +734,7 @@ pub async fn claim_rewards(
     )
     .await?;
     print_action_confirmation(
+        inv,
         ActionConfirmationContext {
             chain,
             signer,
@@ -823,8 +744,6 @@ pub async fn claim_rewards(
         Decimal::ZERO,
         None,
         None,
-        format,
-        start,
     );
     Ok(())
 }
@@ -928,18 +847,17 @@ pub fn claim_rewards_dry_run_value(chain: Chain) -> serde_json::Value {
 
 /// Link staking and trading accounts for fee discount attribution.
 pub async fn link_staking_user(
-    api_base_url: &str,
-    chain: Chain,
+    inv: &Invocation,
     signer: &SelectedSigner,
     args: &LinkArgs,
     is_finalize: bool,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
-    let start = Instant::now();
     let user = validate_link_user_address(&args.user)?;
     if !args.yes {
-        confirm_staking_link(user, is_finalize)?;
+        confirm_staking_link(inv.mode(), user, is_finalize)?;
     }
+    let remote = inv.remote()?;
+    let (api_base_url, chain) = (remote.api_base_url(), remote.chain());
 
     let nonce = actions::nonce_now();
     let signature_chain_id = chain.arbitrum_id().to_string();
@@ -966,27 +884,21 @@ pub async fn link_staking_user(
     )
     .await?;
 
-    output::print_data(
-        &LinkStakingOutput {
-            row: LinkStakingConfirmation {
-                status: "submitted".to_string(),
-                action: "staking-link".to_string(),
-                phase: link_phase(is_finalize).to_string(),
-                acting_as: signer.query_address().to_string(),
-                signer: signer.address().to_string(),
-                user: user.to_string(),
-                is_finalize,
-                network: chain.to_string(),
-                reversibility: format_reversibility(
-                    action_kind_for_link(is_finalize).reversibility(),
-                )
+    inv.print(&LinkStakingOutput {
+        row: LinkStakingConfirmation {
+            status: "submitted".to_string(),
+            action: "staking-link".to_string(),
+            phase: link_phase(is_finalize).to_string(),
+            acting_as: signer.query_address().to_string(),
+            signer: signer.address().to_string(),
+            user: user.to_string(),
+            is_finalize,
+            network: chain.to_string(),
+            reversibility: format_reversibility(action_kind_for_link(is_finalize).reversibility())
                 .to_string(),
-                warning: STAKING_LINK_WARNING.to_string(),
-            },
+            warning: STAKING_LINK_WARNING.to_string(),
         },
-        format,
-        start.elapsed(),
-    );
+    });
     Ok(())
 }
 
@@ -1007,14 +919,13 @@ pub fn validate_link_args(args: &LinkArgs) -> Result<(), CliError> {
 }
 
 async fn token_delegate(
-    api_base_url: &str,
-    chain: Chain,
+    inv: &Invocation,
     signer: &SelectedSigner,
     args: &DelegateArgs,
     is_undelegate: bool,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
-    let start = Instant::now();
+    let remote = inv.remote()?;
+    let (api_base_url, chain) = (remote.api_base_url(), remote.chain());
     let validator = validate_validator_address(&args.validator)?;
     let wei = validate_amount_to_wei(args.amount)?;
     let nonce = actions::nonce_now();
@@ -1051,6 +962,7 @@ async fn token_delegate(
         "delegate"
     };
     print_action_confirmation(
+        inv,
         ActionConfirmationContext {
             chain,
             signer,
@@ -1064,8 +976,6 @@ async fn token_delegate(
         args.amount,
         Some(args.validator.clone()),
         None,
-        format,
-        start,
     );
     Ok(())
 }
@@ -1187,12 +1097,12 @@ fn action_kind_for_link(is_finalize: bool) -> StakingActionKind {
     }
 }
 
-fn confirm_staking_link(user: Address, is_finalize: bool) -> Result<(), CliError> {
+fn confirm_staking_link(mode: &Mode, user: Address, is_finalize: bool) -> Result<(), CliError> {
     let phase = link_phase(is_finalize);
-    crate::prompt::ensure_can_prompt("--yes")?;
+    crate::prompt::ensure_can_prompt(mode, "--yes")?;
     eprintln!("{STAKING_LINK_WARNING}");
     let question = format!("Submit staking link {phase} for user {user}?");
-    if crate::prompt::confirm_warning(&question, "--yes")? {
+    if crate::prompt::confirm_warning(mode, &question, "--yes")? {
         Ok(())
     } else {
         Err(CliError::Configuration(
@@ -1202,33 +1112,27 @@ fn confirm_staking_link(user: Address, is_finalize: bool) -> Result<(), CliError
 }
 
 fn print_action_confirmation(
+    inv: &Invocation,
     context: ActionConfirmationContext<'_>,
     action: &str,
     amount: Decimal,
     validator: Option<String>,
     note: Option<String>,
-    format: OutputFormat,
-    start: Instant,
 ) {
-    output::print_data(
-        &ActionOutput {
-            row: ActionConfirmation {
-                action: action.to_string(),
-                status: "submitted".to_string(),
-                network: context.chain.to_string(),
-                signer: context.signer.address().to_string(),
-                acting_as: context.signer.query_address().to_string(),
-                reversibility: format_reversibility(context.action_kind.reversibility())
-                    .to_string(),
-                amount,
-                asset: "HYPE".to_string(),
-                validator,
-                note,
-            },
+    inv.print(&ActionOutput {
+        row: ActionConfirmation {
+            action: action.to_string(),
+            status: "submitted".to_string(),
+            network: context.chain.to_string(),
+            signer: context.signer.address().to_string(),
+            acting_as: context.signer.query_address().to_string(),
+            reversibility: format_reversibility(context.action_kind.reversibility()).to_string(),
+            amount,
+            asset: "HYPE".to_string(),
+            validator,
+            note,
         },
-        format,
-        start.elapsed(),
-    );
+    });
 }
 
 fn format_reversibility(reversibility: ActionReversibility) -> &'static str {

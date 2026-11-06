@@ -52,8 +52,6 @@ impl From<AssetError> for CliError {
     }
 }
 
-pub(crate) use crate::errors::from_sdk as map_api_error;
-
 #[cfg(test)]
 mod tests {
     use super::*;

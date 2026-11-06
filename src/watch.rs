@@ -18,7 +18,7 @@ use futures::StreamExt;
 use hypersdk::hypercore::{Chain, Subscription, WebSocket, ws::Event as WsEvent};
 
 use crate::errors::CliError;
-use crate::output::{self, OutputFormat, TableData, terminal};
+use crate::output::{self, OutputFormat, Session, TableData, terminal};
 use crate::stream::{
     CONNECTION_LOST_NOTICE, EXIT_SIGINT, JSON_LINES_STDIN_NOTICE, JSON_LINES_STDOUT_NOTICE,
     StreamBounds, StreamEnd, run_stream, write_stdout_line,
@@ -56,6 +56,7 @@ trait WatchOutput {
 
     fn render_tui(
         &mut self,
+        session: &Session,
         title: &str,
         data: &dyn TableData,
         format: OutputFormat,
@@ -106,12 +107,13 @@ impl WatchOutput for StdoutWatchOutput {
 
     fn render_tui(
         &mut self,
+        session: &Session,
         title: &str,
         data: &dyn TableData,
         format: OutputFormat,
         connection_lost: bool,
     ) -> Result<(), anyhow::Error> {
-        render_tui(title, data, format, connection_lost).map_err(Into::into)
+        render_tui(session, title, data, format, connection_lost).map_err(Into::into)
     }
 }
 
@@ -158,10 +160,10 @@ impl WatchInput for RealWatchInput {
 
 /// Run a refresh-in-place watch loop for data that can be fetched as snapshots.
 pub async fn run_snapshot_watch<T, F, Fut>(
+    session: &Session,
     title: &str,
     chain: Chain,
     subscriptions: Vec<Subscription>,
-    format: OutputFormat,
     max_ticks: Option<usize>,
     refresh: F,
 ) -> Result<(), anyhow::Error>
@@ -170,6 +172,7 @@ where
     F: FnMut() -> Fut,
     Fut: Future<Output = Result<T, anyhow::Error>>,
 {
+    let format = session.format();
     let bounds = StreamBounds::snapshot_watch(max_ticks);
     let stdin_is_tty = terminal::stdin_is_terminal();
     let stdout_is_tty = terminal::stdout_is_terminal();
@@ -202,6 +205,7 @@ where
         match render_mode {
             SnapshotWatchRenderMode::Ndjson => {
                 run_snapshot_watch_core(
+                    session,
                     title,
                     OutputFormat::Json,
                     bounds.max_items,
@@ -214,6 +218,7 @@ where
             SnapshotWatchRenderMode::Tui(format) => {
                 let _terminal = TerminalGuard::enter()?;
                 run_snapshot_watch_core(
+                    session,
                     title,
                     format,
                     bounds.max_items,
@@ -229,6 +234,7 @@ where
 }
 
 async fn run_snapshot_watch_core<T, F, Fut, I, O>(
+    session: &Session,
     title: &str,
     format: OutputFormat,
     max_ticks: Option<usize>,
@@ -251,9 +257,9 @@ where
     loop {
         let snapshot = refresh().await?;
         if format == OutputFormat::Json {
-            output.emit_json(&output::render_json_compact(&snapshot)?)?;
+            output.emit_json(&session.render_json_line(&snapshot)?)?;
         } else {
-            output.render_tui(title, &snapshot, format, connection_lost)?;
+            output.render_tui(session, title, &snapshot, format, connection_lost)?;
         }
 
         rendered_ticks += 1;
@@ -315,14 +321,14 @@ fn non_tty_watch_error_message(stdin_is_tty: bool, stdout_is_tty: bool) -> Strin
 }
 
 fn render_tui(
+    session: &Session,
     title: &str,
     data: &dyn TableData,
     format: OutputFormat,
     connection_lost: bool,
 ) -> Result<(), io::Error> {
     let body = match format {
-        OutputFormat::Pretty => output::render_pretty(data),
-        OutputFormat::Table => output::render_table(data),
+        OutputFormat::Pretty | OutputFormat::Table => session.render_as(data, format),
         OutputFormat::Json => unreachable!("JSON watch mode bypasses TUI rendering"),
     };
 
@@ -541,6 +547,7 @@ mod tests {
 
         fn render_tui(
             &mut self,
+            _session: &Session,
             title: &str,
             data: &dyn TableData,
             format: OutputFormat,
@@ -571,6 +578,7 @@ mod tests {
         let mut output = CapturingOutput::default();
 
         run_snapshot_watch_core(
+            &Session::for_test(OutputFormat::Pretty),
             "Live test",
             OutputFormat::Json,
             Some(2),
@@ -593,6 +601,7 @@ mod tests {
         let mut output = CapturingOutput::default();
 
         run_snapshot_watch_core(
+            &Session::for_test(OutputFormat::Pretty),
             "Live TUI",
             OutputFormat::Pretty,
             Some(1),
@@ -617,6 +626,7 @@ mod tests {
         let mut output = CapturingOutput::default();
 
         run_snapshot_watch_core(
+            &Session::for_test(OutputFormat::Pretty),
             "Live TUI",
             OutputFormat::Table,
             None,
@@ -638,6 +648,7 @@ mod tests {
         let mut output = CapturingOutput::default();
 
         run_snapshot_watch_core(
+            &Session::for_test(OutputFormat::Pretty),
             "Live TUI",
             OutputFormat::Pretty,
             None,
@@ -660,6 +671,7 @@ mod tests {
         let mut output = CapturingOutput::default();
 
         run_snapshot_watch_core(
+            &Session::for_test(OutputFormat::Pretty),
             "Live TUI",
             OutputFormat::Pretty,
             Some(2),
@@ -681,6 +693,7 @@ mod tests {
         let mut output = CapturingOutput::default();
 
         run_snapshot_watch_core(
+            &Session::for_test(OutputFormat::Pretty),
             "Live TUI",
             OutputFormat::Pretty,
             Some(2),
@@ -702,6 +715,7 @@ mod tests {
         let mut output = CapturingOutput::default();
 
         let result = run_snapshot_watch_core(
+            &Session::for_test(OutputFormat::Pretty),
             "Live TUI",
             OutputFormat::Pretty,
             None,
@@ -737,6 +751,7 @@ mod tests {
         let mut output = CapturingOutput::default();
 
         let end = run_snapshot_watch_core(
+            &Session::for_test(OutputFormat::Pretty),
             "Live TUI",
             OutputFormat::Pretty,
             None,
@@ -758,6 +773,7 @@ mod tests {
         let mut output = CapturingOutput::default();
 
         let end = run_snapshot_watch_core(
+            &Session::for_test(OutputFormat::Pretty),
             "Live TUI",
             OutputFormat::Pretty,
             Some(3),

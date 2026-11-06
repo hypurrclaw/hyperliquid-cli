@@ -7,8 +7,8 @@ use std::time::{Duration, Instant};
 use hypersdk::hypercore::{self, Chain, Dex, HttpClient, PerpMarket, SpotMarket};
 use serde::Deserialize;
 
-use crate::commands::map_api_error;
 use crate::errors::CliError;
+use crate::errors::from_sdk;
 use crate::http_api::post_info_json;
 use crate::network::Network;
 use crate::settings::Settings;
@@ -37,7 +37,7 @@ impl AssetMetadata {
     ///
     /// HIP-3 markets are not loaded here; they are looked up live on demand.
     pub async fn load(client: &HttpClient) -> Result<Self, CliError> {
-        let default_perps = client.perps().await.map_err(map_api_error)?;
+        let default_perps = client.perps().await.map_err(from_sdk)?;
         let spots = load_spot_markets(client)
             .await?
             .into_iter()
@@ -252,7 +252,7 @@ pub async fn load_spot_markets(client: &HttpClient) -> Result<Vec<SpotListing>, 
                 let api_url = raw_info_base_url(client)?;
                 Ok::<_, CliError>(load_raw_spot_meta(api_url.as_str()).await?.into_listings())
             };
-            raw.await.map_err(|_| map_api_error(spot_err))
+            raw.await.map_err(|_| from_sdk(spot_err))
         }
     }
 }
@@ -344,7 +344,7 @@ pub(crate) async fn find_perp_dex(client: &HttpClient, dex_name: &str) -> Result
     client
         .perp_dexes()
         .await
-        .map_err(map_api_error)?
+        .map_err(from_sdk)?
         .into_iter()
         .find(|dex| dex.name().eq_ignore_ascii_case(dex_name))
         .ok_or_else(|| CliError::Unsupported(format!("Unknown DEX: {dex_name}")))
@@ -364,7 +364,7 @@ pub(crate) async fn load_hip3_market(
     let market = client
         .perps_from(dex)
         .await
-        .map_err(map_api_error)?
+        .map_err(from_sdk)?
         .into_iter()
         .find(|market| {
             let display_token = market.name.strip_prefix(&prefix).unwrap_or(&market.name);

@@ -12,6 +12,7 @@ use hypersdk::Address;
 
 use crate::auth::lookup_account_address;
 use crate::errors::CliError;
+use crate::mode::Mode;
 use crate::settings::Settings;
 
 macro_rules! address_class {
@@ -55,24 +56,17 @@ address_class!(
 pub fn resolve_protocol_user_address(
     selector: &str,
     settings: &Settings,
+    mode: &Mode,
 ) -> Result<ProtocolUserAddress, anyhow::Error> {
-    lookup_account_address(selector, settings).map(ProtocolUserAddress)
+    lookup_account_address(selector, settings, mode).map(ProtocolUserAddress)
 }
 
 pub fn resolve_acting_account_address(
     selector: &str,
     settings: &Settings,
+    mode: &Mode,
 ) -> Result<ActingAccountAddress, anyhow::Error> {
-    lookup_account_address(selector, settings).map(ActingAccountAddress)
-}
-
-pub fn resolve_optional_acting_account_address(
-    selector: Option<&str>,
-    settings: &Settings,
-) -> Result<Option<ActingAccountAddress>, anyhow::Error> {
-    selector
-        .map(|selector| resolve_acting_account_address(selector, settings))
-        .transpose()
+    lookup_account_address(selector, settings, mode).map(ActingAccountAddress)
 }
 
 pub fn parse_protocol_object_address(value: &str) -> Result<ProtocolObjectAddress, CliError> {
@@ -139,10 +133,13 @@ mod tests {
         let settings =
             Settings::detached(crate::settings::EnvSource::fixed::<&str, &str>([]), None);
         let address = "0x0000000000000000000000000000000000000001";
-        let user = resolve_protocol_user_address(&format!(" {address} "), &settings).unwrap();
+        let user =
+            resolve_protocol_user_address(&format!(" {address} "), &settings, &Mode::default())
+                .unwrap();
         assert_eq!(user.to_string().to_lowercase(), address);
 
-        let err = resolve_acting_account_address("0xnothex", &settings).unwrap_err();
+        let err =
+            resolve_acting_account_address("0xnothex", &settings, &Mode::default()).unwrap_err();
         assert!(err.to_string().contains("Invalid address"));
     }
 }

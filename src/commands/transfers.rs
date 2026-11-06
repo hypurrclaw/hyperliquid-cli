@@ -1,7 +1,5 @@
 //! Authenticated transfer commands.
 
-use std::time::Instant;
-
 use alloy::sol;
 use clap::Args;
 use hypersdk::hypercore::types::{Action, AssetTarget, SendAsset, SendToken, SpotSend, UsdSend};
@@ -12,11 +10,13 @@ use hypersdk::{Address, Decimal};
 use serde::Serialize;
 
 use crate::commands::actions;
-use crate::commands::map_api_error;
 use crate::commands::spot_balances::user_spot_balances_raw;
 use crate::dry_run::ActionReversibility;
 use crate::errors::CliError;
-use crate::output::{self, OutputFormat, TableData};
+use crate::errors::from_sdk;
+use crate::invocation::{Invocation, Remote};
+use crate::mode::Mode;
+use crate::output::TableData;
 
 sol! {
     struct UsdClassTransfer {
@@ -249,54 +249,22 @@ struct TransferConfirmationContext {
 
 /// Transfer USDC from spot balance to perpetual balance.
 pub async fn spot_to_perp(
-    api_base_url: &str,
-    chain: Chain,
-    client: &HttpClient,
+    inv: &Invocation,
     signer: &SelectedSigner,
     balance_user: Address,
     args: &ClassTransferArgs,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
-    class_transfer(
-        ClassTransferRuntime {
-            api_base_url,
-            chain,
-            client,
-            signer,
-            balance_user,
-        },
-        args.amount,
-        true,
-        args.yes,
-        format,
-    )
-    .await
+    class_transfer(inv, signer, balance_user, args.amount, true, args.yes).await
 }
 
 /// Transfer USDC from perpetual balance to spot balance.
 pub async fn perp_to_spot(
-    api_base_url: &str,
-    chain: Chain,
-    client: &HttpClient,
+    inv: &Invocation,
     signer: &SelectedSigner,
     balance_user: Address,
     args: &ClassTransferArgs,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
-    class_transfer(
-        ClassTransferRuntime {
-            api_base_url,
-            chain,
-            client,
-            signer,
-            balance_user,
-        },
-        args.amount,
-        false,
-        args.yes,
-        format,
-    )
-    .await
+    class_transfer(inv, signer, balance_user, args.amount, false, args.yes).await
 }
 
 pub fn validate_class_transfer_args(args: &ClassTransferArgs) -> Result<(), CliError> {
@@ -371,17 +339,15 @@ pub async fn send_asset_dry_run_args(
 
 /// Send USDC from perp balance to another Hyperliquid address.
 pub async fn send(
-    api_base_url: &str,
-    chain: Chain,
-    client: &HttpClient,
+    inv: &Invocation,
     signer: &SelectedSigner,
     balance_user: Address,
     args: &SendArgs,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
+    let remote = inv.remote()?;
+    let (api_base_url, chain, client) = (remote.api_base_url(), remote.chain(), remote.client());
     validate_positive_amount(args.amount)?;
     let destination = parse_address(&args.to, "--to")?;
-    let start = Instant::now();
     ensure_perp_balance(client, balance_user, args.amount).await?;
     let prompt = external_transfer_prompt(
         &format!("Send {} USDC to {}?", args.amount, args.to),
@@ -397,7 +363,7 @@ pub async fn send(
             reversibility: TransferActionKind::Send.reversibility(),
         },
     );
-    confirm_transfer(&prompt, "send transfer aborted", args.yes)?;
+    confirm_transfer(inv.mode(), &prompt, "send transfer aborted", args.yes)?;
 
     let nonce = actions::nonce_now();
     let action = Action::UsdSend(
@@ -411,29 +377,26 @@ pub async fn send(
     actions::send_l1_action(api_base_url, chain, signer, action, nonce).await?;
 
     print_transfer(
+        inv,
         "send",
         args.amount,
         "USDC".to_string(),
         Some(args.to.clone()),
-        format,
-        start,
     );
     Ok(())
 }
 
 /// Send a spot token to another Hyperliquid address.
 pub async fn spot_send(
-    api_base_url: &str,
-    chain: Chain,
-    client: &HttpClient,
+    inv: &Invocation,
     signer: &SelectedSigner,
     args: &SpotSendArgs,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
+    let remote = inv.remote()?;
+    let (api_base_url, chain, client) = (remote.api_base_url(), remote.chain(), remote.client());
     validate_spot_send_args(args)?;
     let destination = parse_address(&args.to, "--to")?;
     let token = resolve_spot_token(client, &args.token).await?;
-    let start = Instant::now();
     let prompt = external_transfer_prompt(
         &format!(
             "Send {} {} spot token to {}?",
@@ -451,7 +414,7 @@ pub async fn spot_send(
             reversibility: TransferActionKind::SpotSend.reversibility(),
         },
     );
-    confirm_transfer(&prompt, "spot send transfer aborted", args.yes)?;
+    confirm_transfer(inv.mode(), &prompt, "spot send transfer aborted", args.yes)?;
 
     let nonce = actions::nonce_now();
     let spot_send = SpotSend {
@@ -465,32 +428,45 @@ pub async fn spot_send(
     actions::send_l1_action(api_base_url, chain, signer, action, nonce).await?;
 
     print_transfer(
+        inv,
         "spot-send",
         args.amount,
         token.name,
         Some(args.to.clone()),
-        format,
-        start,
     );
     Ok(())
 }
 
 /// Send an asset between accounts, spot, perp, or DEX contexts.
 pub async fn send_asset(
-    api_base_url: &str,
-    chain: Chain,
-    client: &HttpClient,
+    inv: &Invocation,
     signer: &SelectedSigner,
     args: &SendAssetArgs,
-    format: OutputFormat,
-    emit_output: bool,
 ) -> Result<(), anyhow::Error> {
+    let token_name = execute_send_asset(inv.mode(), inv.remote()?, signer, args).await?;
+    print_transfer(
+        inv,
+        "send-asset",
+        args.amount,
+        token_name,
+        Some(args.to.clone()),
+    );
+    Ok(())
+}
+
+/// Sign and submit a `sendAsset` action without printing a receipt.
+pub async fn execute_send_asset(
+    mode: &Mode,
+    remote: &Remote,
+    signer: &SelectedSigner,
+    args: &SendAssetArgs,
+) -> Result<String, anyhow::Error> {
+    let (api_base_url, chain, client) = (remote.api_base_url(), remote.chain(), remote.client());
     validate_send_asset_args(args)?;
     let destination = parse_address(&args.to, "--to")?;
     let token = resolve_spot_token(client, &args.token).await?;
     let source = parse_asset_target(&args.source, "--source")?;
     let dest = parse_asset_target(&args.dest, "--dest")?;
-    let start = Instant::now();
     let prompt = external_transfer_prompt(
         &format!(
             "Send {} {} from {} to {} for {}?",
@@ -508,7 +484,7 @@ pub async fn send_asset(
             reversibility: TransferActionKind::SendAsset.reversibility(),
         },
     );
-    confirm_transfer(&prompt, "send-asset transfer aborted", args.yes)?;
+    confirm_transfer(mode, &prompt, "send-asset transfer aborted", args.yes)?;
 
     let nonce = actions::nonce_now();
     let send_asset = SendAsset {
@@ -523,32 +499,20 @@ pub async fn send_asset(
     .into_action(chain);
     let action = Action::SendAsset(send_asset);
     actions::send_l1_action(api_base_url, chain, signer, action, nonce).await?;
-    if emit_output {
-        print_transfer(
-            "send-asset",
-            args.amount,
-            token.name,
-            Some(args.to.clone()),
-            format,
-            start,
-        );
-    }
-    Ok(())
+    Ok(token.name)
 }
 
 /// Withdraw USDC to an Arbitrum address.
 pub async fn withdraw(
-    api_base_url: &str,
-    chain: Chain,
-    client: &HttpClient,
+    inv: &Invocation,
     signer: &SelectedSigner,
     balance_user: Address,
     args: &WithdrawArgs,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
+    let remote = inv.remote()?;
+    let (api_base_url, chain, client) = (remote.api_base_url(), remote.chain(), remote.client());
     validate_positive_amount(args.amount)?;
     let destination = parse_address(&args.to, "--to")?;
-    let start = Instant::now();
     ensure_perp_balance(client, balance_user, args.amount).await?;
     let prompt = external_transfer_prompt(
         &format!(
@@ -567,7 +531,7 @@ pub async fn withdraw(
             reversibility: TransferActionKind::Withdraw.reversibility(),
         },
     );
-    confirm_transfer(&prompt, "withdraw transfer aborted", args.yes)?;
+    confirm_transfer(inv.mode(), &prompt, "withdraw transfer aborted", args.yes)?;
 
     let nonce = actions::nonce_now();
     let message = WithdrawMessage {
@@ -595,12 +559,11 @@ pub async fn withdraw(
     .await?;
 
     print_transfer(
+        inv,
         "withdraw",
         args.amount,
         "USDC".to_string(),
         Some(args.to.clone()),
-        format,
-        start,
     );
     Ok(())
 }
@@ -668,7 +631,7 @@ fn parse_asset_target(input: &str, flag: &str) -> Result<ParsedAssetTarget, CliE
 async fn resolve_spot_token(client: &HttpClient, token: &str) -> Result<SpotToken, CliError> {
     let token = token.trim();
     validate_token_symbol(token)?;
-    let tokens = client.spot_tokens().await.map_err(map_api_error)?;
+    let tokens = client.spot_tokens().await.map_err(from_sdk)?;
     tokens
         .into_iter()
         .find(|candidate| candidate.name.eq_ignore_ascii_case(token))
@@ -698,27 +661,21 @@ fn invalid_address_error(flag: &str) -> CliError {
     ))
 }
 
-struct ClassTransferRuntime<'a> {
-    api_base_url: &'a str,
-    chain: Chain,
-    client: &'a HttpClient,
-    signer: &'a SelectedSigner,
-    balance_user: Address,
-}
-
 async fn class_transfer(
-    runtime: ClassTransferRuntime<'_>,
+    inv: &Invocation,
+    signer: &SelectedSigner,
+    balance_user: Address,
     amount: Decimal,
     to_perp: bool,
     yes: bool,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
+    let remote = inv.remote()?;
+    let (api_base_url, chain, client) = (remote.api_base_url(), remote.chain(), remote.client());
     validate_positive_amount(amount)?;
-    let start = Instant::now();
     if to_perp {
-        ensure_spot_usdc_balance(runtime.client, runtime.balance_user, amount).await?;
+        ensure_spot_usdc_balance(client, balance_user, amount).await?;
     } else {
-        ensure_perp_balance(runtime.client, runtime.balance_user, amount).await?;
+        ensure_perp_balance(client, balance_user, amount).await?;
     }
 
     let prompt = if to_perp {
@@ -731,29 +688,28 @@ async fn class_transfer(
     } else {
         "perp-to-spot"
     };
-    confirm_transfer(&prompt, "transfer aborted", yes)?;
+    confirm_transfer(inv.mode(), &prompt, "transfer aborted", yes)?;
 
     let nonce = actions::nonce_now();
     let amount = amount.normalize().to_string();
     let message = UsdClassTransferMessage {
-        signature_chain_id: runtime.chain.arbitrum_id().to_string(),
-        hyperliquid_chain: runtime.chain,
+        signature_chain_id: chain.arbitrum_id().to_string(),
+        hyperliquid_chain: chain,
         amount: amount.clone(),
         to_perp,
         nonce,
     };
-    let signature =
-        actions::sign_user_action::<UsdClassTransfer>(runtime.signer, runtime.chain, &message)?;
+    let signature = actions::sign_user_action::<UsdClassTransfer>(signer, chain, &message)?;
     let action = UsdClassTransferAction {
         action_type: "usdClassTransfer",
-        signature_chain_id: runtime.chain.arbitrum_id().to_string(),
-        hyperliquid_chain: runtime.chain,
+        signature_chain_id: chain.arbitrum_id().to_string(),
+        hyperliquid_chain: chain,
         amount: amount.clone(),
         to_perp,
         nonce,
     };
     actions::send_user_signed_json_action(
-        runtime.api_base_url,
+        api_base_url,
         serde_json::to_value(action).map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?,
         nonce,
         signature,
@@ -761,14 +717,7 @@ async fn class_transfer(
     .await?;
 
     let printed_amount = amount.parse::<Decimal>().unwrap_or_default();
-    print_transfer(
-        label,
-        printed_amount,
-        "USDC".to_string(),
-        None,
-        format,
-        start,
-    );
+    print_transfer(inv, label, printed_amount, "USDC".to_string(), None);
     Ok(())
 }
 
@@ -799,7 +748,7 @@ async fn ensure_perp_balance(
     let available = client
         .clearinghouse_state(user, None)
         .await
-        .map_err(map_api_error)?
+        .map_err(from_sdk)?
         .withdrawable;
     if available < amount {
         return Err(CliError::Unsupported(format!(
@@ -811,16 +760,21 @@ async fn ensure_perp_balance(
 
 /// Ask for consent. `prompt` is an optional preview block followed by the
 /// question on its last line. The block goes to stderr before the question.
-fn confirm_transfer(prompt: &str, abort_message: &'static str, yes: bool) -> Result<(), CliError> {
+fn confirm_transfer(
+    mode: &Mode,
+    prompt: &str,
+    abort_message: &'static str,
+    yes: bool,
+) -> Result<(), CliError> {
     if yes {
         return Ok(());
     }
-    crate::prompt::ensure_can_prompt("--yes")?;
+    crate::prompt::ensure_can_prompt(mode, "--yes")?;
     let (preview, question) = prompt.rsplit_once('\n').unwrap_or(("", prompt));
     if !preview.is_empty() {
         eprintln!("{preview}");
     }
-    if crate::prompt::confirm_warning(question, "--yes")? {
+    if crate::prompt::confirm_warning(mode, question, "--yes")? {
         Ok(())
     } else {
         Err(CliError::Configuration(abort_message.to_string()))
@@ -865,26 +819,21 @@ fn format_reversibility(reversibility: ActionReversibility) -> &'static str {
 }
 
 fn print_transfer(
+    inv: &Invocation,
     action: &str,
     amount: Decimal,
     asset: String,
     destination: Option<String>,
-    format: OutputFormat,
-    start: Instant,
 ) {
-    output::print_data(
-        &TransferOutput {
-            rows: vec![TransferConfirmation {
-                action: action.to_string(),
-                status: "confirmed".to_string(),
-                amount,
-                asset,
-                destination,
-            }],
-        },
-        format,
-        start.elapsed(),
-    );
+    inv.print(&TransferOutput {
+        rows: vec![TransferConfirmation {
+            action: action.to_string(),
+            status: "confirmed".to_string(),
+            amount,
+            asset,
+            destination,
+        }],
+    });
 }
 
 #[cfg(test)]

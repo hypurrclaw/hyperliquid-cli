@@ -1,7 +1,5 @@
 //! Referral status and set-referrer commands.
 
-use std::time::Instant;
-
 use hypersdk::Address;
 use hypersdk::hypercore::Chain;
 use serde::Serialize;
@@ -10,7 +8,8 @@ use crate::commands::actions;
 use crate::dry_run::ActionReversibility;
 use crate::errors::CliError;
 use crate::http_api::post_info_json;
-use crate::output::{self, OutputFormat, TableData};
+use crate::invocation::Invocation;
+use crate::output::TableData;
 use crate::settings::Settings;
 use crate::signing::SelectedSigner;
 
@@ -176,38 +175,31 @@ struct RegisterReferrerAction<'a> {
 }
 
 /// Query referral status for the authenticated user.
-pub async fn status(
-    api_base_url: &str,
-    user: Address,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let start = Instant::now();
+pub async fn status(inv: &Invocation, user: Address) -> Result<(), anyhow::Error> {
     let user = user.to_string();
     let raw = post_info(
-        api_base_url,
+        inv.remote()?.api_base_url(),
         &ReferralInfoRequest {
             request_type: "referral",
             user: &user,
         },
     )
     .await?;
-    let output = referral_status_from_value(user, &raw);
-    output::print_data(&output, format, start.elapsed());
+    inv.print(&referral_status_from_value(user, &raw));
     Ok(())
 }
 
 /// Set the authenticated user's referrer code.
 pub async fn set(
-    api_base_url: &str,
-    chain: Chain,
+    inv: &Invocation,
     signer: &SelectedSigner,
     code: &str,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
     validate_referral_code(code)?;
-    let start = Instant::now();
+    let remote = inv.remote()?;
+    let chain = remote.chain();
     actions::send_raw_l1_json_action(
-        api_base_url,
+        remote.api_base_url(),
         chain,
         signer,
         &SetReferrerAction {
@@ -219,37 +211,32 @@ pub async fn set(
     )
     .await?;
 
-    output::print_data(
-        &ReferralSetOutput {
-            row: ReferralSetConfirmation {
-                action: "set-referrer".to_string(),
-                status: "submitted".to_string(),
-                network: chain.to_string(),
-                signer: signer.address().to_string(),
-                query_address: signer.query_address().to_string(),
-                code: code.to_string(),
-                reversibility: format_reversibility(ReferralActionKind::Set.reversibility())
-                    .to_string(),
-            },
+    inv.print(&ReferralSetOutput {
+        row: ReferralSetConfirmation {
+            action: "set-referrer".to_string(),
+            status: "submitted".to_string(),
+            network: chain.to_string(),
+            signer: signer.address().to_string(),
+            query_address: signer.query_address().to_string(),
+            code: code.to_string(),
+            reversibility: format_reversibility(ReferralActionKind::Set.reversibility())
+                .to_string(),
         },
-        format,
-        start.elapsed(),
-    );
+    });
     Ok(())
 }
 
 /// Register/create a referral code for the authenticated user.
 pub async fn register(
-    api_base_url: &str,
-    chain: Chain,
+    inv: &Invocation,
     signer: &SelectedSigner,
     code: &str,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
     validate_referrer_code(code)?;
-    let start = Instant::now();
+    let remote = inv.remote()?;
+    let chain = remote.chain();
     actions::send_raw_l1_json_action(
-        api_base_url,
+        remote.api_base_url(),
         chain,
         signer,
         &RegisterReferrerAction {
@@ -261,22 +248,18 @@ pub async fn register(
     )
     .await?;
 
-    output::print_data(
-        &ReferralSetOutput {
-            row: ReferralSetConfirmation {
-                action: "register-referrer".to_string(),
-                status: "submitted".to_string(),
-                network: chain.to_string(),
-                signer: signer.address().to_string(),
-                query_address: signer.query_address().to_string(),
-                code: code.to_string(),
-                reversibility: format_reversibility(ReferralActionKind::Register.reversibility())
-                    .to_string(),
-            },
+    inv.print(&ReferralSetOutput {
+        row: ReferralSetConfirmation {
+            action: "register-referrer".to_string(),
+            status: "submitted".to_string(),
+            network: chain.to_string(),
+            signer: signer.address().to_string(),
+            query_address: signer.query_address().to_string(),
+            code: code.to_string(),
+            reversibility: format_reversibility(ReferralActionKind::Register.reversibility())
+                .to_string(),
         },
-        format,
-        start.elapsed(),
-    );
+    });
     Ok(())
 }
 

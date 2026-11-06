@@ -1,20 +1,19 @@
 //! API/agent wallet approval and management commands.
 
-use std::time::Instant;
-
 use clap::Args;
 use hypersdk::Address;
 use hypersdk::hypercore::types::api::ApproveAgent;
 use hypersdk::hypercore::types::{Action, Response};
-use hypersdk::hypercore::{Chain, HttpClient, PrivateKeySigner};
+use hypersdk::hypercore::{Chain, PrivateKeySigner};
 use serde::Serialize;
 
 use crate::auth;
 use crate::commands::actions;
-use crate::commands::map_api_error;
 use crate::errors::CliError;
+use crate::errors::from_sdk;
 use crate::http_api::post_exchange_json;
-use crate::output::{self, OutputFormat, TableData};
+use crate::invocation::Invocation;
+use crate::output::{OutputFormat, TableData};
 use crate::signing::SelectedSigner;
 
 const MAX_AGENT_EXPIRATION_MS: u64 = 180 * 24 * 60 * 60 * 1000;
@@ -231,12 +230,9 @@ impl TableData for ApiAgentListOutput {
 }
 
 pub async fn create(
-    api_base_url: &str,
-    chain: Chain,
+    inv: &Invocation,
     signer: Option<&SelectedSigner>,
     args: &CreateArgs,
-    dry_run: bool,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
     let now = actions::nonce_now();
     let prepared = prepare_agent_approval(
@@ -249,12 +245,9 @@ pub async fn create(
     )?;
     approve_prepared(
         ApprovalRuntime {
-            api_base_url,
-            chain,
+            inv,
             signer,
-            dry_run,
             operation: "create",
-            format,
         },
         prepared,
     )
@@ -262,12 +255,9 @@ pub async fn create(
 }
 
 pub async fn approve(
-    api_base_url: &str,
-    chain: Chain,
+    inv: &Invocation,
     signer: Option<&SelectedSigner>,
     args: &ApproveArgs,
-    dry_run: bool,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
     let now = actions::nonce_now();
     let prepared = prepare_agent_approval(
@@ -280,28 +270,22 @@ pub async fn approve(
     )?;
     approve_prepared(
         ApprovalRuntime {
-            api_base_url,
-            chain,
+            inv,
             signer,
-            dry_run,
             operation: "approve",
-            format,
         },
         prepared,
     )
     .await
 }
 
-pub async fn list(
-    client: &HttpClient,
-    master_address: Address,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let start = Instant::now();
-    let rows = client
+pub async fn list(inv: &Invocation, master_address: Address) -> Result<(), anyhow::Error> {
+    let rows = inv
+        .remote()?
+        .client()
         .api_agents(master_address)
         .await
-        .map_err(map_api_error)?
+        .map_err(from_sdk)?
         .into_iter()
         .map(|agent| ApiAgentRow {
             name: agent.name,
@@ -309,36 +293,26 @@ pub async fn list(
             valid_until: agent.valid_until,
         })
         .collect();
-    output::print_data(
-        &ApiAgentListOutput {
-            master_address: master_address.to_string(),
-            rows,
-        },
-        format,
-        start.elapsed(),
-    );
+    inv.print(&ApiAgentListOutput {
+        master_address: master_address.to_string(),
+        rows,
+    });
     Ok(())
 }
 
 pub async fn revoke(
-    api_base_url: &str,
-    chain: Chain,
+    inv: &Invocation,
     signer: Option<&SelectedSigner>,
     args: &RevokeArgs,
-    dry_run: bool,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
     let now = actions::nonce_now();
     let prepared = prepare_revoke_replacement(args, now)?;
 
     approve_prepared(
         ApprovalRuntime {
-            api_base_url,
-            chain,
+            inv,
             signer,
-            dry_run,
             operation: "revoke",
-            format,
         },
         prepared,
     )
@@ -368,45 +342,45 @@ pub fn prepare_revoke_replacement(
 
 #[derive(Debug, Clone, Copy)]
 struct ApprovalRuntime<'a> {
-    api_base_url: &'a str,
-    chain: Chain,
+    inv: &'a Invocation,
     signer: Option<&'a SelectedSigner>,
-    dry_run: bool,
     operation: &'static str,
-    format: OutputFormat,
 }
 
 async fn approve_prepared(
     runtime: ApprovalRuntime<'_>,
     prepared: PreparedAgentApproval,
 ) -> Result<(), anyhow::Error> {
+    let inv = runtime.inv;
+    let remote = inv.remote()?;
+    let chain = remote.chain();
     let nonce = actions::nonce_now();
-    let approval = approval_action(runtime.chain, &prepared, nonce);
+    let approval = approval_action(chain, &prepared, nonce);
     let approval_value =
         serde_json::to_value(Action::ApproveAgent(approval.clone())).unwrap_or_default();
 
-    if runtime.dry_run {
+    if inv.dry_run() {
         let row = approval_dry_run_row(
             runtime.operation,
             runtime.signer.map(SelectedSigner::address),
             &prepared,
             approval_value,
         );
-        print_action_output(row, runtime.format);
+        print_action_output(inv, row);
         return Ok(());
     }
 
-    ensure_generated_key_projection_is_safe(&prepared, runtime.format)?;
+    ensure_generated_key_projection_is_safe(&prepared, inv)?;
 
     let signer = runtime.signer.ok_or(CliError::AuthRequired)?;
     let master_address = signer.address();
-    let request =
-        signer.sign_l1_action_sync(Action::ApproveAgent(approval), nonce, None, runtime.chain)?;
-    let response = post_exchange_json::<Response>(runtime.api_base_url, &request, "").await?;
+    let request = signer.sign_l1_action_sync(Action::ApproveAgent(approval), nonce, None, chain)?;
+    let response = post_exchange_json::<Response>(remote.api_base_url(), &request, "").await?;
     actions::ensure_default_response(response, "approveAgent action failed")?;
 
     let private_key = prepared.generated_private_key;
     print_action_output(
+        inv,
         ApiWalletActionRow {
             status: "submitted".to_string(),
             action: format!("api_wallet_{}", runtime.operation),
@@ -426,7 +400,6 @@ async fn approve_prepared(
             },
             approval_action: approval_value,
         },
-        runtime.format,
     );
     Ok(())
 }
@@ -474,11 +447,11 @@ fn approval_dry_run_row(
 
 fn ensure_generated_key_projection_is_safe(
     prepared: &PreparedAgentApproval,
-    format: OutputFormat,
+    inv: &Invocation,
 ) -> Result<(), CliError> {
-    if format == OutputFormat::Json
+    if inv.format() == OutputFormat::Json
         && prepared.generated_private_key.is_some()
-        && output::json_projection_options_enabled()
+        && inv.session().json_options().is_active()
     {
         return Err(CliError::Unsupported(
             "live generated API wallet approvals print the private key exactly once; remove --select, --max-results, and --results-only"
@@ -623,13 +596,14 @@ fn parse_address(raw: &str) -> Result<Address, CliError> {
         .map_err(|_| CliError::Unsupported(format!("Invalid address: {}", raw.trim())))
 }
 
-fn print_action_output(row: ApiWalletActionRow, format: OutputFormat) {
-    output::print_data_no_timing(&ApiWalletActionOutput { row }, format);
+fn print_action_output(inv: &Invocation, row: ApiWalletActionRow) {
+    inv.print_untimed(&ApiWalletActionOutput { row });
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::output::Session;
 
     #[test]
     fn parses_agent_expiration_durations() {
@@ -689,7 +663,7 @@ mod tests {
             note: "safe".to_string(),
             approval_action: serde_json::json!({"type": "approveAgent"}),
         };
-        let rendered = output::render(&ApiWalletActionOutput { row }, OutputFormat::Json);
+        let rendered = Session::for_test(OutputFormat::Json).render(&ApiWalletActionOutput { row });
         assert!(!rendered.contains("private_key"));
         assert!(
             !rendered.contains("000000000000000000000000000000000000000000000000000000000000000")

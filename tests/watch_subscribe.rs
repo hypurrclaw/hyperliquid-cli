@@ -1,7 +1,7 @@
 mod support;
 
 use futures::stream;
-use hyperliquid_cli::output;
+use hyperliquid_cli::output::JsonRenderOptions;
 use hyperliquid_cli::stream::{StreamBounds, SubscribeTarget, stream_subscription_events};
 use hypersdk::Address;
 use hypersdk::hypercore::{
@@ -11,30 +11,12 @@ use hypersdk::hypercore::{
 };
 use predicates::prelude::*;
 use rust_decimal::Decimal;
-use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 use support::{API_OVERRIDE_ENV, FORMAT_ENV, IsolatedHome, mount_override_healthcheck};
 use wiremock::MockServer;
 
 const WATCH_MAX_TICKS_ENV: &str = "HYPERLIQUID_WATCH_MAX_TICKS";
 const SUBSCRIBE_MAX_EVENTS_ENV: &str = "HYPERLIQUID_SUBSCRIBE_MAX_EVENTS";
-static JSON_OPTIONS_TEST_LOCK: Mutex<()> = Mutex::new(());
-
-struct JsonOptionsTestGuard {
-    _guard: MutexGuard<'static, ()>,
-}
-
-impl Drop for JsonOptionsTestGuard {
-    fn drop(&mut self) {
-        output::set_json_options_with_limit(None, false, None);
-    }
-}
-
-fn json_options_test_guard() -> JsonOptionsTestGuard {
-    let guard = JSON_OPTIONS_TEST_LOCK.lock().unwrap();
-    output::set_json_options_with_limit(None, false, None);
-    JsonOptionsTestGuard { _guard: guard }
-}
 
 fn bounds(max_items: Option<usize>, idle: Option<Duration>) -> StreamBounds {
     StreamBounds { max_items, idle }
@@ -329,8 +311,7 @@ fn subscribe_json_rejects_invalid_env_bound_for_agents() {
 
 #[tokio::test]
 async fn fake_subscribe_stream_applies_select_to_subscription_lines() {
-    let _guard = json_options_test_guard();
-    output::set_json_options_with_limit(Some("type,subscription"), false, None);
+    let options = JsonRenderOptions::from_cli(Some("type,subscription"), false, None);
     let mut events = stream::iter([WsEvent::Message(all_mids_message())]);
     let mut output_bytes = Vec::new();
 
@@ -340,6 +321,7 @@ async fn fake_subscribe_stream_applies_select_to_subscription_lines() {
         matcher(SubscribeTarget::all_mids()),
         &mut events,
         &mut output_bytes,
+        &options,
     )
     .await
     .unwrap();
@@ -352,13 +334,11 @@ async fn fake_subscribe_stream_applies_select_to_subscription_lines() {
             "subscription": "allMids(None)"
         })
     );
-    output::set_json_options_with_limit(None, false, None);
 }
 
 #[tokio::test]
 async fn fake_subscribe_stream_limits_nested_all_mids_payload() {
-    let _guard = json_options_test_guard();
-    output::set_json_options_with_limit(None, false, Some(2));
+    let options = JsonRenderOptions::from_cli(None, false, Some(2));
     let mut events = stream::iter([WsEvent::Message(many_mids_message())]);
     let mut output_bytes = Vec::new();
 
@@ -368,6 +348,7 @@ async fn fake_subscribe_stream_limits_nested_all_mids_payload() {
         matcher(SubscribeTarget::all_mids()),
         &mut events,
         &mut output_bytes,
+        &options,
     )
     .await
     .unwrap();
@@ -378,12 +359,10 @@ async fn fake_subscribe_stream_limits_nested_all_mids_payload() {
     assert_eq!(lines[1]["subscription"], "allMids(None)");
     let mids = lines[1]["data"]["data"]["mids"].as_object().unwrap();
     assert_eq!(mids.len(), 2);
-    output::set_json_options_with_limit(None, false, None);
 }
 
 #[tokio::test]
 async fn fake_subscribe_stream_emits_matching_event_envelopes() {
-    let _guard = json_options_test_guard();
     let mut events = stream::iter([
         WsEvent::Connected,
         WsEvent::Message(all_mids_message()),
@@ -397,6 +376,7 @@ async fn fake_subscribe_stream_emits_matching_event_envelopes() {
         matcher(SubscribeTarget::trades("BTC".to_string())),
         &mut events,
         &mut output,
+        &JsonRenderOptions::default(),
     )
     .await
     .unwrap();
@@ -413,7 +393,6 @@ async fn fake_subscribe_stream_emits_matching_event_envelopes() {
 
 #[tokio::test]
 async fn fake_subscribe_stream_ignores_non_matching_events_until_close() {
-    let _guard = json_options_test_guard();
     let mut events = stream::iter([WsEvent::Message(all_mids_message())]);
     let mut output = Vec::new();
 
@@ -423,6 +402,7 @@ async fn fake_subscribe_stream_ignores_non_matching_events_until_close() {
         matcher(SubscribeTarget::trades("BTC".to_string())),
         &mut events,
         &mut output,
+        &JsonRenderOptions::default(),
     )
     .await;
 
@@ -436,7 +416,6 @@ async fn fake_subscribe_stream_ignores_non_matching_events_until_close() {
 
 #[tokio::test]
 async fn fake_subscribe_stream_max_events_counts_only_emitted_events() {
-    let _guard = json_options_test_guard();
     let mut events = stream::iter([
         WsEvent::Message(trades_message()),
         WsEvent::Message(all_mids_message()),
@@ -452,6 +431,7 @@ async fn fake_subscribe_stream_max_events_counts_only_emitted_events() {
         matcher(SubscribeTarget::trades("BTC".to_string())),
         &mut events,
         &mut output,
+        &JsonRenderOptions::default(),
     )
     .await
     .unwrap();
@@ -469,7 +449,6 @@ async fn fake_subscribe_stream_max_events_counts_only_emitted_events() {
 
 #[tokio::test]
 async fn fake_subscribe_stream_marks_reconnect_with_one_stream_gap_warning() {
-    let _guard = json_options_test_guard();
     let mut events = stream::iter([
         WsEvent::Connected,
         WsEvent::Message(trades_message()),
@@ -486,6 +465,7 @@ async fn fake_subscribe_stream_marks_reconnect_with_one_stream_gap_warning() {
         matcher(SubscribeTarget::trades("BTC".to_string())),
         &mut events,
         &mut output,
+        &JsonRenderOptions::default(),
     )
     .await
     .unwrap();
@@ -503,8 +483,7 @@ async fn fake_subscribe_stream_marks_reconnect_with_one_stream_gap_warning() {
 
 #[tokio::test]
 async fn fake_subscribe_stream_gap_warning_survives_select_projection() {
-    let _guard = json_options_test_guard();
-    output::set_json_options_with_limit(Some("data"), false, None);
+    let options = JsonRenderOptions::from_cli(Some("data"), false, None);
     let mut events = stream::iter([
         WsEvent::Disconnected,
         WsEvent::Connected,
@@ -518,6 +497,7 @@ async fn fake_subscribe_stream_gap_warning_survives_select_projection() {
         matcher(SubscribeTarget::trades("BTC".to_string())),
         &mut events,
         &mut output,
+        &options,
     )
     .await
     .unwrap();
@@ -622,7 +602,6 @@ async fn watch_mids_sigterm_exits_143_with_complete_json_lines() {
 
 #[tokio::test]
 async fn fake_subscribe_stream_closed_stream_behavior_is_deterministic() {
-    let _guard = json_options_test_guard();
     let mut events = stream::iter([]);
     let mut output = Vec::new();
 
@@ -632,6 +611,7 @@ async fn fake_subscribe_stream_closed_stream_behavior_is_deterministic() {
         matcher(SubscribeTarget::all_mids()),
         &mut events,
         &mut output,
+        &JsonRenderOptions::default(),
     )
     .await;
 
@@ -646,7 +626,6 @@ async fn fake_subscribe_stream_closed_stream_behavior_is_deterministic() {
 
 #[tokio::test]
 async fn fake_subscribe_stream_max_zero_emits_only_subscribed_envelope() {
-    let _guard = json_options_test_guard();
     let mut events = stream::iter([WsEvent::Message(all_mids_message())]);
     let mut output = Vec::new();
 
@@ -656,6 +635,7 @@ async fn fake_subscribe_stream_max_zero_emits_only_subscribed_envelope() {
         matcher(SubscribeTarget::all_mids()),
         &mut events,
         &mut output,
+        &JsonRenderOptions::default(),
     )
     .await
     .unwrap();
@@ -667,7 +647,6 @@ async fn fake_subscribe_stream_max_zero_emits_only_subscribed_envelope() {
 
 #[tokio::test]
 async fn fake_subscribe_stream_idle_timeout_bounds_quiet_max_events() {
-    let _guard = json_options_test_guard();
     let mut events = stream::pending();
     let mut output = Vec::new();
     let started = Instant::now();
@@ -678,6 +657,7 @@ async fn fake_subscribe_stream_idle_timeout_bounds_quiet_max_events() {
         matcher(SubscribeTarget::trades("BTC".to_string())),
         &mut events,
         &mut output,
+        &JsonRenderOptions::default(),
     )
     .await;
 
@@ -695,7 +675,6 @@ async fn fake_subscribe_stream_idle_timeout_bounds_quiet_max_events() {
 
 #[tokio::test]
 async fn fake_fills_subscribe_stream_ignores_non_fill_user_events_before_fill() {
-    let _guard = json_options_test_guard();
     let mut events = stream::iter([
         WsEvent::Message(user_events_funding_message()),
         WsEvent::Message(user_events_liquidation_message()),
@@ -711,6 +690,7 @@ async fn fake_fills_subscribe_stream_ignores_non_fill_user_events_before_fill() 
         matcher(SubscribeTarget::fills(Address::ZERO)),
         &mut events,
         &mut output,
+        &JsonRenderOptions::default(),
     )
     .await
     .unwrap();

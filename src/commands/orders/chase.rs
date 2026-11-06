@@ -9,9 +9,9 @@ use hypersdk::hypercore::{Chain, Cloid, HttpClient};
 use hypersdk::{Address, Decimal};
 use serde_json::json;
 
-use crate::commands::map_api_error;
 use crate::errors::CliError;
-use crate::output::{self, OutputFormat, TableData};
+use crate::errors::from_sdk;
+use crate::output::TableData;
 use crate::response_sanitization::labelled_untrusted_text;
 use crate::signing::SelectedSigner;
 
@@ -60,7 +60,6 @@ pub async fn chase(
     context: OrderExecutionContext<'_>,
     args: &ChaseArgs,
     vault_address: Option<Address>,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
     validate_chase_args(args)?;
     let timeout = effective_timeout(args)?;
@@ -175,15 +174,11 @@ pub async fn chase(
         remaining = Decimal::ZERO;
     }
 
-    output::print_data(
-        &ChaseOutput {
-            status: status.to_string(),
-            remaining: remaining.to_string(),
-            elapsed_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
-        },
-        format,
-        started.elapsed(),
-    );
+    context.submission.inv.print(&ChaseOutput {
+        status: status.to_string(),
+        remaining: remaining.to_string(),
+        elapsed_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+    });
     Ok(())
 }
 
@@ -265,7 +260,7 @@ fn quote_price(mid: Decimal, side: OrderSide, offset_bps: u32) -> Decimal {
 }
 
 async fn fetch_mid(client: &HttpClient, coin_key: &str) -> Result<Decimal, CliError> {
-    let mids = client.all_mids(None).await.map_err(map_api_error)?;
+    let mids = client.all_mids(None).await.map_err(from_sdk)?;
     mids.get(coin_key)
         .copied()
         .ok_or_else(|| CliError::Unsupported(format!("no mid price for {coin_key}")))
@@ -275,7 +270,7 @@ async fn client_open_orders(
     client: &HttpClient,
     user: Address,
 ) -> Result<Vec<BasicOrder>, CliError> {
-    client.open_orders(user, None).await.map_err(map_api_error)
+    client.open_orders(user, None).await.map_err(from_sdk)
 }
 
 /// Open size of a specific chase quote, matched by OID or cloid only.

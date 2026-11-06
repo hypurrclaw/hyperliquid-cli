@@ -24,8 +24,11 @@ use clap::ValueEnum;
 use serde_json::Value;
 use std::fmt;
 use std::io::Write;
-use std::sync::{OnceLock, RwLock};
 use tabwriter::TabWriter;
+
+mod session;
+
+pub use session::Session;
 
 pub mod colors;
 pub mod format;
@@ -53,6 +56,7 @@ impl fmt::Display for OutputFormat {
 
 // ── JSON projection options ─────────────────────────────────────────────
 
+/// `--select`, `--results-only` and `--max-results`, applied to JSON output.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct JsonRenderOptions {
     selected_fields: Option<Vec<String>>,
@@ -74,37 +78,66 @@ impl JsonRenderOptions {
     pub fn max_results(&self) -> Option<usize> {
         self.max_results
     }
-}
 
-static JSON_OPTIONS: OnceLock<RwLock<JsonRenderOptions>> = OnceLock::new();
+    /// The `--select` field names, lowercased, when `--select` was given.
+    #[must_use]
+    pub fn selected_fields(&self) -> Option<&[String]> {
+        self.selected_fields.as_deref()
+    }
 
-fn json_options() -> &'static RwLock<JsonRenderOptions> {
-    JSON_OPTIONS.get_or_init(|| RwLock::new(JsonRenderOptions::default()))
-}
+    /// Whether any projection flag was given.
+    #[must_use]
+    pub fn is_active(&self) -> bool {
+        self.selected_fields.is_some() || self.results_only || self.max_results.is_some()
+    }
 
-/// Configure process-wide JSON rendering options, including an optional
-/// top-level result limiter for agent context-window control.
-pub fn set_json_options_with_limit(
-    select: Option<&str>,
-    results_only: bool,
-    max_results: Option<usize>,
-) {
-    let mut options = json_options()
-        .write()
-        .expect("json options lock should not be poisoned");
-    *options = JsonRenderOptions::from_cli(select, results_only, max_results);
-}
+    /// Project one JSON document.
+    #[must_use]
+    pub fn apply(&self, value: serde_json::Value) -> serde_json::Value {
+        let value = if self.results_only {
+            strip_results_envelope(value)
+        } else {
+            value
+        };
 
-fn current_json_options() -> JsonRenderOptions {
-    json_options()
-        .read()
-        .expect("json options lock should not be poisoned")
-        .clone()
-}
+        let value = if let Some(max_results) = self.max_results {
+            limit_json_results(value, max_results)
+        } else {
+            value
+        };
 
-pub fn json_projection_options_enabled() -> bool {
-    let options = current_json_options();
-    options.selected_fields.is_some() || options.results_only || options.max_results.is_some()
+        if let Some(fields) = self.selected_fields.as_deref() {
+            project_selected_fields(value, fields)
+        } else {
+            value
+        }
+    }
+
+    /// Project one JSONL stream envelope.
+    ///
+    /// Stream envelopes keep their top-level `type`, `subscription`, and `data`
+    /// keys unless the caller explicitly selects top-level fields. `--max-results`
+    /// is therefore applied recursively to nested payloads instead of truncating
+    /// the envelope itself.
+    #[must_use]
+    pub fn apply_stream(&self, value: serde_json::Value) -> serde_json::Value {
+        let value = if self.results_only {
+            strip_results_envelope(value)
+        } else {
+            value
+        };
+        let value = if let Some(max_results) = self.max_results {
+            limit_json_stream_results(value, max_results)
+        } else {
+            value
+        };
+
+        if let Some(fields) = self.selected_fields.as_deref() {
+            project_stream_selected_fields(value, fields)
+        } else {
+            value
+        }
+    }
 }
 
 fn parse_selected_fields(select: &str) -> Vec<String> {
@@ -114,61 +147,6 @@ fn parse_selected_fields(select: &str) -> Vec<String> {
         .filter(|field| !field.is_empty())
         .map(|field| field.to_ascii_lowercase())
         .collect()
-}
-
-fn apply_json_options(value: serde_json::Value, options: &JsonRenderOptions) -> serde_json::Value {
-    let value = if options.results_only {
-        strip_results_envelope(value)
-    } else {
-        value
-    };
-
-    let value = if let Some(max_results) = options.max_results {
-        limit_json_results(value, max_results)
-    } else {
-        value
-    };
-
-    if let Some(fields) = options.selected_fields.as_deref() {
-        project_selected_fields(value, fields)
-    } else {
-        value
-    }
-}
-
-/// Apply global JSON options to a JSONL stream envelope.
-///
-/// Stream envelopes should keep their top-level `type`, `subscription`, and `data`
-/// keys unless the caller explicitly selects top-level fields. `--max-results`
-/// is therefore applied recursively to nested payloads instead of truncating the
-/// envelope itself.
-#[must_use]
-pub fn apply_current_json_stream_options(value: serde_json::Value) -> serde_json::Value {
-    let options = current_json_options();
-    apply_json_stream_options(value, &options)
-}
-
-/// Apply explicit JSON options to a JSONL stream envelope.
-fn apply_json_stream_options(
-    value: serde_json::Value,
-    options: &JsonRenderOptions,
-) -> serde_json::Value {
-    let value = if options.results_only {
-        strip_results_envelope(value)
-    } else {
-        value
-    };
-    let value = if let Some(max_results) = options.max_results {
-        limit_json_stream_results(value, max_results)
-    } else {
-        value
-    };
-
-    if let Some(fields) = options.selected_fields.as_deref() {
-        project_stream_selected_fields(value, fields)
-    } else {
-        value
-    }
 }
 
 fn limit_json_results(value: serde_json::Value, max_results: usize) -> serde_json::Value {
@@ -772,117 +750,10 @@ fn render_outcome(
         OutputFormat::Pretty => render_pretty_inner(data, options.max_results(), tty),
         OutputFormat::Table => render_table_inner(data, options.max_results(), tty),
         OutputFormat::Json => Rendered {
-            text: json_string(&apply_json_options(data.to_json_value(), options), tty),
+            text: json_string(&options.apply(data.to_json_value()), tty),
             notices: Vec::new(),
         },
     }
-}
-
-pub fn render_pretty(data: &dyn TableData) -> String {
-    render_pretty_inner(
-        data,
-        current_json_options().max_results(),
-        terminal::stdout_is_terminal(),
-    )
-    .text
-}
-
-/// Render data in table format: a bordered table on a terminal, a header line
-/// plus tab-separated rows on a pipe.
-pub fn render_table(data: &dyn TableData) -> String {
-    render_table_inner(
-        data,
-        current_json_options().max_results(),
-        terminal::stdout_is_terminal(),
-    )
-    .text
-}
-
-/// Render data as one compact JSON line after applying global JSON options.
-pub fn render_json_compact(data: &dyn TableData) -> Result<String, serde_json::Error> {
-    serde_json::to_string(&apply_json_options(
-        data.to_json_value(),
-        &current_json_options(),
-    ))
-}
-
-pub fn render(data: &dyn TableData, format: OutputFormat) -> String {
-    render_with_json_options(data, format, &current_json_options())
-}
-
-pub fn render_with_json_options(
-    data: &dyn TableData,
-    format: OutputFormat,
-    options: &JsonRenderOptions,
-) -> String {
-    render_outcome(data, format, options, terminal::stdout_is_terminal()).text
-}
-
-// ── Print functions ─────────────────────────────────────────────────────
-
-/// Write rendered output: the answer to stdout, notices to stderr.
-fn print_rendered(rendered: &Rendered) {
-    if !rendered.text.is_empty() {
-        println!("{}", rendered.text);
-    }
-    for notice in &rendered.notices {
-        eprintln!("{notice}");
-    }
-}
-
-/// Print data to stdout using explicit projection options. Empty-state and
-/// `--max-results` truncation notices go to stderr for pretty and table.
-pub fn emit(data: &dyn TableData, format: OutputFormat, options: &JsonRenderOptions) {
-    print_rendered(&render_outcome(
-        data,
-        format,
-        options,
-        terminal::stdout_is_terminal(),
-    ));
-}
-
-/// Print data to stdout using the specified format, with timing feedback on stderr.
-///
-/// This is the main entry point for printing command output.
-/// - Prints formatted data to stdout
-/// - Prints timing feedback ("Completed in 1.2s") to stderr only when the
-///   format is human and stderr is a terminal
-pub fn print_data(data: &dyn TableData, format: OutputFormat, duration: std::time::Duration) {
-    print_data_no_timing(data, format);
-    print_timing(duration, format);
-}
-
-/// Print data to stdout using the specified format, without timing feedback.
-pub fn print_data_no_timing(data: &dyn TableData, format: OutputFormat) {
-    emit(data, format, &current_json_options());
-}
-
-/// The timing footer for a finished command, or `None` when it must stay silent:
-/// JSON output, agent or CI runs, and any stderr that is not a terminal.
-fn timing_footer(
-    duration: std::time::Duration,
-    format: OutputFormat,
-    stderr_is_terminal: bool,
-) -> Option<String> {
-    if format == OutputFormat::Json
-        || !stderr_is_terminal
-        || terminal::agent_env()
-        || terminal::ci_env()
-    {
-        return None;
-    }
-    Some(colors::stderr::gray(&format_timing(duration)))
-}
-
-/// Print timing feedback to stderr when the format is human and stderr is a terminal.
-pub fn print_timing(duration: std::time::Duration, format: OutputFormat) {
-    if let Some(line) = timing_footer(duration, format, terminal::stderr_is_terminal()) {
-        eprintln!("{line}");
-    }
-}
-
-fn format_timing(duration: std::time::Duration) -> String {
-    format!("Completed in {}", format::duration(duration))
 }
 
 /// A warning line for stderr: `! message` with a yellow `!` in rich output,
@@ -905,6 +776,33 @@ pub fn warn(message: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn plain_env() -> terminal::OutputEnv {
+        terminal::OutputEnv::default()
+    }
+
+    fn tty_env() -> terminal::OutputEnv {
+        terminal::OutputEnv {
+            stdout_tty: true,
+            ..terminal::OutputEnv::default()
+        }
+    }
+
+    fn render_with(data: &dyn TableData, format: OutputFormat, env: terminal::OutputEnv) -> String {
+        Session::new(format, JsonRenderOptions::default(), env).render(data)
+    }
+
+    fn render(data: &dyn TableData, format: OutputFormat) -> String {
+        render_with(data, format, plain_env())
+    }
+
+    fn render_pretty(data: &dyn TableData) -> String {
+        render(data, OutputFormat::Pretty)
+    }
+
+    fn render_table(data: &dyn TableData) -> String {
+        render(data, OutputFormat::Table)
+    }
 
     /// Simple test data struct for testing the output system.
     struct TestData {
@@ -1059,13 +957,11 @@ mod tests {
 
     #[test]
     fn test_render_table_has_borders_on_terminal() {
-        terminal::with_tty_for_test(true, false, || {
-            let output = render_table(&sample_data());
-            // Rounded table style uses these border characters
-            assert!(output.contains('│'));
-            assert!(output.contains('╭'));
-            assert!(output.contains('╯'));
-        });
+        let output = render_with(&sample_data(), OutputFormat::Table, tty_env());
+        // Rounded table style uses these border characters
+        assert!(output.contains('│'));
+        assert!(output.contains('╭'));
+        assert!(output.contains('╯'));
     }
 
     #[test]
@@ -1216,7 +1112,7 @@ mod tests {
             }
         });
 
-        let limited = apply_json_stream_options(value, &options);
+        let limited = options.apply_stream(value);
 
         assert_eq!(limited["type"], "event");
         assert_eq!(limited["subscription"], "allMids(None)");
@@ -1243,7 +1139,7 @@ mod tests {
             }
         });
 
-        let limited = apply_json_stream_options(value, &options);
+        let limited = options.apply_stream(value);
 
         assert_eq!(limited["data"]["channel"], "allMids");
         let payload = limited["data"]["data"]["mids"].as_object().unwrap();
@@ -1260,7 +1156,7 @@ mod tests {
             "data": {"ignored": true}
         });
 
-        let projected = apply_json_stream_options(value, &options);
+        let projected = options.apply_stream(value);
 
         assert_eq!(
             projected,
@@ -1283,7 +1179,7 @@ mod tests {
             }
         });
 
-        let projected = apply_json_stream_options(value, &options);
+        let projected = options.apply_stream(value);
 
         assert_eq!(
             projected,
@@ -1308,7 +1204,7 @@ mod tests {
             }
         });
 
-        let projected = apply_json_stream_options(value, &options);
+        let projected = options.apply_stream(value);
 
         assert_eq!(projected["data"]["channel"], "trades");
         assert!(projected["data"]["data"].is_array());
@@ -1331,16 +1227,14 @@ mod tests {
         let data = sample_data();
 
         colors::with_streams_for_test(true, false, || {
-            terminal::with_tty_for_test(true, false, || {
-                let pretty = render(&data, OutputFormat::Pretty);
-                let table = render(&data, OutputFormat::Table);
-                let json = render(&data, OutputFormat::Json);
+            let pretty = render_with(&data, OutputFormat::Pretty, tty_env());
+            let table = render_with(&data, OutputFormat::Table, tty_env());
+            let json = render_with(&data, OutputFormat::Json, tty_env());
 
-                assert!(pretty.contains(colors::CYAN));
-                assert!(table.contains('│') || table.contains('─'));
-                assert!(json.contains('\n'));
-                serde_json::from_str::<serde_json::Value>(&json).unwrap();
-            });
+            assert!(pretty.contains(colors::CYAN));
+            assert!(table.contains('│') || table.contains('─'));
+            assert!(json.contains('\n'));
+            serde_json::from_str::<serde_json::Value>(&json).unwrap();
         });
     }
 
@@ -1362,11 +1256,9 @@ mod tests {
 
     #[test]
     fn test_table_on_terminal_is_bordered() {
-        terminal::with_tty_for_test(true, false, || {
-            let output = render_table(&sample_data());
-            assert!(output.contains('╭'));
-            assert!(output.contains("BTC"));
-        });
+        let output = render_with(&sample_data(), OutputFormat::Table, tty_env());
+        assert!(output.contains('╭'));
+        assert!(output.contains("BTC"));
     }
 
     #[test]
@@ -1376,40 +1268,12 @@ mod tests {
         assert!(!compact.contains('\n'));
         let value: serde_json::Value = serde_json::from_str(&compact).unwrap();
 
-        terminal::with_tty_for_test(true, false, || {
-            let pretty = render(&data, OutputFormat::Json);
-            assert!(pretty.contains("\n  "));
-            assert_eq!(
-                serde_json::from_str::<serde_json::Value>(&pretty).unwrap(),
-                value
-            );
-        });
-    }
-
-    #[test]
-    fn test_format_timing() {
-        let duration = std::time::Duration::from_millis(1234);
-        assert_eq!(format_timing(duration), "Completed in 1.2s");
+        let pretty = render_with(&data, OutputFormat::Json, tty_env());
+        assert!(pretty.contains("\n  "));
         assert_eq!(
-            format_timing(std::time::Duration::from_millis(42)),
-            "Completed in 42ms"
+            serde_json::from_str::<serde_json::Value>(&pretty).unwrap(),
+            value
         );
-    }
-
-    #[test]
-    fn test_timing_footer_only_for_human_formats_on_terminal() {
-        let duration = std::time::Duration::from_millis(1234);
-        assert!(timing_footer(duration, OutputFormat::Json, true).is_none());
-        assert!(timing_footer(duration, OutputFormat::Pretty, false).is_none());
-        assert!(timing_footer(duration, OutputFormat::Table, false).is_none());
-        // The agent/CI gates read the process environment, so assert only the
-        // terminal case when neither is set.
-        if !terminal::agent_env() && !terminal::ci_env() {
-            assert_eq!(
-                timing_footer(duration, OutputFormat::Pretty, true).as_deref(),
-                Some("Completed in 1.2s")
-            );
-        }
     }
 
     #[test]
@@ -1460,11 +1324,9 @@ mod tests {
 
     #[test]
     fn test_empty_data_prints_nothing_on_terminal() {
-        terminal::with_tty_for_test(true, false, || {
-            let data = empty_data();
-            assert_eq!(render_table(&data), "");
-            assert_eq!(render_pretty(&data), "");
-        });
+        let data = empty_data();
+        assert_eq!(render_with(&data, OutputFormat::Table, tty_env()), "");
+        assert_eq!(render_with(&data, OutputFormat::Pretty, tty_env()), "");
     }
 
     #[test]
@@ -1526,9 +1388,7 @@ mod tests {
         assert!(pretty.contains(expected));
         assert_eq!(pretty.lines().count(), 3);
 
-        terminal::with_tty_for_test(true, false, || {
-            assert!(render_table(&data).contains(expected));
-        });
+        assert!(render_with(&data, OutputFormat::Table, tty_env()).contains(expected));
     }
 
     #[test]

@@ -7,7 +7,7 @@
 //! - `hyperliquid funding <COIN>` — show current and predicted funding
 //! - `hyperliquid mids` — show all mid prices
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use chrono::Utc;
 use hypersdk::Decimal;
@@ -18,10 +18,11 @@ use hypersdk::hypercore::{
 use serde::Serialize;
 
 use crate::assets::{AssetResolver, Market};
-use crate::command_context::CommandContext;
-use crate::commands::{map_api_error, outcomes};
+use crate::commands::outcomes;
 use crate::errors::CliError;
-use crate::output::{OutputFormat, TableData};
+use crate::errors::from_sdk;
+use crate::invocation::Invocation;
+use crate::output::TableData;
 use crate::ws::{Awaited, first_matching_message};
 
 const WEBSOCKET_TIMEOUT: Duration = Duration::from_secs(15);
@@ -318,11 +319,10 @@ pub struct MidsOutput {
 
 impl MidsOutput {
     #[must_use]
-    pub fn new(mids: Vec<MidRow>, select: Option<&str>) -> Self {
-        let selected_fields = select.map(parse_selected_fields);
+    pub fn new(mids: Vec<MidRow>, selected_fields: Option<&[String]>) -> Self {
         Self {
             mids,
-            selected_fields,
+            selected_fields: selected_fields.map(<[String]>::to_vec),
         }
     }
 }
@@ -372,73 +372,11 @@ impl TableData for MidsOutput {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BookResult {
-    pub output: BookSnapshot,
-    pub elapsed: Duration,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CandlesResult {
-    pub output: CandlesOutput,
-    pub elapsed: Duration,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SpreadResult {
-    pub output: SpreadRow,
-    pub elapsed: Duration,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FundingResult {
-    pub output: FundingRow,
-    pub elapsed: Duration,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MidsResult {
-    pub output: MidsOutput,
-    pub elapsed: Duration,
-}
-
 /// Resolve and render the L2 order book for a perpetual or spot market.
-pub async fn book(
-    chain: Chain,
-    resolver: &AssetResolver,
-    coin: &str,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let result = book_query(chain, resolver, coin).await?;
-
-    crate::output::print_data(&result.output, format, result.elapsed);
-    Ok(())
-}
-
-/// Resolve and fetch the L2 order book for a perpetual or spot market.
-pub async fn book_query(
-    chain: Chain,
-    resolver: &AssetResolver,
-    coin: &str,
-) -> Result<BookResult, anyhow::Error> {
-    let start = Instant::now();
-    let output = book_snapshot(chain, resolver, coin).await?;
-
-    Ok(BookResult {
-        output,
-        elapsed: start.elapsed(),
-    })
-}
-
-/// Resolve and render the L2 order book through a per-call output context.
-pub async fn book_with_context(
-    context: &CommandContext<'_>,
-    chain: Chain,
-    resolver: &AssetResolver,
-    coin: &str,
-) -> Result<(), anyhow::Error> {
-    let result = book_query(chain, resolver, coin).await?;
-    context.print(&result.output, result.elapsed);
+pub async fn book(inv: &Invocation, coin: &str) -> Result<(), anyhow::Error> {
+    let resolver = inv.asset_resolver().await?;
+    let snapshot = book_snapshot(inv.remote()?.chain(), &resolver, coin).await?;
+    inv.print(&snapshot);
     Ok(())
 }
 
@@ -455,49 +393,15 @@ pub async fn book_snapshot(
 
 /// Resolve and render candle history for a perpetual market.
 pub async fn candles(
-    client: &HttpClient,
-    resolver: &AssetResolver,
-    coin: &str,
-    interval: CandleInterval,
-    limit: usize,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let result = candles_query(client, resolver, coin, interval, limit).await?;
-
-    crate::output::print_data(&result.output, format, result.elapsed);
-    Ok(())
-}
-
-/// Resolve and fetch candle history for a perpetual market.
-pub async fn candles_query(
-    client: &HttpClient,
-    resolver: &AssetResolver,
-    coin: &str,
-    interval: CandleInterval,
-    limit: usize,
-) -> Result<CandlesResult, anyhow::Error> {
-    let start = Instant::now();
-    let output = candles_snapshot(client, resolver, coin, interval, limit).await?;
-
-    Ok(CandlesResult {
-        output,
-        elapsed: start.elapsed(),
-    })
-}
-
-/// Resolve and render candle history through a per-call output context.
-pub async fn candles_with_context(
-    context: &CommandContext<'_>,
-    resolver: &AssetResolver,
+    inv: &Invocation,
     coin: &str,
     interval: CandleInterval,
     limit: usize,
 ) -> Result<(), anyhow::Error> {
-    let client = context
-        .hypercore_client()
-        .ok_or_else(|| anyhow::anyhow!("candles command requires a Hyperliquid HTTP client"))?;
-    let result = candles_query(client, resolver, coin, interval, limit).await?;
-    context.print(&result.output, result.elapsed);
+    let client = inv.remote()?.client();
+    let resolver = inv.asset_resolver().await?;
+    let snapshot = candles_snapshot(client, &resolver, coin, interval, limit).await?;
+    inv.print(&snapshot);
     Ok(())
 }
 
@@ -518,7 +422,7 @@ pub async fn candles_snapshot(
     let mut candles = client
         .candle_snapshot(coin, interval, start_time, end_time)
         .await
-        .map_err(map_api_error)?;
+        .map_err(from_sdk)?;
 
     candles.sort_by_key(|candle| candle.open_time);
     let skip = candles.len().saturating_sub(limit);
@@ -532,181 +436,62 @@ pub async fn candles_snapshot(
 }
 
 /// Resolve and render the best bid/ask spread for a perpetual market.
-pub async fn spread(
-    chain: Chain,
-    resolver: &AssetResolver,
-    coin: &str,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let result = spread_query(chain, resolver, coin).await?;
-
-    crate::output::print_data(&result.output, format, result.elapsed);
-    Ok(())
-}
-
-/// Resolve and fetch the best bid/ask spread for a perpetual market.
-pub async fn spread_query(
-    chain: Chain,
-    resolver: &AssetResolver,
-    coin: &str,
-) -> Result<SpreadResult, anyhow::Error> {
-    let start = Instant::now();
-    let output = spread_snapshot(chain, resolver, coin).await?;
-
-    Ok(SpreadResult {
-        output,
-        elapsed: start.elapsed(),
-    })
-}
-
-/// Fetch the best bid/ask spread for a perpetual market without printing it.
-pub async fn spread_snapshot(
-    chain: Chain,
-    resolver: &AssetResolver,
-    coin: &str,
-) -> Result<SpreadRow, anyhow::Error> {
-    let coin = resolve_perp_coin(resolver, coin)?;
-    let book = fetch_l2_book(chain, &coin).await?;
-    spread_row_from_book(&coin, &book).map_err(Into::into)
-}
-
-/// Resolve and render the best bid/ask spread through a per-call output context.
-pub async fn spread_with_context(
-    context: &CommandContext<'_>,
-    chain: Chain,
-    resolver: &AssetResolver,
-    coin: &str,
-) -> Result<(), anyhow::Error> {
-    let result = spread_query(chain, resolver, coin).await?;
-    context.print(&result.output, result.elapsed);
+pub async fn spread(inv: &Invocation, coin: &str) -> Result<(), anyhow::Error> {
+    let resolver = inv.asset_resolver().await?;
+    let coin = resolve_perp_coin(&resolver, coin)?;
+    let book = fetch_l2_book(inv.remote()?.chain(), &coin).await?;
+    inv.print(&spread_row_from_book(&coin, &book)?);
     Ok(())
 }
 
 /// Resolve and render current plus predicted funding for a perpetual market.
-pub async fn funding(
-    client: &HttpClient,
-    chain: Chain,
-    resolver: &AssetResolver,
-    coin: &str,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let result = funding_query(client, chain, resolver, coin).await?;
-
-    crate::output::print_data(&result.output, format, result.elapsed);
-    Ok(())
-}
-
-/// Resolve and fetch current plus predicted funding for a perpetual market.
-pub async fn funding_query(
-    client: &HttpClient,
-    chain: Chain,
-    resolver: &AssetResolver,
-    coin: &str,
-) -> Result<FundingResult, anyhow::Error> {
-    let start = Instant::now();
-    let output = funding_snapshot(client, chain, resolver, coin).await?;
-
-    Ok(FundingResult {
-        output,
-        elapsed: start.elapsed(),
-    })
-}
-
-/// Fetch current plus predicted funding for a perpetual market without printing it.
-pub async fn funding_snapshot(
-    client: &HttpClient,
-    chain: Chain,
-    resolver: &AssetResolver,
-    coin: &str,
-) -> Result<FundingRow, anyhow::Error> {
-    let coin = resolve_perp_coin(resolver, coin)?;
+pub async fn funding(inv: &Invocation, coin: &str) -> Result<(), anyhow::Error> {
+    let remote = inv.remote()?;
+    let resolver = inv.asset_resolver().await?;
+    let coin = resolve_perp_coin(&resolver, coin)?;
     let end_time = Utc::now().timestamp_millis() as u64;
     let start_time = end_time.saturating_sub(24 * 60 * 60 * 1000);
 
-    let latest_history = client
+    let latest_history = remote
+        .client()
         .funding_history(coin.clone(), start_time, Some(end_time))
         .await
-        .map_err(map_api_error)?
+        .map_err(from_sdk)?
         .into_iter()
         .max_by_key(|rate| rate.time);
 
-    let active_ctx = fetch_active_asset_ctx(chain, &coin).await?;
-    Ok(funding_row_from_history_and_context(
+    let active_ctx = fetch_active_asset_ctx(remote.chain(), &coin).await?;
+    inv.print(&FundingRow::from_history_and_context(
         &coin,
         latest_history,
         active_ctx,
-    ))
-}
-
-/// Resolve and render current plus predicted funding through a per-call output context.
-pub async fn funding_with_context(
-    context: &CommandContext<'_>,
-    chain: Chain,
-    resolver: &AssetResolver,
-    coin: &str,
-) -> Result<(), anyhow::Error> {
-    let client = context
-        .hypercore_client()
-        .ok_or_else(|| anyhow::anyhow!("funding command requires a Hyperliquid HTTP client"))?;
-    let result = funding_query(client, chain, resolver, coin).await?;
-    context.print(&result.output, result.elapsed);
+    ));
     Ok(())
 }
 
 /// Fetch and render all mid prices.
-pub async fn mids(
-    client: &HttpClient,
-    format: OutputFormat,
-    select: Option<&str>,
-) -> Result<(), anyhow::Error> {
-    let result = mids_query(client, select).await?;
-
-    crate::output::print_data(&result.output, format, result.elapsed);
+pub async fn mids(inv: &Invocation) -> Result<(), anyhow::Error> {
+    let selected = inv.session().json_options().selected_fields();
+    inv.print(&mids_snapshot(inv.remote()?.client(), selected).await?);
     Ok(())
 }
 
-/// Fetch all mid prices.
-pub async fn mids_query(
-    client: &HttpClient,
-    select: Option<&str>,
-) -> Result<MidsResult, anyhow::Error> {
-    let start = Instant::now();
-    let output = mids_snapshot(client, select).await?;
-
-    Ok(MidsResult {
-        output,
-        elapsed: start.elapsed(),
-    })
-}
-
-/// Fetch and render all mid prices through a per-call output context.
-pub async fn mids_with_context(
-    context: &CommandContext<'_>,
-    select: Option<&str>,
-) -> Result<(), anyhow::Error> {
-    let client = context
-        .hypercore_client()
-        .ok_or_else(|| anyhow::anyhow!("mids command requires a Hyperliquid HTTP client"))?;
-    let result = mids_query(client, select).await?;
-    context.print(&result.output, result.elapsed);
-    Ok(())
-}
-
-/// Fetch all mid prices without printing them.
+/// Fetch all mid prices without printing them. `selected` is `--select`: it
+/// switches the JSON from a name-to-mid map to rows of the named fields.
 pub async fn mids_snapshot(
     client: &HttpClient,
-    select: Option<&str>,
+    selected: Option<&[String]>,
 ) -> Result<MidsOutput, anyhow::Error> {
     let mut mids = client
         .all_mids(None)
         .await
-        .map_err(map_api_error)?
+        .map_err(from_sdk)?
         .into_iter()
         .map(|(name, mid)| MidRow { name, mid })
         .collect::<Vec<_>>();
 
     mids.sort_by(|left, right| left.name.cmp(&right.name));
-    Ok(MidsOutput::new(mids, select))
+    Ok(MidsOutput::new(mids, selected))
 }
 
 impl FundingRow {
@@ -725,14 +510,6 @@ impl FundingRow {
             last_funding_time: latest_history.map(|rate| rate.time),
         }
     }
-}
-
-pub(crate) fn funding_row_from_history_and_context(
-    coin: &str,
-    latest_history: Option<FundingRate>,
-    ctx: AssetContext,
-) -> FundingRow {
-    FundingRow::from_history_and_context(coin, latest_history, ctx)
 }
 
 pub(crate) fn spread_row_from_book(coin: &str, book: &L2Book) -> Result<SpreadRow, CliError> {
@@ -818,14 +595,6 @@ async fn fetch_active_asset_ctx(chain: Chain, coin: &str) -> Result<AssetContext
         },
     )
     .await
-}
-
-fn parse_selected_fields(select: &str) -> Vec<String> {
-    select
-        .split(',')
-        .map(|field| field.trim().to_ascii_lowercase())
-        .filter(|field| !field.is_empty())
-        .collect()
 }
 
 fn format_optional_decimal(value: Option<Decimal>) -> String {
@@ -1062,7 +831,7 @@ mod tests {
                 name: "BTC".to_string(),
                 mid: dec("100"),
             }],
-            Some("name,mid"),
+            Some(&["name".to_string(), "mid".to_string()]),
         );
         let json = output.to_json_value();
         let object = json[0].as_object().unwrap();

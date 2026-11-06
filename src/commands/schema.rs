@@ -5,7 +5,8 @@ use serde_json::{Value, json};
 
 use crate::command_registry::{CommandContract, CommandRegistry, InputContract, InputKind};
 use crate::errors::CliError;
-use crate::output::{self, OutputFormat, TableData};
+use crate::invocation::Invocation;
+use crate::output::TableData;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -96,9 +97,8 @@ impl TableData for SchemaOutput {
     }
 }
 
-pub fn show(command_path: &[String], format: OutputFormat) -> Result<(), anyhow::Error> {
-    let output = schema_query(command_path)?;
-    output::print_data_no_timing(&output, format);
+pub fn show(inv: &Invocation, command_path: &[String]) -> Result<(), anyhow::Error> {
+    inv.print_untimed(&schema_query(command_path)?);
     Ok(())
 }
 

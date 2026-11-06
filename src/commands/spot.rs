@@ -7,12 +7,11 @@ use clap::Args;
 use hypersdk::Decimal;
 use hypersdk::hypercore::{HttpClient, PriceTick};
 use serde::Serialize;
-use std::time::{Duration, Instant};
 
-use crate::assets::{AssetResolver, SpotListing, load_spot_markets};
-use crate::command_context::CommandContext;
+use crate::assets::{SpotListing, load_spot_markets};
 use crate::errors::CliError;
-use crate::output::{OutputFormat, TableData};
+use crate::invocation::Invocation;
+use crate::output::TableData;
 
 #[derive(Args, Debug)]
 pub struct SpotListArgs {}
@@ -141,66 +140,17 @@ impl TableData for SpotMarketDetailsOutput {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SpotMarketsResult {
-    pub output: SpotMarketsOutput,
-    pub elapsed: Duration,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SpotMarketDetailsResult {
-    pub output: SpotMarketDetailsOutput,
-    pub elapsed: Duration,
-}
-
-/// Fetch all spot markets.
-pub async fn list_query(client: &HttpClient) -> Result<SpotMarketsResult, anyhow::Error> {
-    let start = Instant::now();
-    let markets = load_spot_market_rows(client).await?;
-    let output = SpotMarketsOutput::new(markets);
-
-    Ok(SpotMarketsResult {
-        output,
-        elapsed: start.elapsed(),
-    })
-}
-
-/// Fetch and render all spot markets through a per-call output context.
-pub async fn list_with_context(context: &CommandContext<'_>) -> Result<(), anyhow::Error> {
-    let client = context
-        .hypercore_client()
-        .ok_or_else(|| anyhow::anyhow!("spot list command requires a Hyperliquid HTTP client"))?;
-    let result = list_query(client).await?;
-    context.print(&result.output, result.elapsed);
-    Ok(())
-}
-
 /// Fetch and render all spot markets.
-pub async fn list(client: &HttpClient, format: OutputFormat) -> Result<(), anyhow::Error> {
-    let result = list_query(client).await?;
-    crate::output::print_data(&result.output, format, result.elapsed);
+pub async fn list(inv: &Invocation) -> Result<(), anyhow::Error> {
+    let markets = load_spot_market_rows(inv.remote()?.client()).await?;
+    inv.print(&SpotMarketsOutput::new(markets));
     Ok(())
 }
 
 /// Resolve, fetch, and render one spot market.
-pub async fn get(
-    client: &HttpClient,
-    resolver: &AssetResolver,
-    pair: &str,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let result = get_query(client, resolver, pair).await?;
-    crate::output::print_data(&result.output, format, result.elapsed);
-    Ok(())
-}
-
-/// Resolve and fetch one spot market.
-pub async fn get_query(
-    client: &HttpClient,
-    resolver: &AssetResolver,
-    pair: &str,
-) -> Result<SpotMarketDetailsResult, anyhow::Error> {
-    let start = Instant::now();
+pub async fn get(inv: &Invocation, pair: &str) -> Result<(), anyhow::Error> {
+    let client = inv.remote()?.client();
+    let resolver = inv.asset_resolver().await?;
     let resolved = resolver.resolve_spot(pair).map_err(CliError::from)?;
     let (resolved_symbol, resolved_index) = (resolved.symbol, resolved.index);
 
@@ -214,10 +164,8 @@ pub async fn get_query(
             asset: pair.to_string(),
         })?;
 
-    Ok(SpotMarketDetailsResult {
-        output: SpotMarketDetailsOutput::new(market),
-        elapsed: start.elapsed(),
-    })
+    inv.print(&SpotMarketDetailsOutput::new(market));
+    Ok(())
 }
 
 async fn load_spot_market_rows(client: &HttpClient) -> Result<Vec<SpotMarketRow>, CliError> {

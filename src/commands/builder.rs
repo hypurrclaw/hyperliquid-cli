@@ -5,8 +5,6 @@
 //! - `hyperliquid builder approved --user <ADDRESS>`
 //! - `hyperliquid builder approve --builder <ADDRESS> --max-fee-rate <PERCENT>`
 
-use std::time::Instant;
-
 use alloy::sol;
 use clap::Args;
 use futures::future::try_join_all;
@@ -20,7 +18,9 @@ use crate::commands::actions;
 use crate::dry_run::ActionReversibility;
 use crate::errors::CliError;
 use crate::http_api::post_info_json;
-use crate::output::{OutputFormat, TableData};
+use crate::invocation::Invocation;
+use crate::mode::Mode;
+use crate::output::TableData;
 use crate::settings::{BuilderDefaultSetting, Settings};
 use crate::signing::SelectedSigner;
 
@@ -90,18 +90,6 @@ struct BuilderApprovedRow {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuilderApprovedOutput {
     rows: Vec<BuilderApprovedRow>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BuilderMaxFeeResult {
-    pub output: BuilderMaxFeeOutput,
-    pub elapsed: std::time::Duration,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BuilderApprovedResult {
-    pub output: BuilderApprovedOutput,
-    pub elapsed: std::time::Duration,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -256,51 +244,24 @@ impl TableData for BuilderApproveOutput {
 }
 
 pub async fn max_fee(
-    api_base_url: &str,
+    inv: &Invocation,
     user: Address,
     builder: Address,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
-    let result = max_fee_query(api_base_url, user, builder).await?;
-    crate::output::print_data(&result.output, format, result.elapsed);
-    Ok(())
-}
-
-pub async fn approved(
-    api_base_url: &str,
-    user: Address,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let result = approved_query(api_base_url, user).await?;
-    crate::output::print_data(&result.output, format, result.elapsed);
-    Ok(())
-}
-
-pub async fn max_fee_query(
-    api_base_url: &str,
-    user: Address,
-    builder: Address,
-) -> Result<BuilderMaxFeeResult, anyhow::Error> {
-    let start = Instant::now();
-    let max_fee_tenths_bps = load_max_fee(api_base_url, user, builder).await?;
-    Ok(BuilderMaxFeeResult {
-        output: BuilderMaxFeeOutput {
-            row: BuilderMaxFeeRow {
-                user: user.to_string(),
-                builder: builder.to_string(),
-                max_fee_tenths_bps,
-                max_fee_rate: percent_from_tenths_bps(max_fee_tenths_bps),
-            },
+    let max_fee_tenths_bps = load_max_fee(inv.remote()?.api_base_url(), user, builder).await?;
+    inv.print(&BuilderMaxFeeOutput {
+        row: BuilderMaxFeeRow {
+            user: user.to_string(),
+            builder: builder.to_string(),
+            max_fee_tenths_bps,
+            max_fee_rate: percent_from_tenths_bps(max_fee_tenths_bps),
         },
-        elapsed: start.elapsed(),
-    })
+    });
+    Ok(())
 }
 
-pub async fn approved_query(
-    api_base_url: &str,
-    user: Address,
-) -> Result<BuilderApprovedResult, anyhow::Error> {
-    let start = Instant::now();
+pub async fn approved(inv: &Invocation, user: Address) -> Result<(), anyhow::Error> {
+    let api_base_url = inv.remote()?.api_base_url();
     let builders = post_info_json::<Vec<Address>>(
         api_base_url,
         &ApprovedBuildersRequest {
@@ -322,10 +283,8 @@ pub async fn approved_query(
     }))
     .await?;
 
-    Ok(BuilderApprovedResult {
-        output: BuilderApprovedOutput { rows },
-        elapsed: start.elapsed(),
-    })
+    inv.print(&BuilderApprovedOutput { rows });
+    Ok(())
 }
 
 pub fn approve_dry_run_value(
@@ -372,35 +331,37 @@ async fn load_max_fee(
 }
 
 pub async fn approve(
-    api_base_url: &str,
-    chain: Chain,
+    inv: &Invocation,
     signer: &SelectedSigner,
     builder: Address,
     args: &ApproveArgs,
     require_confirmation: bool,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
     let max_fee_tenths_bps = validate_max_fee_rate(&args.max_fee_rate)?;
     if require_confirmation && !args.yes {
-        confirm_builder_approval(builder, &args.max_fee_rate, max_fee_tenths_bps)?;
+        confirm_builder_approval(inv.mode(), builder, &args.max_fee_rate, max_fee_tenths_bps)?;
     }
 
-    let start = Instant::now();
-    submit_approval(api_base_url, chain, signer, builder, &args.max_fee_rate).await?;
+    let remote = inv.remote()?;
+    let chain = remote.chain();
+    submit_approval(
+        remote.api_base_url(),
+        chain,
+        signer,
+        builder,
+        &args.max_fee_rate,
+    )
+    .await?;
 
-    crate::output::print_data(
-        &BuilderApproveOutput {
-            row: approve_output_row(
-                chain,
-                signer,
-                builder,
-                &args.max_fee_rate,
-                max_fee_tenths_bps,
-            ),
-        },
-        format,
-        start.elapsed(),
-    );
+    inv.print(&BuilderApproveOutput {
+        row: approve_output_row(
+            chain,
+            signer,
+            builder,
+            &args.max_fee_rate,
+            max_fee_tenths_bps,
+        ),
+    });
     Ok(())
 }
 
@@ -570,15 +531,16 @@ pub(crate) fn percent_from_tenths_bps(value: u64) -> String {
 }
 
 fn confirm_builder_approval(
+    mode: &Mode,
     builder: Address,
     max_fee_rate: &str,
     max_fee_tenths_bps: u64,
 ) -> Result<(), CliError> {
-    crate::prompt::ensure_can_prompt("--yes")?;
+    crate::prompt::ensure_can_prompt(mode, "--yes")?;
     let question = format!(
         "Approve builder {builder} for max fee {max_fee_rate} ({max_fee_tenths_bps} tenths bps)?"
     );
-    if crate::prompt::confirm_warning(&question, "--yes")? {
+    if crate::prompt::confirm_warning(mode, &question, "--yes")? {
         Ok(())
     } else {
         Err(CliError::Configuration(

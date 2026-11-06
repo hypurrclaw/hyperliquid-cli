@@ -225,9 +225,7 @@ pub async fn trailing_stop(
     resolver: &AssetResolver,
     args: &TrailingStopArgs,
     vault_address: Option<Address>,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
-    let start = Instant::now();
     context.signer.ensure_can_attempt_live_signing()?;
     let plan = prepare_trailing_stop_plan(resolver, args)?;
     if context.require_mainnet_confirmation
@@ -252,24 +250,20 @@ pub async fn trailing_stop(
     .await?;
     let oid = parse_trailing_stop_response(&response)?;
 
-    output::print_data(
-        &TrailingStopOutput {
-            rows: vec![TrailingStopConfirmation {
-                oid,
-                coin: plan.coin.clone(),
-                side: plan.side.to_string(),
-                size: plan.size,
-                reduce_only: plan.reduce_only(),
-                retracement: retracement_json(&plan.retracement),
-                activation_px: plan.activation_px.map(|price| price.to_string()),
-                status: "waiting_for_trigger".to_string(),
-                retracement_label: retracement_label(&plan.retracement),
-            }],
-        },
-        format,
-        start.elapsed(),
-    );
-    if format == OutputFormat::Pretty {
+    context.inv.print(&TrailingStopOutput {
+        rows: vec![TrailingStopConfirmation {
+            oid,
+            coin: plan.coin.clone(),
+            side: plan.side.to_string(),
+            size: plan.size,
+            reduce_only: plan.reduce_only(),
+            retracement: retracement_json(&plan.retracement),
+            activation_px: plan.activation_px.map(|price| price.to_string()),
+            status: "waiting_for_trigger".to_string(),
+            retracement_label: retracement_label(&plan.retracement),
+        }],
+    });
+    if context.inv.format() == OutputFormat::Pretty {
         print_cancel_hint(oid, vault_address, args.on_behalf_of.as_deref());
     }
     Ok(())
