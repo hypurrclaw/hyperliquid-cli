@@ -5,7 +5,7 @@ use std::time::Instant;
 use clap::Args;
 use hypersdk::Address;
 use hypersdk::hypercore::types::api::ApproveAgent;
-use hypersdk::hypercore::types::{Action, OkResponse, Response};
+use hypersdk::hypercore::types::{Action, Response};
 use hypersdk::hypercore::{Chain, HttpClient, PrivateKeySigner};
 use serde::Serialize;
 
@@ -403,7 +403,7 @@ async fn approve_prepared(
     let request =
         signer.sign_l1_action_sync(Action::ApproveAgent(approval), nonce, None, runtime.chain)?;
     let response = post_exchange_json::<Response>(runtime.api_base_url, &request, "").await?;
-    ensure_default_response(response)?;
+    actions::ensure_default_response(response, "approveAgent action failed")?;
 
     let private_key = prepared.generated_private_key;
     print_action_output(
@@ -621,19 +621,6 @@ fn parse_address(raw: &str) -> Result<Address, CliError> {
     raw.trim()
         .parse::<Address>()
         .map_err(|_| CliError::Unsupported(format!("Invalid address: {}", raw.trim())))
-}
-
-fn ensure_default_response(response: Response) -> Result<(), CliError> {
-    match response {
-        Response::Ok(OkResponse::Default) => Ok(()),
-        Response::Err(err) => Err(actions::map_exchange_error(
-            err,
-            "approveAgent action failed",
-        )),
-        other => Err(CliError::Internal(anyhow::anyhow!(
-            "approveAgent action failed: unexpected response type: {other:?}"
-        ))),
-    }
 }
 
 fn print_action_output(row: ApiWalletActionRow, format: OutputFormat) {

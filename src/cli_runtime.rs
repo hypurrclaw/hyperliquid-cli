@@ -1682,7 +1682,7 @@ impl AppContext {
             .map_err(|err| errors::network_error(&err, Some(Duration::from_secs(5))))?;
 
         if errors::http_response_indicates_rate_limit(status.as_u16(), &body) {
-            return Err(errors::CliError::RateLimited);
+            return Err(errors::CliError::rate_limited());
         }
 
         if !status.is_success() {

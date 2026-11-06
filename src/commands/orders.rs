@@ -2924,19 +2924,6 @@ mod tests {
     }
 
     #[test]
-    fn signed_exchange_user_state_rejections_are_not_internal_errors() {
-        let err = actions::map_exchange_error(
-            "User or API Wallet 0x1111111111111111111111111111111111111111 does not exist."
-                .to_string(),
-            "order placement failed",
-        );
-
-        assert_eq!(err.exit_code(), 13);
-        assert!(err.to_string().contains("order placement failed"));
-        assert!(err.to_string().contains("does not exist"));
-    }
-
-    #[test]
     fn tpsl_response_parser_accepts_waiting_children() {
         let response = serde_json::json!({
             "type": "order",

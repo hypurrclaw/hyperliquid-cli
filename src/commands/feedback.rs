@@ -135,7 +135,7 @@ pub async fn submit(args: &FeedbackArgs, format: OutputFormat) -> Result<(), any
 
     if !status.is_success() {
         if errors::http_response_indicates_rate_limit(status.as_u16(), &body) {
-            return Err(CliError::RateLimited.into());
+            return Err(CliError::rate_limited().into());
         }
         return Err(CliError::Unavailable(format!(
             "feedback service returned HTTP {status}. {}",

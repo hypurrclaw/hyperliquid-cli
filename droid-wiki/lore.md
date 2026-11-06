@@ -59,7 +59,7 @@ v0.11.0 was tagged on 2026-05-17 (`dda4069`, "chore: prepare v0.11.0 release").
 Files present since the earliest pre-public import and still actively used:
 
 - `src/main.rs` — clap surface
-- `src/errors.rs` — `CliError`
+- `src/errors/` — `CliError`
 - `src/output/mod.rs` — three-format rendering
 - `src/commands/orders.rs` — order family root
 - `src/auth.rs`, `src/signing.rs` — signer abstractions

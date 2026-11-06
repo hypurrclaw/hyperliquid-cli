@@ -290,11 +290,7 @@ async fn fetch_raw_info<T: serde::de::DeserializeOwned>(
         return Err(map_api_error(anyhow::anyhow!("HTTP {status} body={text}")));
     }
 
-    serde_json::from_str(&text).map_err(|err| {
-        CliError::Internal(anyhow::anyhow!(
-            "decode failed while loading raw exchange metadata: {err}; body={text}"
-        ))
-    })
+    crate::http_api::decode_json(&text, "loading raw exchange metadata")
 }
 
 async fn load_spot_universe(client: &HttpClient) -> Result<Vec<MetaSpotRow>, CliError> {

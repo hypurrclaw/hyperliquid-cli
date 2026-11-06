@@ -13,8 +13,8 @@ Every command goes through the same output pipeline (`src/output/mod.rs`) and th
 | File | Purpose |
 |------|---------|
 | `src/output/mod.rs` | `OutputFormat`, ANSI color theme, JSON projection (`--select`), result caps (`--max-results`), error routing |
-| `src/errors.rs` | `CliError` variants and exit-code mapping |
-| `src/response_sanitization.rs` | `labelled_untrusted_text()` and the `[untrusted remote data]` label |
+| `src/errors/` | `CliError` and its variant spec table (`mod.rs`), remote-text classifier (`classify.rs`), transport failure naming (`transport.rs`), recovery commands, JSON envelope, human rendering |
+| `src/response_sanitization.rs` | The `Untrusted` type and the `[untrusted remote data]` label |
 
 ## Output formats
 
@@ -68,27 +68,29 @@ JSON-mode errors print to **stdout** as a single JSON object so agents that capt
 | (clap usage)              | 2 | Argument parse errors |
 | `AuthRequired`            | 10 | No wallet configured |
 | `InvalidAuth(String)`     | 10 | Bad key format / expired creds |
+| `AuthRejected(Untrusted)` | 10 | Remote service rejected the credentials |
 | `OwsWalletNotFound`       | 10 | OWS selector unknown |
 | `OwsNoChainAccount`       | 10 | OWS wallet has no Hyperliquid/EVM account |
-| `RateLimited`             | 11 | API rate limited |
+| `RateLimited { .. }`      | 11 | API rate limited |
 | `Unavailable(String)`     | 12 | Network/API unreachable |
 | `Timeout(String)`         | 12 | Exceeded a bound |
 | `Unsupported(String)`     | 13 | Bad asset/DEX/parameter |
+| `ConfirmationRequired`    | 13 | Can't prompt for a required confirmation |
 | `AssetNotFound { asset, suggestions }` | 13 | Unknown asset with close matches |
 | `AssetNotFoundNoSuggestion`     | 13 | Unknown asset with no matches |
-| `StaleData(String)`       | 14 | Cached data expired |
 | `PartialResults(String)`  | 15 | Some items failed in a batch |
 
 The full table including precise messages lives in [reference/exit-codes](../reference/exit-codes.md).
 
 ## Untrusted remote data
 
-`src/response_sanitization.rs` exposes `labelled_untrusted_text(s)` which strips ANSI/control sequences and prefixes the text with `[untrusted remote data]`. Every place that propagates an exchange or HTTP-layer string to the user wraps it through this helper. Agents that parse error output should preserve the label intact in artifacts and summaries.
+`src/response_sanitization.rs` exposes `Untrusted::from_remote(raw)`, which strips ANSI/control sequences; its `Display` prefixes the text with `[untrusted remote data]`. Error variants that carry remote text (`ExchangeRejected`, `AuthRejected`, `ApiStatus.remote`) take `Untrusted`, so unlabelled remote text does not type-check; `CliError::internal_with_remote` builds `Internal` errors that quote it. Agents that parse error output should preserve the label intact in artifacts and summaries.
 
 ## Entry points for modification
 
-- To add a new error variant: add a `CliError` arm in `src/errors.rs`, give it a thiserror message, and map it to an exit code in `exit_code()`. Add a snapshot test in `tests/error_exit_codes.rs`.
+- To add a new error variant: add a `CliError` arm in `src/errors/mod.rs`, give it a thiserror message, and add one row in `CliError::spec()` (exit code, category, reason, retryability). Add a snapshot test in `tests/error_exit_codes.rs`.
+- To teach the CLI a new rate-limit, auth or user-state phrasing from the exchange: edit the phrase tables at the top of `src/errors/classify.rs`.
 - To change the JSON projection logic: see the projection helpers near the top of `src/output/mod.rs` and add coverage in `tests/output_contracts.rs`.
-- To add a new untrusted-string surface: route it through `labelled_untrusted_text` and add a test in `tests/security_contracts.rs`.
+- To add a new untrusted-string surface: route it through `Untrusted::from_remote` and add a test in `tests/security_contracts.rs`.
 
 See also: [systems/input-hardening](input-hardening.md), [features/agent-output-contract](../features/agent-output-contract.md).

@@ -973,31 +973,6 @@ pub fn warn(message: &str) {
     eprintln!("{}", format_warning_line(message));
 }
 
-/// Print a plain error message with proper routing based on output format.
-///
-/// For richer error handling with [`crate::errors::CliError`], use
-/// [`crate::errors::print_error`] instead.
-///
-/// - JSON mode: prints `{"error": "..."}` to **stdout**
-/// - Pretty mode: prints `✗ message` (red glyph) or `Error: message` to **stderr**
-/// - Table mode: prints a plain `Error: message` to **stderr**
-pub fn print_error(message: &str, format: OutputFormat) {
-    match format {
-        OutputFormat::Json => {
-            println!(
-                "{}",
-                crate::errors::ErrorEnvelope::new(message.to_string()).to_json()
-            );
-        }
-        OutputFormat::Pretty => {
-            eprintln!("{}", format_error_line(message));
-        }
-        OutputFormat::Table => {
-            eprintln!("Error: {message}");
-        }
-    }
-}
-
 /// Print a warning message to stderr (always stderr, all formats).
 pub fn print_warning(message: &str) {
     warn(message);

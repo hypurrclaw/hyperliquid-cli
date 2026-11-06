@@ -947,6 +947,13 @@ fn parse_positive_usize(raw: &str) -> Result<usize, String> {
     Ok(value)
 }
 
+fn error_output(format: output::OutputFormat) -> errors::ErrorOutput {
+    match format {
+        output::OutputFormat::Json => errors::ErrorOutput::Json,
+        output::OutputFormat::Pretty | output::OutputFormat::Table => errors::ErrorOutput::Human,
+    }
+}
+
 #[tokio::main]
 async fn main() {
     install_panic_hook();
@@ -961,11 +968,11 @@ async fn main() {
     }
     let format = match resolve_output_format(parsed.explicit_format, parsed.cli.format) {
         Ok(format) => format,
-        Err(err) => errors::exit_with_error(err, output::OutputFormat::Json),
+        Err(err) => errors::exit_with_error(err, errors::ErrorOutput::Json),
     };
     parsed.cli.format = format;
     if let Err(err) = hyperliquid_cli::mode::validate_env() {
-        errors::exit_with_error(err, format);
+        errors::exit_with_error(err, error_output(format));
     }
     hyperliquid_cli::mode::init(hyperliquid_cli::mode::ModeInputs {
         non_interactive_flag: parsed.cli.non_interactive,
@@ -995,7 +1002,7 @@ async fn main() {
         // the command runs, so they don't go through this path.
         hyperliquid_cli::update_check::flush_update_check_silent(update_check_handle).await;
         let cli_err = errors::from_anyhow(err);
-        errors::exit_with_error(cli_err, format);
+        errors::exit_with_error(cli_err, error_output(format));
     }
 
     hyperliquid_cli::update_check::flush_update_check(update_check_handle).await;

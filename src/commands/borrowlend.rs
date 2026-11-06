@@ -676,7 +676,7 @@ async fn post_info<T: for<'de> Deserialize<'de>>(
     let body = response.body;
 
     if http_response_indicates_rate_limit(status.as_u16(), &body) {
-        return Err(CliError::RateLimited.into());
+        return Err(CliError::rate_limited().into());
     }
 
     if info_request_type_is_unavailable(status.as_u16(), &body) {

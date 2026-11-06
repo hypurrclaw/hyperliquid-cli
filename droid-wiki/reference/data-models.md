@@ -79,7 +79,7 @@ Key types developers and reviewers encounter, grouped by topic. All file paths a
 | `TableData` (trait) | Implemented by every renderable type |
 | `colors::*` | ANSI color helpers |
 
-## Errors (`src/errors.rs`)
+## Errors (`src/errors/`)
 
 | Type | Purpose |
 |------|---------|

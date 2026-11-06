@@ -17,8 +17,10 @@ use reqwest::header::RETRY_AFTER;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-use crate::errors::{CliError, http_response_indicates_rate_limit, network_error, transport_cause};
-use crate::response_sanitization::labelled_untrusted_text;
+use crate::errors::{
+    CliError, http_response_indicates_rate_limit, is_server_status, network_error, transport_cause,
+};
+use crate::response_sanitization::Untrusted;
 
 const DEFAULT_API_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -250,7 +252,7 @@ async fn post_read(
 }
 
 fn is_transient_status(status: StatusCode) -> bool {
-    status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error()
+    status == StatusCode::TOO_MANY_REQUESTS || is_server_status(status.as_u16())
 }
 
 /// Delay before retry number `retries + 1`, or `None` when out of retries or
@@ -290,7 +292,7 @@ pub(crate) fn ensure_success_response(status: StatusCode, body: &str) -> Result<
 fn ensure_success(response: &ApiJsonResponse, disposition: Disposition) -> Result<(), CliError> {
     let status = response.status;
     if http_response_indicates_rate_limit(status.as_u16(), &response.body) {
-        return Err(CliError::RateLimitedAfter {
+        return Err(CliError::RateLimited {
             retry_after: response.retry_after,
             retryable: disposition == Disposition::Read,
         });
@@ -300,7 +302,7 @@ fn ensure_success(response: &ApiJsonResponse, disposition: Disposition) -> Resul
         return Ok(());
     }
 
-    if disposition == Disposition::Mutation && status.is_server_error() {
+    if disposition == Disposition::Mutation && is_server_status(status.as_u16()) {
         return Err(CliError::unknown_outcome(format!(
             "The exchange returned HTTP {} {}",
             status.as_u16(),
@@ -316,14 +318,13 @@ pub(crate) fn decode_json<T: DeserializeOwned>(
     context: &'static str,
 ) -> Result<T, CliError> {
     serde_json::from_str::<T>(body).map_err(|err| {
-        let body = labelled_untrusted_text(body);
-        if context.is_empty() {
-            CliError::Internal(anyhow::anyhow!("decode failed: {err}; body={body}"))
+        let body = Untrusted::from_remote(body);
+        let prefix = if context.is_empty() {
+            format!("decode failed: {err}; body=")
         } else {
-            CliError::Internal(anyhow::anyhow!(
-                "decode failed while {context}: {err}; body={body}"
-            ))
-        }
+            format!("decode failed while {context}: {err}; body=")
+        };
+        CliError::internal_with_remote(prefix, &body)
     })
 }
 

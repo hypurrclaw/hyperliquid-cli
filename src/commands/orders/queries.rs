@@ -186,7 +186,7 @@ async fn historical_orders_raw(
     let body = response.body;
 
     if http_response_indicates_rate_limit(status.as_u16(), &body) {
-        return Err(CliError::RateLimited);
+        return Err(CliError::rate_limited());
     }
 
     if !status.is_success() {
