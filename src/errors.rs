@@ -53,6 +53,17 @@ pub enum CliError {
     #[error("{0}")]
     ExchangeRejected(String),
 
+    /// A run that can't prompt reached a required confirmation (exit 13).
+    ///
+    /// `preview` is a runnable `--dry-run` command; `approve` is the same
+    /// command with `--yes`, offered only for use after a human approves.
+    #[error("{headline}")]
+    ConfirmationRequired {
+        headline: String,
+        preview: Option<String>,
+        approve: Option<String>,
+    },
+
     /// Invalid CLI configuration, config file, or environment setting (exit 2).
     #[error("Configuration error: {0}")]
     Configuration(String),
@@ -180,6 +191,7 @@ impl CliError {
             | Self::Timeout(_)
             | Self::UnknownOutcome(_) => 12,
             Self::Unsupported(_)
+            | Self::ConfirmationRequired { .. }
             | Self::AssetNotFound { .. }
             | Self::AssetNotFoundNoSuggestion { .. } => 13,
             Self::StaleData(_) => 14,
@@ -226,11 +238,11 @@ impl CliError {
 
 /// Recovery guidance rendered under an error: an instruction ending in `:`,
 /// the commands indented four spaces, then an optional closing note.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Recovery {
-    pub instruction: &'static str,
-    pub commands: &'static [&'static str],
-    pub note: Option<&'static str>,
+    pub instruction: String,
+    pub commands: Vec<NextCommand>,
+    pub note: Option<String>,
 }
 
 impl CliError {
@@ -239,15 +251,41 @@ impl CliError {
     pub fn recovery(&self) -> Option<Recovery> {
         match self {
             Self::AuthRequired => Some(Recovery {
-                instruction: "Set up a wallet:",
-                commands: &["hyperliquid setup"],
-                note: Some("Or set HYPERLIQUID_PRIVATE_KEY for this run."),
+                instruction: "Set up a wallet:".into(),
+                commands: vec![NextCommand::new("hyperliquid setup")],
+                note: Some("Or set HYPERLIQUID_PRIVATE_KEY for this run.".into()),
             }),
             Self::UnknownOutcome(_) => Some(Recovery {
-                instruction: "Check open orders and recent fills:",
-                commands: &["hyperliquid orders open", "hyperliquid account fills"],
+                instruction: "Check open orders and recent fills:".into(),
+                commands: vec![
+                    NextCommand::new("hyperliquid orders open"),
+                    NextCommand::new("hyperliquid account fills"),
+                ],
                 note: None,
             }),
+            Self::ConfirmationRequired {
+                preview, approve, ..
+            } => {
+                let approve = approve.as_ref().map(|command| NextCommand {
+                    command: command.clone(),
+                    when: Some("Only after a human approves"),
+                });
+                match preview {
+                    Some(preview) => Some(Recovery {
+                        instruction: "Preview it:".into(),
+                        commands: vec![NextCommand::new(preview.clone())]
+                            .into_iter()
+                            .chain(approve)
+                            .collect(),
+                        note: None,
+                    }),
+                    None => approve.map(|approve| Recovery {
+                        instruction: "After a human approves, rerun with --yes:".into(),
+                        commands: vec![approve],
+                        note: None,
+                    }),
+                }
+            }
             _ => None,
         }
     }
@@ -273,6 +311,7 @@ impl CliError {
             Self::Timeout(_) => "timeout",
             Self::UnknownOutcome(_) => "unknown_outcome",
             Self::Unsupported(message) if is_confirmation_block(message) => "confirmation_required",
+            Self::ConfirmationRequired { .. } => "confirmation_required",
             Self::Unsupported(_) => "unsupported_input",
             Self::AssetNotFound { .. } | Self::AssetNotFoundNoSuggestion { .. } => {
                 "asset_not_found"
@@ -574,10 +613,23 @@ impl From<hypersdk::hypercore::Error> for CliError {
 
 // ── JSON error envelope ─────────────────────────────────────────────────
 
-/// A recovery command in the `next` list of an error envelope.
-#[derive(serde::Serialize)]
+/// A recovery command in the `next` list of an error envelope. `when` states
+/// the condition for running it, such as human approval.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct NextCommand {
     pub command: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub when: Option<&'static str>,
+}
+
+impl NextCommand {
+    #[must_use]
+    pub fn new(command: impl Into<String>) -> Self {
+        Self {
+            command: command.into(),
+            when: None,
+        }
+    }
 }
 
 /// A JSON-serializable error envelope.
@@ -633,15 +685,7 @@ impl ErrorEnvelope {
         }
         let next = err
             .recovery()
-            .map(|recovery| {
-                recovery
-                    .commands
-                    .iter()
-                    .map(|command| NextCommand {
-                        command: (*command).to_string(),
-                    })
-                    .collect()
-            })
+            .map(|recovery| recovery.commands)
             .unwrap_or_default();
         Self {
             error: err.to_string(),
@@ -685,7 +729,7 @@ impl ErrorEnvelope {
             retry_after: None,
             next: parsed
                 .help_command
-                .map(|command| vec![NextCommand { command }])
+                .map(|command| vec![NextCommand::new(command)])
                 .unwrap_or_default(),
             data,
         }
@@ -772,6 +816,7 @@ impl CliError {
             | Self::Timeout(_)
             | Self::UnknownOutcome(_) => "unavailable",
             Self::Unsupported(_)
+            | Self::ConfirmationRequired { .. }
             | Self::AssetNotFound { .. }
             | Self::AssetNotFoundNoSuggestion { .. } => "unsupported",
             Self::StaleData(_) => "stale_data",
@@ -803,7 +848,10 @@ pub fn render_human_error(err: &CliError, rich: bool) -> String {
     if let Some(recovery) = err.recovery() {
         out.push_str(&format!("\n\n{}", recovery.instruction));
         for command in recovery.commands {
-            out.push_str(&format!("\n    {command}"));
+            if let Some(when) = command.when {
+                out.push_str(&format!("\n{when}:"));
+            }
+            out.push_str(&format!("\n    {}", command.command));
         }
         if let Some(note) = recovery.note {
             out.push_str(&format!("\n{note}"));

@@ -296,7 +296,20 @@ fn wallet_export_yes_satisfies_confirmation_in_machine_context() {
         message.contains("without confirmation in non-interactive mode"),
         "{json}"
     );
-    assert!(message.contains("rerun with --yes"), "{json}");
+    assert_eq!(json["reason"], "confirmation_required");
+    let approve = json["next"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|step| step["when"] == "Only after a human approves")
+        .expect("approval step in next");
+    assert!(
+        approve["command"]
+            .as_str()
+            .unwrap()
+            .ends_with("wallet export qa-wallet --yes"),
+        "{json}"
+    );
 
     // With --yes the confirmation is answered; the run proceeds to the wallet
     // lookup and fails there because the wallet doesn't exist.

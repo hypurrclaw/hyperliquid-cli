@@ -804,23 +804,75 @@ fn validate_prompt_policy(
     Err(confirmation_required_error(command, confirmation))
 }
 
-/// Name the blocked command, then give the safe next steps. `--yes` is only
-/// offered when the command has it, and only after a human approves.
+/// Name the blocked command, then give the safe next steps: a runnable
+/// `--dry-run` preview when supported, and the `--yes` rerun only for use
+/// after a human approves.
 fn confirmation_required_error(
     command: &CommandContract,
     confirmation: Confirmation,
 ) -> errors::CliError {
-    let key = command.command_key();
-    let mut message = format!("Can't run `{key}` without confirmation in non-interactive mode.");
-    if command.dry_run == DryRunPolicy::Optional {
-        message.push_str(&format!(
-            "\nPreview it:\n    hyperliquid {key} --dry-run ..."
-        ));
+    let args = replay_args(std::env::args().skip(1));
+    let preview = (command.dry_run == DryRunPolicy::Optional).then(|| {
+        let mut argv = vec!["--dry-run".to_string()];
+        argv.extend(args.iter().cloned());
+        replay_command(&argv)
+    });
+    let approve = confirmation.supported.then(|| {
+        let mut argv = args.clone();
+        argv.push("--yes".to_string());
+        replay_command(&argv)
+    });
+    errors::CliError::ConfirmationRequired {
+        headline: format!(
+            "Can't run `{}` without confirmation in non-interactive mode.",
+            command.command_key()
+        ),
+        preview,
+        approve,
     }
-    if confirmation.supported {
-        message.push_str("\nAfter a human approves, rerun with --yes.");
+}
+
+/// Options whose values are secrets and never appear in suggested commands.
+const SECRET_OPTIONS: &[&str] = &["--private-key", "--keystore-password"];
+
+/// Invocation arguments (without the program name) minus secret options.
+fn replay_args(args: impl IntoIterator<Item = String>) -> Vec<String> {
+    let mut args = args.into_iter();
+    let mut kept = Vec::new();
+    while let Some(arg) = args.next() {
+        if SECRET_OPTIONS.contains(&arg.as_str()) {
+            args.next();
+            continue;
+        }
+        if SECRET_OPTIONS
+            .iter()
+            .any(|option| arg.starts_with(&format!("{option}=")))
+        {
+            continue;
+        }
+        kept.push(arg);
     }
-    errors::CliError::Unsupported(message)
+    kept
+}
+
+/// `hyperliquid` plus `args`, single-quoted where a POSIX shell needs it.
+fn replay_command(args: &[String]) -> String {
+    let mut command = String::from("hyperliquid");
+    for arg in args {
+        command.push(' ');
+        let plain = !arg.is_empty()
+            && arg
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || "-_./:=@%+,#".contains(ch));
+        if plain {
+            command.push_str(arg);
+        } else {
+            command.push('\'');
+            command.push_str(&arg.replace('\'', r"'\''"));
+            command.push('\'');
+        }
+    }
+    command
 }
 
 /// Commands that skip the mainnet confirmation when `--testnet` is set.
@@ -4350,4 +4402,32 @@ async fn watch_risk_command(
         context.resolve_signer()?.query_address()
     };
     hyperliquid_cli::commands::watch_risk::watch_risk(&client, user, args, format).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{replay_args, replay_command};
+
+    fn strings(items: &[&str]) -> Vec<String> {
+        items.iter().map(|item| (*item).to_string()).collect()
+    }
+
+    #[test]
+    fn replay_drops_secret_options_and_quotes_for_the_shell() {
+        let args = replay_args(strings(&[
+            "--private-key",
+            "0xsecret",
+            "--keystore-password=hunter2",
+            "orders",
+            "create",
+            "--coin",
+            "BTC",
+            "--cloid",
+            "it's here",
+        ]));
+        assert_eq!(
+            replay_command(&args),
+            r"hyperliquid orders create --coin BTC --cloid 'it'\''s here'"
+        );
+    }
 }
