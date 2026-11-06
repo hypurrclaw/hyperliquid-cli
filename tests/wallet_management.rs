@@ -465,11 +465,14 @@ fn read_only_legacy_wallet_lookup_does_not_migrate_key_storage() {
     let mut legacy_key_snapshots = Vec::new();
     for db in db_candidates {
         let legacy_key = db.parent().unwrap().join("accounts.key");
-        let mut store = hyperliquid_cli::db::AccountStore::open(&db, &legacy_key).unwrap();
-        store
-            .add_account("main", &address, IMPORT_KEY, "api-wallet", true)
-            .unwrap();
-        drop(store);
+        support::legacy_accounts_fixture::create_accounts_db_with_key_file(
+            &db,
+            &legacy_key,
+            &[
+                support::legacy_accounts_fixture::Row::new("main", &address, IMPORT_KEY)
+                    .default_account(),
+            ],
+        );
         legacy_key_snapshots.push((legacy_key.clone(), fs::read(&legacy_key).unwrap()));
     }
 

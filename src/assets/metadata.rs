@@ -8,9 +8,10 @@ use hypersdk::hypercore::{self, Chain, Dex, HttpClient, PerpMarket, SpotMarket};
 use serde::Deserialize;
 
 use crate::commands::map_api_error;
-use crate::config::{self, Network};
 use crate::errors::CliError;
 use crate::http_api::post_info_json;
+use crate::network::Network;
+use crate::settings::Settings;
 
 use super::asset_id;
 use super::market::{PerpAsset, SpotAsset};
@@ -327,15 +328,9 @@ async fn load_raw_spot_meta(api_base_url: &str) -> Result<RawSpotMeta, CliError>
 
 /// The `/info` base URL for a client's chain, honouring the API override.
 pub(crate) fn raw_info_base_url(client: &HttpClient) -> Result<reqwest::Url, CliError> {
-    let network = if client.chain().is_mainnet() {
-        Network::Mainnet
-    } else {
-        Network::Testnet
-    };
+    let network = Network::from_chain(client.chain());
 
-    if let Some(api_base_url) = config::resolve_api_base_url_override_for_network(network)
-        .map_err(crate::errors::from_anyhow)?
-    {
+    if let Some(api_base_url) = Settings::from_process().api_base_url_override(network)? {
         Ok(api_base_url)
     } else if client.chain().is_mainnet() {
         Ok(hypercore::mainnet_url())

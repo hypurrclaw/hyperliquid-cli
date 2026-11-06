@@ -25,7 +25,7 @@ Across all 52 Rust source files, there is not a single `TODO`, `FIXME`, or `HACK
 
 ## Hyperliquid is `eip155:999`
 
-The Hyperliquid chain identifies as CAIP-2 `eip155:999`. The constant lives at the top of `src/ows.rs`:
+The Hyperliquid chain identifies as CAIP-2 `eip155:999`. The constant lives at the top of `src/ows/mod.rs`:
 
 ```rust
 pub const HYPERLIQUID_CAIP2: &str = "eip155:999";

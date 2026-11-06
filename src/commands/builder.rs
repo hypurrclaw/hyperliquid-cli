@@ -21,25 +21,8 @@ use crate::dry_run::ActionReversibility;
 use crate::errors::CliError;
 use crate::http_api::post_info_json;
 use crate::output::{OutputFormat, TableData};
+use crate::settings::{BuilderDefaultSetting, Settings};
 use crate::signing::SelectedSigner;
-
-/// Compile-time default builder address captured from the build environment.
-///
-/// Set `HYPERLIQUID_DEFAULT_BUILDER_ADDRESS` while building the binary to bake in
-/// a default builder for `orders create` when users don't pass `--builder`.
-/// A runtime env var with the same name still overrides this value.
-pub const DEFAULT_BUILDER_ADDRESS: &str = match option_env!("HYPERLIQUID_DEFAULT_BUILDER_ADDRESS") {
-    Some(address) => address,
-    None => "",
-};
-/// Compile-time default builder fee rate captured from the build environment
-/// (percent string, e.g. "0.001%"). Must be paired with
-/// `HYPERLIQUID_DEFAULT_BUILDER_ADDRESS`.
-pub const DEFAULT_BUILDER_FEE_RATE: &str = match option_env!("HYPERLIQUID_DEFAULT_BUILDER_FEE_RATE")
-{
-    Some(fee_rate) => fee_rate,
-    None => "",
-};
 
 sol! {
     struct ApproveBuilderFee {
@@ -492,103 +475,47 @@ pub fn parse_builder_address(raw: &str) -> Result<Address, CliError> {
 /// Resolve the default builder address and fee rate.
 ///
 /// Priority: `HYPERLIQUID_DEFAULT_BUILDER_ADDRESS` /
-/// `HYPERLIQUID_DEFAULT_BUILDER_FEE_RATE` env vars → config file
-/// `default_builder_address` / `default_builder_fee_rate` → compile-time
-/// `DEFAULT_BUILDER_ADDRESS` / `DEFAULT_BUILDER_FEE_RATE`.
-/// Returns `Ok(None)` when nothing is configured.
-/// Returns `Err` when a source sets only one side or contains invalid values.
+/// `HYPERLIQUID_DEFAULT_BUILDER_FEE_RATE` env vars, then the config file
+/// `default_builder_address` / `default_builder_fee_rate`, then the build-time
+/// default. Returns `Ok(None)` when nothing is configured and `Err` when a layer
+/// sets only one side or holds invalid values.
 pub fn resolve_default_builder_fee() -> Result<Option<(Address, u64)>, CliError> {
-    let env_address = std::env::var("HYPERLIQUID_DEFAULT_BUILDER_ADDRESS")
-        .ok()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
-    let env_fee = std::env::var("HYPERLIQUID_DEFAULT_BUILDER_FEE_RATE")
-        .ok()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
-    if env_address.is_some() || env_fee.is_some() {
-        return parse_default_builder_pair(
-            env_address,
-            env_fee,
-            "HYPERLIQUID_DEFAULT_BUILDER_ADDRESS",
-            "HYPERLIQUID_DEFAULT_BUILDER_FEE_RATE",
-        );
-    }
-
-    let config = crate::config::load_config()
-        .map_err(|err| CliError::Configuration(format!("failed to load config: {err}")))?;
-    resolve_default_builder_fee_from_config(config.as_ref())
+    resolve_default_builder_fee_with(&Settings::from_process().quiet())
 }
 
-pub fn resolve_default_builder_fee_from_config(
-    config: Option<&crate::config::Config>,
+pub fn resolve_default_builder_fee_with(
+    settings: &Settings,
 ) -> Result<Option<(Address, u64)>, CliError> {
-    let env_address = std::env::var("HYPERLIQUID_DEFAULT_BUILDER_ADDRESS")
-        .ok()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
-    let env_fee = std::env::var("HYPERLIQUID_DEFAULT_BUILDER_FEE_RATE")
-        .ok()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
-    if env_address.is_some() || env_fee.is_some() {
-        return parse_default_builder_pair(
-            env_address,
-            env_fee,
-            "HYPERLIQUID_DEFAULT_BUILDER_ADDRESS",
-            "HYPERLIQUID_DEFAULT_BUILDER_FEE_RATE",
-        );
-    }
-
-    let config_address = config
-        .and_then(|config| config.default_builder_address.as_deref())
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(ToString::to_string);
-    let config_fee = config
-        .and_then(|config| config.default_builder_fee_rate.as_deref())
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(ToString::to_string);
-    if config_address.is_some() || config_fee.is_some() {
-        return parse_default_builder_pair(
-            config_address,
-            config_fee,
-            "default_builder_address",
-            "default_builder_fee_rate",
-        );
-    }
-
-    let const_address = if DEFAULT_BUILDER_ADDRESS.is_empty() {
-        None
-    } else {
-        Some(DEFAULT_BUILDER_ADDRESS.to_string())
-    };
-    let const_fee = if DEFAULT_BUILDER_FEE_RATE.is_empty() {
-        None
-    } else {
-        Some(DEFAULT_BUILDER_FEE_RATE.to_string())
-    };
-    parse_default_builder_pair(
-        const_address,
-        const_fee,
-        "DEFAULT_BUILDER_ADDRESS",
-        "DEFAULT_BUILDER_FEE_RATE",
-    )
+    settings
+        .default_builder()?
+        .map(parse_default_builder_pair)
+        .transpose()
 }
 
-fn parse_default_builder_pair(
-    address_str: Option<String>,
-    fee_str: Option<String>,
-    address_label: &str,
-    fee_label: &str,
-) -> Result<Option<(Address, u64)>, CliError> {
-    match (address_str, fee_str) {
-        (None, None) => Ok(None),
+/// The builder default setup and wallet creation offer, as the address and
+/// fee-rate text they would write to the config. Skips the config file.
+pub fn suggested_default_builder(
+    settings: &Settings,
+) -> Result<Option<(String, String)>, CliError> {
+    Ok(settings
+        .suggested_default_builder()
+        .map(parse_default_builder_pair)
+        .transpose()?
+        .map(|(address, fee)| (address.to_string(), percent_from_tenths_bps(fee))))
+}
+
+fn parse_default_builder_pair(setting: BuilderDefaultSetting) -> Result<(Address, u64), CliError> {
+    let BuilderDefaultSetting {
+        address,
+        fee_rate,
+        address_label,
+        fee_label,
+    } = setting;
+    match (address, fee_rate) {
         (Some(_), None) => Err(CliError::Configuration(format!(
             "{address_label} is set but {fee_label} is not; both must be configured"
         ))),
-        (None, Some(_)) => Err(CliError::Configuration(format!(
+        (None, Some(_)) | (None, None) => Err(CliError::Configuration(format!(
             "{fee_label} is set but {address_label} is not; both must be configured"
         ))),
         (Some(address), Some(fee)) => {
@@ -597,7 +524,7 @@ fn parse_default_builder_pair(
             })?;
             let fee_tenths_bps = validate_max_fee_rate(&fee)
                 .map_err(|err| CliError::Configuration(format!("invalid {fee_label}: {err}")))?;
-            Ok(Some((address, fee_tenths_bps)))
+            Ok((address, fee_tenths_bps))
         }
     }
 }
@@ -668,31 +595,13 @@ fn format_reversibility(reversibility: ActionReversibility) -> &'static str {
     }
 }
 
-/// Serializes env-var tests to avoid races. Restores variables on drop.
-#[cfg(test)]
-fn env_guard() -> impl Drop {
-    use std::sync::Mutex;
-    use std::sync::OnceLock;
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    let mutex = LOCK.get_or_init(|| Mutex::new(()));
-    let guard = mutex.lock().unwrap();
-    struct EnvRestore {
-        _guard: std::sync::MutexGuard<'static, ()>,
-    }
-    impl Drop for EnvRestore {
-        fn drop(&mut self) {
-            unsafe {
-                std::env::remove_var("HYPERLIQUID_DEFAULT_BUILDER_ADDRESS");
-                std::env::remove_var("HYPERLIQUID_DEFAULT_BUILDER_FEE_RATE");
-            }
-        }
-    }
-    EnvRestore { _guard: guard }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Config;
+    use crate::settings::{
+        BUILD_DEFAULT_BUILDER_ADDRESS, BUILD_DEFAULT_BUILDER_FEE_RATE, EnvSource, env,
+    };
 
     #[test]
     fn max_fee_rate_percent_converts_to_tenths_bps() {
@@ -719,18 +628,18 @@ mod tests {
         );
     }
 
-    #[test]
-    fn resolve_default_builder_fee_uses_compile_time_defaults_when_env_absent() {
-        let _guard = env_guard();
-        unsafe {
-            std::env::remove_var("HYPERLIQUID_DEFAULT_BUILDER_ADDRESS");
-            std::env::remove_var("HYPERLIQUID_DEFAULT_BUILDER_FEE_RATE");
-        }
+    fn settings(env: &[(&str, &str)]) -> Settings {
+        Settings::detached(EnvSource::fixed(env.iter().copied()), None)
+    }
 
-        let result = resolve_default_builder_fee_from_config(None);
+    const ADDRESS: &str = "0x0000000000000000000000000000000000000001";
+
+    #[test]
+    fn default_builder_uses_build_time_defaults_when_env_absent() {
+        let result = resolve_default_builder_fee_with(&settings(&[]));
         match (
-            DEFAULT_BUILDER_ADDRESS.is_empty(),
-            DEFAULT_BUILDER_FEE_RATE.is_empty(),
+            BUILD_DEFAULT_BUILDER_ADDRESS.is_empty(),
+            BUILD_DEFAULT_BUILDER_FEE_RATE.is_empty(),
         ) {
             (true, true) => assert!(result.unwrap().is_none()),
             (false, false) => assert!(result.unwrap().is_some()),
@@ -739,78 +648,73 @@ mod tests {
     }
 
     #[test]
-    fn resolve_default_builder_fee_errs_when_only_address_set() {
-        let _guard = env_guard();
-        unsafe {
-            std::env::remove_var("HYPERLIQUID_DEFAULT_BUILDER_ADDRESS");
-            std::env::remove_var("HYPERLIQUID_DEFAULT_BUILDER_FEE_RATE");
-            std::env::set_var(
-                "HYPERLIQUID_DEFAULT_BUILDER_ADDRESS",
-                "0x0000000000000000000000000000000000000001",
-            );
-        }
-        let result = resolve_default_builder_fee();
-        assert!(result.is_err());
+    fn default_builder_errs_when_only_address_set() {
+        let result =
+            resolve_default_builder_fee_with(&settings(&[(env::DEFAULT_BUILDER_ADDRESS, ADDRESS)]));
         assert!(result.unwrap_err().to_string().contains("FEE_RATE"));
     }
 
     #[test]
-    fn resolve_default_builder_fee_errs_when_only_fee_set() {
-        let _guard = env_guard();
-        unsafe {
-            std::env::remove_var("HYPERLIQUID_DEFAULT_BUILDER_ADDRESS");
-            std::env::remove_var("HYPERLIQUID_DEFAULT_BUILDER_FEE_RATE");
-            std::env::set_var("HYPERLIQUID_DEFAULT_BUILDER_FEE_RATE", "0.001%");
-        }
-        let result = resolve_default_builder_fee();
-        assert!(result.is_err());
+    fn default_builder_errs_when_only_fee_set() {
+        let result = resolve_default_builder_fee_with(&settings(&[(
+            env::DEFAULT_BUILDER_FEE_RATE,
+            "0.001%",
+        )]));
         assert!(result.unwrap_err().to_string().contains("BUILDER_ADDRESS"));
     }
 
     #[test]
-    fn resolve_default_builder_fee_errs_on_invalid_address() {
-        let _guard = env_guard();
-        unsafe {
-            std::env::remove_var("HYPERLIQUID_DEFAULT_BUILDER_ADDRESS");
-            std::env::remove_var("HYPERLIQUID_DEFAULT_BUILDER_FEE_RATE");
-            std::env::set_var("HYPERLIQUID_DEFAULT_BUILDER_ADDRESS", "not-an-address");
-            std::env::set_var("HYPERLIQUID_DEFAULT_BUILDER_FEE_RATE", "0.001%");
-        }
-        assert!(resolve_default_builder_fee().is_err());
-    }
-
-    #[test]
-    fn resolve_default_builder_fee_errs_on_invalid_fee() {
-        let _guard = env_guard();
-        unsafe {
-            std::env::remove_var("HYPERLIQUID_DEFAULT_BUILDER_ADDRESS");
-            std::env::remove_var("HYPERLIQUID_DEFAULT_BUILDER_FEE_RATE");
-            std::env::set_var(
-                "HYPERLIQUID_DEFAULT_BUILDER_ADDRESS",
-                "0x0000000000000000000000000000000000000001",
-            );
-            std::env::set_var("HYPERLIQUID_DEFAULT_BUILDER_FEE_RATE", "not-a-percent");
-        }
-        assert!(resolve_default_builder_fee().is_err());
-    }
-
-    #[test]
-    fn resolve_default_builder_fee_succeeds_with_valid_env_vars() {
-        let _guard = env_guard();
-        unsafe {
-            std::env::remove_var("HYPERLIQUID_DEFAULT_BUILDER_ADDRESS");
-            std::env::remove_var("HYPERLIQUID_DEFAULT_BUILDER_FEE_RATE");
-            std::env::set_var(
-                "HYPERLIQUID_DEFAULT_BUILDER_ADDRESS",
-                "0x0000000000000000000000000000000000000001",
-            );
-            std::env::set_var("HYPERLIQUID_DEFAULT_BUILDER_FEE_RATE", "0.001%");
-        }
-        let result = resolve_default_builder_fee().unwrap().unwrap();
-        assert_eq!(
-            result.0.to_string(),
-            "0x0000000000000000000000000000000000000001"
+    fn default_builder_errs_on_invalid_address_or_fee() {
+        let bad_address = settings(&[
+            (env::DEFAULT_BUILDER_ADDRESS, "not-an-address"),
+            (env::DEFAULT_BUILDER_FEE_RATE, "0.001%"),
+        ]);
+        let err = resolve_default_builder_fee_with(&bad_address).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("invalid HYPERLIQUID_DEFAULT_BUILDER_ADDRESS")
         );
-        assert_eq!(result.1, 1); // 0.001% = 1 tenth bps
+
+        let bad_fee = settings(&[
+            (env::DEFAULT_BUILDER_ADDRESS, ADDRESS),
+            (env::DEFAULT_BUILDER_FEE_RATE, "not-a-percent"),
+        ]);
+        assert!(resolve_default_builder_fee_with(&bad_fee).is_err());
+    }
+
+    #[test]
+    fn default_builder_reads_valid_env_vars() {
+        let (address, fee) = resolve_default_builder_fee_with(&settings(&[
+            (env::DEFAULT_BUILDER_ADDRESS, ADDRESS),
+            (env::DEFAULT_BUILDER_FEE_RATE, "0.001%"),
+        ]))
+        .unwrap()
+        .unwrap();
+        assert_eq!(address.to_string(), ADDRESS);
+        assert_eq!(fee, 1); // 0.001% = 1 tenth bps
+    }
+
+    #[test]
+    fn default_builder_falls_back_to_config_and_names_its_fields() {
+        let config = Config {
+            default_builder_address: Some(ADDRESS.to_string()),
+            ..Config::default()
+        };
+        let settings = Settings::detached(EnvSource::fixed::<&str, &str>([]), Some(config));
+        let err = resolve_default_builder_fee_with(&settings).unwrap_err();
+        assert!(err.to_string().contains("default_builder_fee_rate"));
+    }
+
+    #[test]
+    fn suggestion_normalizes_address_and_fee_text() {
+        let suggestion = suggested_default_builder(&settings(&[
+            (env::DEFAULT_BUILDER_ADDRESS, ADDRESS),
+            (env::DEFAULT_BUILDER_FEE_RATE, "0.0010%"),
+        ]))
+        .unwrap();
+        assert_eq!(
+            suggestion,
+            Some((ADDRESS.to_string(), "0.001%".to_string()))
+        );
     }
 }
