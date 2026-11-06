@@ -9,11 +9,12 @@ use std::time::Instant;
 use clap::Args;
 use serde::{Deserialize, Serialize};
 
+use crate::assets::asset_id::{
+    outcome_asset_id, outcome_coin, outcome_encoding, outcome_token, parse_outcome_notation,
+};
 use crate::errors::CliError;
 use crate::http_api::post_info_json;
 use crate::output::{OutputFormat, TableData};
-
-const OUTCOME_ASSET_ID_OFFSET: u64 = 100_000_000;
 
 #[derive(Args, Debug, Clone)]
 pub struct OutcomeListArgs {
@@ -221,8 +222,8 @@ fn rows_from_meta(response: OutcomeMetaResponse) -> Vec<OutcomeSideRow> {
                         .ok()
                         .and_then(|encoding| {
                             let asset_id = outcome_asset_id(encoding).ok()?;
-                            let coin = format!("#{encoding}");
-                            let token = format!("+{encoding}");
+                            let coin = outcome_coin(encoding);
+                            let token = outcome_token(encoding);
                             Some(OutcomeSideRow {
                                 outcome: outcome_id,
                                 side,
@@ -244,65 +245,13 @@ fn rows_from_meta(response: OutcomeMetaResponse) -> Vec<OutcomeSideRow> {
     rows
 }
 
-pub fn parse_outcome_notation(raw: &str) -> Result<OutcomeNotation, CliError> {
-    let trimmed = raw.trim();
-    let Some(rest) = trimmed
-        .strip_prefix('#')
-        .or_else(|| trimmed.strip_prefix('+'))
-    else {
-        return Err(outcome_notation_error(raw));
-    };
-    if rest.is_empty() || !rest.chars().all(|ch| ch.is_ascii_digit()) {
-        return Err(outcome_notation_error(raw));
-    }
-    let encoding = rest
-        .parse::<u64>()
-        .map_err(|_| outcome_notation_error(raw))?;
-    let outcome = encoding / 10;
-    let side = encoding % 10;
-    if side > 1 {
-        return Err(CliError::Unsupported(format!(
-            "invalid outcome notation '{raw}': only binary outcome sides 0 and 1 are supported"
-        )));
-    }
-    Ok(OutcomeNotation {
-        outcome,
-        side,
-        encoding,
-    })
-}
-
-pub fn outcome_encoding(outcome: u64, side: u64) -> Result<u64, CliError> {
-    if side > 1 {
-        return Err(CliError::Unsupported(
-            "only binary outcome sides 0 and 1 are supported".to_string(),
-        ));
-    }
-    outcome
-        .checked_mul(10)
-        .and_then(|value| value.checked_add(side))
-        .ok_or_else(|| CliError::Unsupported("outcome encoding overflowed u64".to_string()))
-}
-
-pub fn outcome_asset_id(encoding: u64) -> Result<u64, CliError> {
-    OUTCOME_ASSET_ID_OFFSET
-        .checked_add(encoding)
-        .ok_or_else(|| CliError::Unsupported("outcome asset id overflowed".to_string()))
-}
-
-pub fn outcome_notation_error(raw: &str) -> CliError {
-    CliError::Unsupported(format!(
-        "invalid outcome notation '{raw}': expected #<encoding> or +<encoding>, for example #10"
-    ))
-}
-
 pub fn unsupported_outcome_trading_error(raw: &str) -> CliError {
     CliError::Unsupported(format!(
         "outcome asset notation '{raw}' requires an outcome-aware command path; use `hyperliquid outcomes get {raw}` to inspect the encoded HIP-4 asset id. Live limit orders support outcome notation."
     ))
 }
 
-fn parse_positive_usize(raw: &str) -> Result<usize, String> {
+pub(crate) fn parse_positive_usize(raw: &str) -> Result<usize, String> {
     let value = raw
         .parse::<usize>()
         .map_err(|err| format!("invalid positive integer: {err}"))?;
@@ -310,13 +259,6 @@ fn parse_positive_usize(raw: &str) -> Result<usize, String> {
         return Err("value must be greater than zero".to_string());
     }
     Ok(value)
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OutcomeNotation {
-    pub outcome: u64,
-    pub side: u64,
-    pub encoding: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -329,8 +271,6 @@ struct OutcomeMetaRequest {
 #[serde(rename_all = "camelCase")]
 struct OutcomeMetaResponse {
     outcomes: Vec<OutcomeMetaOutcome>,
-    #[serde(default)]
-    questions: Vec<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -348,49 +288,4 @@ struct OutcomeMetaOutcome {
 struct OutcomeSideSpec {
     name: String,
     token: Option<u64>,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn outcome_encoding_uses_official_formula() {
-        assert_eq!(outcome_encoding(1, 0).unwrap(), 10);
-        assert_eq!(outcome_encoding(1, 1).unwrap(), 11);
-        assert!(outcome_encoding(1, 2).is_err());
-    }
-
-    #[test]
-    fn outcome_asset_id_checks_overflow() {
-        assert_eq!(outcome_asset_id(10).unwrap(), OUTCOME_ASSET_ID_OFFSET + 10);
-        assert!(outcome_asset_id(u64::MAX).is_err());
-    }
-
-    #[test]
-    fn parse_outcome_notation_accepts_coin_and_token_forms() {
-        assert_eq!(
-            parse_outcome_notation("#10").unwrap(),
-            OutcomeNotation {
-                outcome: 1,
-                side: 0,
-                encoding: 10
-            }
-        );
-        assert_eq!(
-            parse_outcome_notation("+11").unwrap(),
-            OutcomeNotation {
-                outcome: 1,
-                side: 1,
-                encoding: 11
-            }
-        );
-    }
-
-    #[test]
-    fn parse_outcome_notation_rejects_malformed_values() {
-        assert!(parse_outcome_notation("#abc").is_err());
-        assert!(parse_outcome_notation("10").is_err());
-        assert!(parse_outcome_notation("#12").is_err());
-    }
 }

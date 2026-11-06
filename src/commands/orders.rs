@@ -18,10 +18,13 @@ use hypersdk::hypercore::{Chain, Cloid, HttpClient, OidOrCloid, PriceTick};
 use hypersdk::{Address, Decimal};
 use serde::{Deserialize, Serialize};
 
-use crate::commands::{
-    AssetMetadata, AssetQuery, AssetResolver, PerpAsset, ResolvedAsset, SpotAsset, actions,
-    builder, load_raw_spot_markets_from_url, map_api_error, parse_asset_query,
+use crate::assets::asset_id::{
+    outcome_coin, parse_spot_coin_key, spot_coin_key, spot_internal_coin_key,
 };
+use crate::assets::{
+    AssetQuery, AssetResolver, Market, OutcomeAsset, parse_asset_query, qualify_dex_asset,
+};
+use crate::commands::{actions, builder, map_api_error};
 use crate::errors::CliError;
 use crate::http_api::post_info_json;
 use crate::input_hardening::{FilePolicy, read_json_file};
@@ -163,27 +166,6 @@ struct PreparedOrderLeg {
 struct PreparedOrderBatch {
     batch: BatchOrder,
     legs: Vec<PreparedOrderLeg>,
-}
-
-#[derive(Debug, Clone)]
-enum TradableAsset {
-    Perp {
-        name: String,
-        index: usize,
-        dex: Option<String>,
-        sz_decimals: u32,
-        collateral: String,
-    },
-    Spot {
-        symbol: String,
-        index: usize,
-        base_sz_decimals: u32,
-        quote: String,
-    },
-    Outcome {
-        notation: String,
-        asset_id: usize,
-    },
 }
 
 #[derive(Debug, Clone)]
@@ -950,149 +932,6 @@ pub async fn schedule_cancel(
     Ok(())
 }
 
-#[derive(serde::Deserialize)]
-struct SpotMetaTokenName {
-    name: String,
-    index: usize,
-}
-
-fn collateral_name_from_tokens(
-    token_names: &[SpotMetaTokenName],
-    collateral_token: Option<usize>,
-) -> String {
-    collateral_token
-        .and_then(|token| {
-            token_names
-                .iter()
-                .find(|candidate| candidate.index == token)
-                .or_else(|| token_names.get(token))
-        })
-        .map(|token| token.name.clone())
-        .unwrap_or_else(|| "USDC".to_string())
-}
-
-/// Load trading metadata directly from Hyperliquid's raw info endpoints.
-///
-/// This is used as a trading-command fallback when the full SDK market loader cannot decode
-/// ancillary metadata on a network. Order placement itself still goes through
-/// [`HttpClient::place`] for SDK signing and submission.
-pub async fn load_perp_resolver_from_api_base(
-    api_base_url: &str,
-) -> Result<AssetResolver, CliError> {
-    #[derive(serde::Deserialize)]
-    struct MetaResponse {
-        universe: Vec<MetaPerp>,
-        #[serde(rename = "collateralToken")]
-        collateral_token: Option<usize>,
-    }
-
-    #[derive(serde::Deserialize)]
-    struct MetaPerp {
-        name: String,
-        #[serde(rename = "szDecimals")]
-        sz_decimals: u32,
-    }
-
-    #[derive(serde::Deserialize)]
-    struct RawPerpDex {
-        name: String,
-    }
-
-    #[derive(serde::Deserialize)]
-    struct SpotMetaResponse {
-        tokens: Vec<SpotMetaTokenName>,
-    }
-
-    let token_names = post_info_json::<SpotMetaResponse>(
-        api_base_url,
-        &serde_json::json!({ "type": "spotMeta" }),
-        "loading spot token metadata",
-    )
-    .await
-    .map(|spot_meta| spot_meta.tokens)
-    .unwrap_or_default();
-    let collateral_name =
-        |collateral_token| collateral_name_from_tokens(&token_names, collateral_token);
-
-    let meta = post_info_json::<MetaResponse>(
-        api_base_url,
-        &serde_json::json!({ "type": "meta" }),
-        "loading perpetual metadata",
-    )
-    .await?;
-
-    let default_collateral = collateral_name(meta.collateral_token);
-
-    let mut perps = meta
-        .universe
-        .into_iter()
-        .enumerate()
-        .map(|(index, perp)| PerpAsset {
-            name: perp.name,
-            index,
-            dex: None,
-            sz_decimals: perp.sz_decimals,
-            collateral: default_collateral.clone(),
-        })
-        .collect::<Vec<_>>();
-
-    // Fallback metadata must mirror hypersdk's HIP-3 asset ID formula:
-    // 100_000 + dex_slot * 10_000 + market_index.
-    // See Hyperliquid docs: for-developers/api/asset-ids.
-    if let Ok(dexes) = post_info_json::<Vec<Option<RawPerpDex>>>(
-        api_base_url,
-        &serde_json::json!({ "type": "perpDexs" }),
-        "loading HIP-3 DEX metadata",
-    )
-    .await
-    {
-        for (dex_index, dex) in dexes.into_iter().enumerate() {
-            let Some(dex) = dex else { continue };
-            if let Ok(meta) = post_info_json::<MetaResponse>(
-                api_base_url,
-                &serde_json::json!({ "type": "meta", "dex": dex.name.clone() }),
-                "loading HIP-3 perpetual metadata",
-            )
-            .await
-            {
-                let prefix = format!("{}:", dex.name);
-                let collateral = collateral_name(meta.collateral_token);
-                perps.extend(meta.universe.into_iter().enumerate().map(|(index, perp)| {
-                    let name = perp
-                        .name
-                        .strip_prefix(&prefix)
-                        .unwrap_or(perp.name.as_str())
-                        .to_string();
-                    PerpAsset {
-                        name,
-                        index: 100_000 + dex_index * 10_000 + index,
-                        dex: Some(dex.name.clone()),
-                        sz_decimals: perp.sz_decimals,
-                        collateral: collateral.clone(),
-                    }
-                }));
-            }
-        }
-    }
-
-    let spots = load_raw_spot_markets_from_url(
-        reqwest::Url::parse(api_base_url)
-            .map_err(|err| CliError::Configuration(format!("invalid API base URL: {err}")))?,
-    )
-    .await?
-    .into_iter()
-    .map(|market| SpotAsset {
-        symbol: market.symbol,
-        index: market.index,
-        base: market.base,
-        quote: market.quote,
-        base_sz_decimals: u32::try_from(market.base_sz_decimals).unwrap_or_default(),
-    })
-    .collect();
-
-    Ok(AssetResolver::new(AssetMetadata::from_assets(perps, spots)))
-}
-
 fn order_builder_fee(
     args: &CreateArgs,
     asset_kind: TradableAssetKind,
@@ -1431,33 +1270,23 @@ async fn place_builder_order_batch_raw(
 }
 
 fn parse_order_statuses(response: serde_json::Value) -> Result<Vec<OrderResponseStatus>, CliError> {
-    if response.get("type").and_then(serde_json::Value::as_str) != Some("order") {
-        return Err(CliError::Internal(anyhow::anyhow!(
-            "order placement response had unexpected type: {response}"
-        )));
-    }
-    let statuses = response
-        .get("data")
-        .and_then(|data| data.get("statuses"))
-        .cloned()
-        .ok_or_else(|| {
-            CliError::Internal(anyhow::anyhow!(
-                "order placement response missing statuses: {response}"
-            ))
-        })?;
-    serde_json::from_value(statuses).map_err(|err| {
-        CliError::Internal(anyhow::anyhow!(
-            "order placement response decode failed: {err}; body={response}"
-        ))
-    })
+    decode_order_statuses(response)
 }
 
 fn parse_tpsl_order_statuses(
     response: serde_json::Value,
 ) -> Result<Vec<TpslResponseStatus>, CliError> {
+    decode_order_statuses(response)
+}
+
+fn decode_order_statuses<T: serde::de::DeserializeOwned>(
+    response: serde_json::Value,
+) -> Result<Vec<T>, CliError> {
+    let body = || labelled_untrusted_text(&response.to_string());
     if response.get("type").and_then(serde_json::Value::as_str) != Some("order") {
         return Err(CliError::Internal(anyhow::anyhow!(
-            "order placement response had unexpected type: {response}"
+            "order placement response had unexpected type: {}",
+            body()
         )));
     }
     let statuses = response
@@ -1466,12 +1295,14 @@ fn parse_tpsl_order_statuses(
         .cloned()
         .ok_or_else(|| {
             CliError::Internal(anyhow::anyhow!(
-                "order placement response missing statuses: {response}"
+                "order placement response missing statuses: {}",
+                body()
             ))
         })?;
     serde_json::from_value(statuses).map_err(|err| {
         CliError::Internal(anyhow::anyhow!(
-            "order placement response decode failed: {err}; body={response}"
+            "order placement response decode failed: {err}; body={}",
+            body()
         ))
     })
 }
@@ -1481,11 +1312,11 @@ async fn resolve_tradable_asset(
     resolver: &AssetResolver,
     query: &str,
     args: &CreateArgs,
-) -> Result<TradableAsset, CliError> {
-    if let AssetQuery::Outcome(trimmed_notation) = parse_asset_query(&args.coin) {
+) -> Result<Market, CliError> {
+    if let AssetQuery::Outcome(notation) = parse_asset_query(&args.coin) {
         if args.dex.is_some() {
             return Err(CliError::Unsupported(format!(
-                "outcome notation '{trimmed_notation}' cannot be used with --dex; omit --dex for outcome orders"
+                "outcome notation '{notation}' cannot be used with --dex; omit --dex for outcome orders"
             )));
         }
         if args.order_type == CreateOrderType::Market {
@@ -1494,106 +1325,19 @@ async fn resolve_tradable_asset(
                     .to_string(),
             ));
         }
-        let notation = crate::commands::outcomes::parse_outcome_notation(&trimmed_notation)?;
-        let asset_id = crate::commands::outcomes::outcome_asset_id(notation.encoding)?;
-        let asset_id = usize::try_from(asset_id).map_err(|_| {
-            CliError::Unsupported("outcome asset id is outside supported bounds".to_string())
-        })?;
-        return Ok(TradableAsset::Outcome {
-            notation: trimmed_notation,
-            asset_id,
-        });
+        return Ok(Market::Outcome(OutcomeAsset::new(notation)));
     }
-    match resolver.resolve_perp(query) {
-        Ok(ResolvedAsset::Perp {
-            name,
-            index,
-            dex,
-            sz_decimals,
-            collateral,
-        }) => Ok(TradableAsset::Perp {
-            name,
-            index,
-            dex,
-            sz_decimals,
-            collateral,
-        }),
-        Ok(ResolvedAsset::Spot { .. }) => unreachable!("resolve_perp never returns spot assets"),
-        Err(perp_err) => {
-            if let AssetQuery::Hip3 { dex, token } = parse_asset_query(query) {
-                return match resolve_hip3_tradable_asset(client, query, &dex, &token).await {
-                    Ok(asset) => Ok(asset),
-                    Err(CliError::AssetNotFoundNoSuggestion { .. }) => Err(perp_err),
-                    Err(err) => Err(err),
-                };
-            }
-            if args.dex.is_some() {
-                return Err(perp_err);
-            }
-            match resolver.resolve_spot(&args.coin) {
-                Ok(ResolvedAsset::Spot {
-                    symbol,
-                    index,
-                    base_sz_decimals,
-                    quote,
-                    ..
-                }) => Ok(TradableAsset::Spot {
-                    symbol,
-                    index,
-                    base_sz_decimals,
-                    quote,
-                }),
-                Ok(ResolvedAsset::Perp { .. }) => unreachable!("resolve_spot never returns perps"),
-                Err(_) => Err(perp_err),
-            }
-        }
+
+    let perp_err = match resolver.resolve_perp_or_fetch(client, query).await {
+        Ok(perp) => return Ok(Market::Perp(perp)),
+        Err(err) => err,
+    };
+    if !matches!(parse_asset_query(query), AssetQuery::Hip3 { .. })
+        && let Ok(spot) = resolver.resolve_spot(query)
+    {
+        return Ok(Market::Spot(spot));
     }
-}
-
-async fn resolve_hip3_tradable_asset(
-    client: &HttpClient,
-    input: &str,
-    dex_name: &str,
-    token: &str,
-) -> Result<TradableAsset, CliError> {
-    let dex = client
-        .perp_dexes()
-        .await
-        .map_err(map_api_error)?
-        .into_iter()
-        .find(|dex| dex.name().eq_ignore_ascii_case(dex_name))
-        .ok_or_else(|| CliError::Unsupported(format!("Unknown DEX: {dex_name}")))?;
-    let canonical_dex_name = dex.name().to_string();
-    let prefix = format!("{canonical_dex_name}:");
-    let market = client
-        .perps_from(dex)
-        .await
-        .map_err(map_api_error)?
-        .into_iter()
-        .find(|market| {
-            let display_token = market.name.strip_prefix(&prefix).unwrap_or(&market.name);
-            display_token.eq_ignore_ascii_case(token) || market.name.eq_ignore_ascii_case(token)
-        })
-        .ok_or_else(|| CliError::AssetNotFoundNoSuggestion {
-            asset: input.to_string(),
-        })?;
-    let name = market
-        .name
-        .strip_prefix(&prefix)
-        .unwrap_or(market.name.as_str())
-        .to_string();
-
-    Ok(TradableAsset::Perp {
-        name,
-        index: market.index,
-        dex: Some(canonical_dex_name),
-        sz_decimals: u32::try_from(market.sz_decimals).unwrap_or_default(),
-        collateral: market.collateral.name,
-    })
-}
-
-fn spot_mid_key(asset_index: usize) -> String {
-    format!("@{}", asset_index.saturating_sub(10_000))
+    Err(perp_err.into())
 }
 
 fn market_trigger_price(args: &CreateArgs) -> Result<Decimal, CliError> {
@@ -1770,33 +1514,16 @@ async fn asset_index_for_order(
     resolver: &AssetResolver,
     order: &BasicOrder,
 ) -> Result<usize, CliError> {
-    if let Some(asset) = parse_internal_asset_id(&order.coin) {
-        if let Some(spot_asset) = resolver.spot_asset_index_for_internal_id(asset) {
-            return Ok(spot_asset);
-        }
-        return Ok(asset);
+    if let Some(internal_id) = parse_spot_coin_key(&order.coin) {
+        return Ok(resolver
+            .spot_asset_index_for_internal_id(internal_id)
+            .unwrap_or(internal_id));
     }
 
-    if let AssetQuery::Outcome(notation) = parse_asset_query(&order.coin) {
-        let notation = crate::commands::outcomes::parse_outcome_notation(&notation)?;
-        let asset_id = crate::commands::outcomes::outcome_asset_id(notation.encoding)?;
-        return usize::try_from(asset_id).map_err(|_| {
-            CliError::Unsupported("outcome asset id is outside supported bounds".to_string())
-        });
-    }
-
-    match resolver.resolve(&order.coin) {
-        Ok(ResolvedAsset::Perp { index, .. } | ResolvedAsset::Spot { index, .. }) => Ok(index),
-        Err(err) => match parse_asset_query(&order.coin) {
-            AssetQuery::Hip3 { dex, token } => {
-                match resolve_hip3_tradable_asset(client, &order.coin, &dex, &token).await? {
-                    TradableAsset::Perp { index, .. } => Ok(index),
-                    TradableAsset::Spot { .. } | TradableAsset::Outcome { .. } => Err(err),
-                }
-            }
-            _ => Err(err),
-        },
-    }
+    resolver
+        .resolve_or_fetch(client, &order.coin)
+        .await?
+        .asset_index()
 }
 
 fn filter_orders_by_coin(orders: Vec<BasicOrder>, coin: Option<&str>) -> Vec<BasicOrder> {
@@ -1817,39 +1544,22 @@ fn resolve_cancel_all_coin_filter(
     let Some(coin) = coin else {
         return Ok(None);
     };
-    if let AssetQuery::Outcome(notation) = parse_asset_query(coin) {
-        let notation = crate::commands::outcomes::parse_outcome_notation(&notation)?;
-        return Ok(Some(format!("#{}", notation.encoding)));
+    if let Some(internal_id) = parse_spot_coin_key(coin) {
+        return Ok(Some(spot_internal_coin_key(internal_id)));
     }
 
-    if let Some(asset) = parse_internal_asset_id(coin) {
-        return Ok(Some(format!("@{asset}")));
-    }
-
-    let query = qualify_dex_asset(dex, coin);
+    let query = match parse_asset_query(coin) {
+        AssetQuery::Outcome(_) => coin.to_string(),
+        _ => qualify_dex_asset(dex, coin),
+    };
     match resolver.resolve(&query) {
-        Ok(ResolvedAsset::Perp { name, dex, .. }) => {
-            Ok(Some(dex.map(|dex| format!("{dex}:{name}")).unwrap_or(name)))
-        }
-        Ok(ResolvedAsset::Spot { index, .. }) => Ok(Some(spot_mid_key(index))),
+        Ok(Market::Perp(perp)) => Ok(Some(perp.display_name())),
+        Ok(Market::Spot(spot)) => Ok(Some(spot_coin_key(spot.index))),
+        Ok(Market::Outcome(outcome)) => Ok(Some(outcome_coin(outcome.parse()?.encoding))),
         Err(err) => match parse_asset_query(&query) {
             AssetQuery::Hip3 { dex, token } => Ok(Some(format!("{dex}:{token}"))),
-            _ => Err(err),
+            _ => Err(err.into()),
         },
-    }
-}
-
-fn parse_internal_asset_id(input: &str) -> Option<usize> {
-    input
-        .trim()
-        .strip_prefix('@')
-        .and_then(|value| value.parse::<usize>().ok())
-}
-
-fn qualify_dex_asset(dex: Option<&str>, coin: &str) -> String {
-    match dex {
-        Some(dex) if !coin.contains(':') => format!("{dex}:{coin}"),
-        _ => coin.to_string(),
     }
 }
 
@@ -2236,7 +1946,8 @@ pub(crate) fn plural<'a>(count: usize, singular: &'a str, plural: &'a str) -> &'
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::commands::{AssetMetadata, AssetResolver, PerpAsset, SpotAsset};
+    use crate::assets::test_support::hip3_perp;
+    use crate::assets::{AssetMetadata, PerpAsset, SpotAsset};
 
     fn resolver() -> AssetResolver {
         AssetResolver::new(AssetMetadata::from_assets(
@@ -2248,7 +1959,7 @@ mod tests {
                     sz_decimals: 5,
                     collateral: "USDC".to_string(),
                 },
-                PerpAsset::hip3("testdex", "HYPE", 11_100),
+                hip3_perp("testdex", "HYPE", 11_100),
             ],
             vec![SpotAsset {
                 symbol: "HYPE/USDC".to_string(),
@@ -2392,42 +2103,6 @@ mod tests {
         assert_eq!(prepared.legs[0].coin, "testdex:HYPE");
         assert!(matches!(prepared.batch.grouping, OrderGrouping::NormalTpsl));
         assert_eq!(json["grouping"], "normalTpsl");
-    }
-
-    #[test]
-    fn fallback_collateral_name_prefers_token_indices_over_positions() {
-        let tokens = vec![
-            SpotMetaTokenName {
-                name: "USDC".to_string(),
-                index: 0,
-            },
-            SpotMetaTokenName {
-                name: "WRONG".to_string(),
-                index: 1,
-            },
-            SpotMetaTokenName {
-                name: "USDH".to_string(),
-                index: 42,
-            },
-        ];
-
-        assert_eq!(collateral_name_from_tokens(&tokens, Some(42)), "USDH");
-    }
-
-    #[test]
-    fn fallback_collateral_name_falls_back_to_token_position() {
-        let tokens = vec![
-            SpotMetaTokenName {
-                name: "USDC".to_string(),
-                index: 0,
-            },
-            SpotMetaTokenName {
-                name: "USDH".to_string(),
-                index: 42,
-            },
-        ];
-
-        assert_eq!(collateral_name_from_tokens(&tokens, Some(1)), "USDH");
     }
 
     #[test]
@@ -2737,13 +2412,13 @@ mod tests {
         args.coin = "HYPE/USDC".to_string();
         args.order_type = CreateOrderType::StopLimit;
         args.trigger_price = Some(Decimal::from(48_000));
-        let asset = ResolvedAsset::Spot {
+        let asset = Market::Spot(SpotAsset {
             symbol: "HYPE/USDC".to_string(),
             index: 11_035,
             base: "HYPE".to_string(),
             quote: "USDC".to_string(),
             base_sz_decimals: 2,
-        };
+        });
 
         let err = validate_create_resolved_asset(&args, &asset).unwrap_err();
 
@@ -2760,13 +2435,13 @@ mod tests {
         args.coin = "HYPE/USDC".to_string();
         args.builder = Some("0x1111111111111111111111111111111111111111".to_string());
         args.builder_fee_rate = Some("0.01%".to_string());
-        let asset = ResolvedAsset::Spot {
+        let asset = Market::Spot(SpotAsset {
             symbol: "HYPE/USDC".to_string(),
             index: 11_035,
             base: "HYPE".to_string(),
             quote: "USDC".to_string(),
             base_sz_decimals: 2,
-        };
+        });
 
         let err = validate_create_resolved_asset(&args, &asset).unwrap_err();
 

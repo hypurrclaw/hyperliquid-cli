@@ -8,8 +8,9 @@ use hypersdk::{Address, Decimal};
 use rust_decimal::prelude::ToPrimitive;
 use serde::{Deserialize, Serialize};
 
+use crate::assets::raw_info_base_url;
 use crate::commands::spot_balances::{RawSpotBalance, user_spot_balances_raw_from_url};
-use crate::commands::{actions, map_api_error, raw_info_base_url};
+use crate::commands::{actions, map_api_error};
 use crate::dry_run::ActionReversibility;
 use crate::errors::{CliError, http_response_indicates_rate_limit};
 use crate::http_api::{decode_json, ensure_success_response, post_info_raw};

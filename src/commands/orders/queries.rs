@@ -1,5 +1,5 @@
 use super::*;
-use crate::commands::AssetResolver;
+use crate::assets::AssetResolver;
 use crate::errors::http_response_indicates_rate_limit;
 use crate::http_api::{decode_json, post_info_raw};
 use crate::output::JsonValueOutput;
@@ -176,7 +176,7 @@ async fn historical_orders_raw(
     client: &HttpClient,
     user: Address,
 ) -> Result<Vec<BasicOrder>, CliError> {
-    let api_url = crate::commands::raw_info_base_url(client)?;
+    let api_url = crate::assets::raw_info_base_url(client)?;
     let request = HistoricalOrdersRequest {
         request_type: "historicalOrders",
         user,

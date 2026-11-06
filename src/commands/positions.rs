@@ -14,8 +14,9 @@ use crate::signing::SelectedSigner;
 use rust_decimal::prelude::ToPrimitive;
 use serde::Serialize;
 
+use crate::assets::AssetResolver;
 use crate::commands::actions;
-use crate::commands::{AssetResolver, ResolvedAsset, map_api_error};
+use crate::commands::map_api_error;
 use crate::errors::CliError;
 use crate::output::{self, OutputFormat, TableData};
 
@@ -519,17 +520,8 @@ pub fn validate_update_margin_args(args: &UpdateMarginArgs) -> Result<(), CliErr
 }
 
 fn resolve_perp_asset(resolver: &AssetResolver, coin: &str) -> Result<(String, usize), CliError> {
-    match resolver.resolve_perp(coin)? {
-        ResolvedAsset::Perp {
-            name, index, dex, ..
-        } => Ok((
-            dex.map(|dex| format!("{dex}:{name}")).unwrap_or(name),
-            index,
-        )),
-        _ => Err(CliError::Unsupported(
-            "positions commands currently support perpetual markets only".to_string(),
-        )),
-    }
+    let perp = resolver.resolve_perp(coin)?;
+    Ok((perp.display_name(), perp.index))
 }
 
 fn validate_positive(value: Decimal, name: &'static str) -> Result<(), CliError> {

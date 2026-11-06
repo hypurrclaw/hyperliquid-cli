@@ -65,7 +65,7 @@ pub fn validate_bracket_args(args: &BracketArgs) -> Result<(), CliError> {
 
 pub async fn bracket_dry_run_plan(
     client: &hypersdk::hypercore::HttpClient,
-    resolver: &crate::commands::AssetResolver,
+    resolver: &crate::assets::AssetResolver,
     args: &BracketArgs,
 ) -> Result<serde_json::Value, CliError> {
     validate_bracket_args(args)?;

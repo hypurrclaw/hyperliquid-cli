@@ -5,14 +5,12 @@
 /// - `hyperliquid spot get <PAIR>` — get details for a specific spot pair
 use clap::Args;
 use hypersdk::Decimal;
-use hypersdk::hypercore::{HttpClient, PriceTick, SpotMarket};
+use hypersdk::hypercore::{HttpClient, PriceTick};
 use serde::Serialize;
 use std::time::{Duration, Instant};
 
+use crate::assets::{AssetResolver, SpotListing, load_spot_markets};
 use crate::command_context::CommandContext;
-use crate::commands::{
-    AssetResolver, RawSpotMarket, ResolvedAsset, load_raw_spot_markets, map_api_error,
-};
 use crate::errors::CliError;
 use crate::output::{OutputFormat, TableData};
 
@@ -37,26 +35,8 @@ pub struct SpotMarketRow {
     pub tick_size_at_price_1: Option<String>,
 }
 
-impl From<SpotMarket> for SpotMarketRow {
-    fn from(market: SpotMarket) -> Self {
-        let base = market.base().clone();
-        let quote = market.quote().clone();
-        Self {
-            symbol: market.symbol(),
-            index: market.index,
-            base: base.name,
-            quote: quote.name,
-            base_sz_decimals: base.sz_decimals,
-            quote_sz_decimals: quote.sz_decimals,
-            tick_size_at_price_1: market
-                .tick_for(Decimal::from(1))
-                .map(|tick| tick.to_string()),
-        }
-    }
-}
-
-impl From<RawSpotMarket> for SpotMarketRow {
-    fn from(market: RawSpotMarket) -> Self {
+impl From<SpotListing> for SpotMarketRow {
+    fn from(market: SpotListing) -> Self {
         Self {
             symbol: market.symbol,
             index: market.index,
@@ -221,16 +201,8 @@ pub async fn get_query(
     pair: &str,
 ) -> Result<SpotMarketDetailsResult, anyhow::Error> {
     let start = Instant::now();
-    let resolved = resolver.resolve_spot(pair)?;
-    let (resolved_symbol, resolved_index) = match resolved {
-        ResolvedAsset::Spot { symbol, index, .. } => (symbol, index),
-        ResolvedAsset::Perp { .. } => {
-            return Err(CliError::AssetNotFoundNoSuggestion {
-                asset: pair.to_string(),
-            }
-            .into());
-        }
-    };
+    let resolved = resolver.resolve_spot(pair).map_err(CliError::from)?;
+    let (resolved_symbol, resolved_index) = (resolved.symbol, resolved.index);
 
     let market = load_spot_market_rows(client)
         .await?
@@ -249,13 +221,11 @@ pub async fn get_query(
 }
 
 async fn load_spot_market_rows(client: &HttpClient) -> Result<Vec<SpotMarketRow>, CliError> {
-    match client.spot().await {
-        Ok(markets) => Ok(markets.into_iter().map(SpotMarketRow::from).collect()),
-        Err(spot_err) => load_raw_spot_markets(client)
-            .await
-            .map(|markets| markets.into_iter().map(SpotMarketRow::from).collect())
-            .map_err(|_| map_api_error(spot_err)),
-    }
+    Ok(load_spot_markets(client)
+        .await?
+        .into_iter()
+        .map(SpotMarketRow::from)
+        .collect())
 }
 
 #[cfg(test)]

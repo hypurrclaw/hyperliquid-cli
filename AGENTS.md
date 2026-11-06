@@ -17,6 +17,7 @@
 - `src/errors/` — `CliError` and its one variant spec table (exit code, category, reason, retryability), the remote-text classifier (`classify`), transport failure naming, JSON envelope and human rendering.
 - `src/output/` — pretty/table/JSON rendering, color theme, JSON projection.
 - `src/commands/` — one module per command domain.
+- `src/assets/` — asset names (`AssetQuery`), resolved markets (`Market`), exchange metadata loaders and cache, the HIP-3 live lookup, and the protocol asset-id layout (`asset_id`).
 - `src/auth.rs`, `src/config.rs`, `src/ows.rs` — wallet/config/account storage.
 - `src/watch.rs` — streaming/watch support.
 - `tests/` — integration tests with `assert_cmd` and `wiremock`.

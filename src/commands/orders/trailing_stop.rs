@@ -181,24 +181,9 @@ pub(crate) fn prepare_trailing_stop_plan(
     validate_trailing_stop_args(args)?;
     let retracement = retracement_from_args(args)?;
     let query = qualify_dex_asset(args.dex.as_deref(), &args.coin);
-    let ResolvedAsset::Perp {
-        name,
-        index,
-        dex,
-        sz_decimals,
-        ..
-    } = resolver.resolve_perp(&query)?
-    else {
-        return Err(CliError::Configuration(format!(
-            "orders trailing-stop supports perpetual markets only; {} is not a perpetual market",
-            args.coin
-        )));
-    };
-    let coin = dex
-        .as_ref()
-        .map(|dex| format!("{dex}:{name}"))
-        .unwrap_or(name);
-    let size = args.size.round_dp(sz_decimals);
+    let perp = resolver.resolve_perp(&query)?;
+    let coin = perp.display_name();
+    let size = args.size.round_dp(perp.sz_decimals);
     if size <= Decimal::ZERO {
         return Err(CliError::Configuration(format!(
             "size is too small for {coin}; rounds to zero"
@@ -206,7 +191,7 @@ pub(crate) fn prepare_trailing_stop_plan(
     }
     Ok(TrailingStopPlan {
         action: TrailingStop {
-            asset: index,
+            asset: perp.index,
             is_buy: args.side.is_buy(),
             sz: size,
             reduce_only: args.reduce_only,
@@ -422,7 +407,8 @@ impl TableData for TrailingStopOutput {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::commands::{AssetMetadata, PerpAsset};
+    use crate::assets::test_support::hip3_perp;
+    use crate::assets::{AssetMetadata, PerpAsset, SpotAsset};
     use clap::Parser;
 
     #[derive(Parser)]
@@ -449,7 +435,7 @@ mod tests {
                     sz_decimals: 5,
                     collateral: "USDC".to_string(),
                 },
-                PerpAsset::hip3("testdex", "HYPE", 11_100),
+                hip3_perp("testdex", "HYPE", 11_100),
             ],
             vec![SpotAsset {
                 symbol: "HYPE/USDC".to_string(),

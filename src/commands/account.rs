@@ -19,9 +19,10 @@ use hypersdk::hypercore::{
 };
 use serde::Serialize;
 
+use crate::assets::raw_info_base_url;
 use crate::command_context::CommandContext;
 use crate::commands::spot_balances::{RawSpotBalance, user_spot_balances_raw};
-use crate::commands::{actions, map_api_error, raw_info_base_url};
+use crate::commands::{actions, map_api_error};
 use crate::errors::CliError;
 use crate::http_api::post_info_json;
 use crate::output::{JsonValueOutput, OutputFormat, TableData, colors};

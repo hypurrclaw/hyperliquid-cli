@@ -16,10 +16,8 @@ use crate::response_sanitization::labelled_untrusted_text;
 use crate::signing::SelectedSigner;
 
 use super::planning::{CreateOrderSubmission, prepare_create_order_plan};
-use super::{
-    ChaseArgs, CreateArgs, CreateOrderType, OrderExecutionContext, OrderSide, TifArg,
-    qualify_dex_asset,
-};
+use super::{ChaseArgs, CreateArgs, CreateOrderType, OrderExecutionContext, OrderSide, TifArg};
+use crate::assets::qualify_dex_asset;
 use crate::commands::actions;
 
 const BPS: i64 = 10_000;

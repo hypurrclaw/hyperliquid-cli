@@ -8,6 +8,9 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::time::Duration;
 
+use hyperliquid_cli::assets::{
+    AssetQuery, AssetResolver, Market, MetadataCache, parse_asset_query, qualify_dex_asset,
+};
 use hyperliquid_cli::command_context::{
     CommandClients, CommandContext, CommandOutputContext, CommandTransportPolicy, PayloadMetadata,
 };
@@ -15,7 +18,6 @@ use hyperliquid_cli::command_registry::{
     CommandContract, CommandRegistry, ConfirmationPolicy, DryRunPolicy, Lifecycle,
     RawPayloadPolicy, Risk,
 };
-use hyperliquid_cli::commands::{AssetResolver, MetadataCache};
 use hyperliquid_cli::config;
 use hyperliquid_cli::dry_run::{
     ActionPlan, ActionReversibility, DryRunEnvelope, DryRunSigningContext, LiveSubmissionPolicy,

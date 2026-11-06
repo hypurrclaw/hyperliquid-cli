@@ -2,6 +2,7 @@
 //!
 //! Exposes internal modules for integration testing.
 
+pub mod assets;
 pub mod auth;
 pub mod command_context;
 pub mod command_handlers;
