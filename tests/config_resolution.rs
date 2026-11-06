@@ -73,7 +73,7 @@ fn test_missing_config_no_crash() {
         .arg("--version")
         .assert()
         .success()
-        .stdout(predicates::str::contains("hyperliquid"));
+        .stdout(predicates::str::contains(env!("CARGO_PKG_VERSION")));
 }
 
 #[test]

@@ -30,7 +30,7 @@ fn test_exit_code_0_version() {
         .assert()
         .success()
         .code(0)
-        .stdout(predicate::str::contains("hyperliquid"));
+        .stdout(predicate::str::contains(env!("CARGO_PKG_VERSION")));
 }
 
 #[test]

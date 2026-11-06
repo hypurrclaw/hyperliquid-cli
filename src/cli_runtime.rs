@@ -1,10 +1,21 @@
 use super::*;
 
-pub(super) async fn run(cli: &Cli, registry_path: Option<&[String]>) -> Result<(), anyhow::Error> {
-    run_command(cli, registry_path).await
+pub(super) async fn run(
+    cli: &Cli,
+    registry_path: Option<&[String]>,
+    confirmation: Confirmation,
+) -> Result<(), anyhow::Error> {
+    run_command(cli, registry_path, confirmation).await
 }
 
-async fn run_command(cli: &Cli, registry_path: Option<&[String]>) -> Result<(), anyhow::Error> {
+async fn run_command(
+    cli: &Cli,
+    registry_path: Option<&[String]>,
+    confirmation: Confirmation,
+) -> Result<(), anyhow::Error> {
+    if cli.command.is_none() {
+        return print_help_to_stdout(&[]);
+    }
     validate_cli_inputs(cli)?;
     validate_stream_bounds(cli)?;
 
@@ -22,7 +33,7 @@ async fn run_command(cli: &Cli, registry_path: Option<&[String]>) -> Result<(), 
     if cli.payload_json.is_some() || cli.payload_file.is_some() {
         validate_raw_payload_supported(command_contract.as_ref())?;
     }
-    validate_prompt_policy(cli, command_contract.as_ref())?;
+    validate_prompt_policy(cli, command_contract.as_ref(), confirmation)?;
 
     if let Some(result) = run_local_command_without_context(cli).await {
         return result;
@@ -49,16 +60,7 @@ async fn run_command(cli: &Cli, registry_path: Option<&[String]>) -> Result<(), 
     }
 
     match &cli.command {
-        None => {
-            println!(
-                "hyperliquid-cli v{} — Hyperliquid DEX CLI",
-                env!("CARGO_PKG_VERSION")
-            );
-            println!("Network: {}", context.network);
-            println!("API: {}", context.api_base_url());
-            println!("Use --help to see available commands.");
-            Ok(())
-        }
+        None => Ok(()),
         Some(Commands::Wallet {
             subcommand: WalletCommands::Address,
         }) => hyperliquid_cli::commands::wallet::address(
@@ -762,6 +764,7 @@ fn validate_raw_payload_supported(
 fn validate_prompt_policy(
     cli: &Cli,
     command: Option<&CommandContract>,
+    confirmation: Confirmation,
 ) -> Result<(), errors::CliError> {
     let Some(command) = command else {
         return Ok(());
@@ -773,42 +776,55 @@ fn validate_prompt_policy(
         ));
     }
     if cli.dry_run
-        || !machine_context(cli)
+        || hyperliquid_cli::mode::can_prompt()
         || command.confirmation != ConfirmationPolicy::Prompt
         || !prompt_required_for_invocation(cli, command)
-        || confirmation_bypassed(&cli.command)
+        || confirmation.given
+        || selector_missing(&cli.command)
     {
         return Ok(());
     }
 
-    Err(errors::CliError::Unsupported(format!(
-        "{} requires confirmation in machine-readable contexts; rerun with --yes when available or use --dry-run for preview",
-        command.command_key()
-    )))
+    Err(confirmation_required_error(command, confirmation))
 }
 
-fn prompt_required_for_invocation(cli: &Cli, command: &CommandContract) -> bool {
-    let command_key = command.command_key();
-    if cli.testnet
-        && matches!(
-            command_key.as_str(),
-            "orders create"
-                | "orders scale"
-                | "orders batch-create"
-                | "orders tpsl"
-                | "orders twap-create"
-                | "orders schedule-cancel"
-                | "orders chase"
-                | "orders bracket"
-                | "buy"
-                | "sell"
-                | "outcome-buy"
-                | "outcome-sell"
-        )
-    {
-        return false;
+/// Name the blocked command, then give the safe next steps. `--yes` is only
+/// offered when the command has it, and only after a human approves.
+fn confirmation_required_error(
+    command: &CommandContract,
+    confirmation: Confirmation,
+) -> errors::CliError {
+    let key = command.command_key();
+    let mut message = format!("Can't run `{key}` without confirmation in non-interactive mode.");
+    if command.dry_run == DryRunPolicy::Optional {
+        message.push_str(&format!(
+            "\nPreview it:\n    hyperliquid {key} --dry-run ..."
+        ));
     }
-    true
+    if confirmation.supported {
+        message.push_str("\nAfter a human approves, rerun with --yes.");
+    }
+    errors::CliError::Unsupported(message)
+}
+
+/// Commands that skip the mainnet confirmation when `--testnet` is set.
+pub(super) const TESTNET_UNPROMPTED_COMMANDS: &[&str] = &[
+    "orders create",
+    "orders scale",
+    "orders batch-create",
+    "orders tpsl",
+    "orders twap-create",
+    "orders schedule-cancel",
+    "orders chase",
+    "orders bracket",
+    "buy",
+    "sell",
+    "outcome-buy",
+    "outcome-sell",
+];
+
+fn prompt_required_for_invocation(cli: &Cli, command: &CommandContract) -> bool {
+    !(cli.testnet && TESTNET_UNPROMPTED_COMMANDS.contains(&command.command_key().as_str()))
 }
 
 fn argv_secret_supplied(command: &Option<Commands>) -> bool {
@@ -826,63 +842,16 @@ fn argv_secret_supplied(command: &Option<Commands>) -> bool {
     }
 }
 
-fn confirmation_bypassed(command: &Option<Commands>) -> bool {
-    match command {
-        Some(Commands::Builder {
-            subcommand: BuilderCommands::Approve(args),
-        }) => args.yes,
-        Some(Commands::Subaccount {
-            subcommand: SubaccountCommands::Transfer(args),
-        }) => args.yes,
-        Some(Commands::Subaccount {
-            subcommand: SubaccountCommands::SpotTransfer(args),
-        }) => args.yes,
-        Some(Commands::Wallet {
-            subcommand: WalletCommands::Reset { yes } | WalletCommands::Delete { yes, .. },
-        }) => *yes,
+/// `account set-default` never asks for confirmation, and `account remove`
+/// without a selector fails on the missing selector in its own handler.
+fn selector_missing(command: &Option<Commands>) -> bool {
+    matches!(
+        command,
         Some(Commands::Account {
-            subcommand: AccountCommands::SetDefault { selector },
-        }) => selector.is_some(),
-        Some(Commands::Account {
-            subcommand: AccountCommands::Remove { yes, .. },
-        }) => *yes,
-        Some(Commands::Account {
-            subcommand:
-                AccountCommands::Abstraction(hyperliquid_cli::commands::account::AbstractionArgs {
-                    command: Some(hyperliquid_cli::commands::account::AbstractionCommand::Set(args)),
-                    ..
-                }),
-        }) => args.yes,
-        Some(Commands::Orders { subcommand }) => match subcommand {
-            OrderCommands::Create(args) => args.yes,
-            OrderCommands::Scale(args) => args.yes,
-            OrderCommands::BatchCreate(args) => args.yes,
-            OrderCommands::Tpsl(args) => args.yes,
-            OrderCommands::CancelAll(args) => args.yes,
-            OrderCommands::TwapCreate(args) => args.yes,
-            OrderCommands::ScheduleCancel(args) => args.yes,
-            OrderCommands::Chase(args) => args.yes,
-            OrderCommands::Bracket(args) => args.yes,
-            _ => false,
-        },
-        Some(Commands::Buy(args) | Commands::Sell(args)) => args.yes,
-        Some(Commands::OutcomeBuy(args) | Commands::OutcomeSell(args)) => args.inner.yes,
-        Some(Commands::Transfer { subcommand }) => match subcommand {
-            TransferCommands::SpotToPerp(args) | TransferCommands::PerpToSpot(args) => args.yes,
-            TransferCommands::Send(args) => args.yes,
-            TransferCommands::SpotSend(args) => args.yes,
-            TransferCommands::SendAsset(args) => args.yes,
-            TransferCommands::Withdraw(args) => args.yes,
-        },
-        Some(Commands::Staking {
-            subcommand:
-                StakingCommands::Link {
-                    subcommand:
-                        StakingLinkCommands::Initiate(args) | StakingLinkCommands::Finalize(args),
-                },
-        }) => args.yes,
-        _ => false,
-    }
+            subcommand: AccountCommands::SetDefault { .. }
+                | AccountCommands::Remove { selector: None, .. },
+        })
+    )
 }
 
 pub(super) fn command_uses_api(command: Option<&CommandContract>) -> bool {
@@ -1277,13 +1246,7 @@ fn validate_stream_bounds(cli: &Cli) -> Result<(), errors::CliError> {
 }
 
 fn machine_context(cli: &Cli) -> bool {
-    cli.format == output::OutputFormat::Json
-        || std::env::var("HYPERLIQUID_AGENT").is_ok_and(|value| {
-            matches!(
-                value.trim().to_ascii_lowercase().as_str(),
-                "1" | "true" | "yes" | "on"
-            )
-        })
+    cli.format == output::OutputFormat::Json || hyperliquid_cli::mode::agent_env()
 }
 
 fn snapshot_watch_requested_without_bound(command: &Option<Commands>) -> bool {
@@ -4102,7 +4065,7 @@ async fn load_asset_resolver(context: &AppContext) -> Result<AssetResolver, erro
 
 fn unimplemented_command_error() -> anyhow::Error {
     errors::CliError::Internal(anyhow::anyhow!(
-        "Command not yet implemented. Check back soon!"
+        "This command isn't implemented in this version of hyperliquid"
     ))
     .into()
 }

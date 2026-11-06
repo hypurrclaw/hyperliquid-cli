@@ -32,7 +32,67 @@ fn test_version_flag() {
         .arg("--version")
         .assert()
         .success()
-        .stdout(predicates::str::contains("hyperliquid"));
+        .stdout(predicates::str::contains(env!("CARGO_PKG_VERSION")));
+}
+
+#[test]
+fn test_version_json_is_one_document_and_pretty_is_plain() {
+    let json = Command::cargo_bin("hyperliquid")
+        .unwrap()
+        .args(["--format", "json", "orders", "create", "--version"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value: serde_json::Value = serde_json::from_slice(&json).unwrap();
+    assert_eq!(value["version"], env!("CARGO_PKG_VERSION"));
+
+    Command::cargo_bin("hyperliquid")
+        .unwrap()
+        .args(["--format", "pretty", "-v"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(format!(
+            "hyperliquid {}",
+            env!("CARGO_PKG_VERSION")
+        )));
+}
+
+#[test]
+fn test_group_without_action_prints_help_on_stdout_and_exits_zero() {
+    for format in ["json", "pretty"] {
+        Command::cargo_bin("hyperliquid")
+            .unwrap()
+            .args(["--format", format, "orders"])
+            .assert()
+            .success()
+            .stdout(predicates::str::contains("Usage: hyperliquid orders"))
+            .stdout(predicates::str::contains("create"))
+            .stderr(predicates::str::is_empty());
+    }
+}
+
+#[test]
+fn test_short_and_long_help_match() {
+    let short = Command::cargo_bin("hyperliquid")
+        .unwrap()
+        .args(["orders", "create", "-h"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let long = Command::cargo_bin("hyperliquid")
+        .unwrap()
+        .args(["orders", "create", "--help"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    assert_eq!(short, long);
+    assert!(String::from_utf8_lossy(&long).contains("Notes:"));
 }
 
 #[test]
@@ -55,7 +115,7 @@ fn test_no_args_shows_info() {
         .unwrap()
         .assert()
         .success()
-        .stdout(predicates::str::contains("hyperliquid-cli"));
+        .stdout(predicates::str::contains("Usage: hyperliquid"));
 }
 
 #[test]

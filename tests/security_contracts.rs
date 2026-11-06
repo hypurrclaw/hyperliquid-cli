@@ -255,7 +255,7 @@ fn prompt_required_commands_fail_closed_in_machine_context_without_confirmation_
             json["error"]
                 .as_str()
                 .unwrap()
-                .contains("requires confirmation in machine-readable contexts"),
+                .contains("without confirmation in non-interactive mode"),
             "{json}"
         );
     }
@@ -272,7 +272,7 @@ fn prompt_required_commands_fail_closed_for_agent_env_even_with_explicit_pretty_
         .failure()
         .code(13)
         .stderr(predicate::str::contains(
-            "requires confirmation in machine-readable contexts",
+            "without confirmation in non-interactive mode",
         ));
 }
 
@@ -363,7 +363,7 @@ fn secret_prompt_commands_fail_closed_in_machine_context() {
         let json: Value = serde_json::from_slice(&output).unwrap();
         let error = json["error"].as_str().unwrap();
         assert!(
-            error.contains("requires confirmation in machine-readable contexts")
+            error.contains("without confirmation in non-interactive mode")
                 || error.contains("argv secret input is not supported"),
             "{json}"
         );
