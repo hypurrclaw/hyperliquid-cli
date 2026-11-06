@@ -2,13 +2,14 @@
 //!
 //! Every helper returns plain text unless styling is enabled for the stream it
 //! writes to. Use the top-level helpers for stdout content and the [`stderr`]
-//! set for notices, warnings, and errors.
+//! set for notices, warnings, prompts, and errors.
 //!
 //! Precedence: `--no-color`, non-empty `NO_COLOR`, `FORCE_COLOR` (`0`/`false`
 //! off), then per-stream TTY detection with `TERM=dumb` off.
 
-use std::io::IsTerminal;
 use std::sync::OnceLock;
+
+use super::terminal;
 
 pub const CYAN: &str = "\x1b[36m";
 pub const GREEN: &str = "\x1b[32m";
@@ -33,62 +34,35 @@ fn styled(enabled: bool, code: &str, text: &str) -> String {
     }
 }
 
-/// Wrap text in cyan color when stdout styling is enabled.
 #[must_use]
 pub fn cyan(text: &str) -> String {
     styled(stdout_enabled(), CYAN, text)
 }
 
-/// Wrap text in green color when stdout styling is enabled.
 #[must_use]
 pub fn green(text: &str) -> String {
     styled(stdout_enabled(), GREEN, text)
 }
 
-/// Wrap text in red color when stdout styling is enabled.
 #[must_use]
 pub fn red(text: &str) -> String {
     styled(stdout_enabled(), RED, text)
 }
 
-/// Wrap text in gray color (muted) when stdout styling is enabled.
+/// Muted, secondary text.
 #[must_use]
 pub fn gray(text: &str) -> String {
     styled(stdout_enabled(), GRAY, text)
 }
 
-/// Wrap text in yellow color (warning) when stdout styling is enabled.
 #[must_use]
 pub fn yellow(text: &str) -> String {
     styled(stdout_enabled(), YELLOW, text)
 }
 
-/// Wrap text in bold when stdout styling is enabled.
-#[must_use]
-pub fn bold(text: &str) -> String {
-    styled(stdout_enabled(), BOLD, text)
-}
-
-/// Color a PnL-style value: green for positive, red for negative.
-#[must_use]
-pub fn pnl<T: std::fmt::Display>(value: T, is_positive: bool) -> String {
-    let code = if is_positive { GREEN } else { RED };
-    styled(stdout_enabled(), code, &value.to_string())
-}
-
-/// Styling helpers for text written to stderr (notices, warnings, errors).
+/// Styling helpers for text written to stderr (notices, warnings, prompts, errors).
 pub mod stderr {
-    use super::{BOLD, CYAN, GRAY, GREEN, RED, YELLOW, stderr_enabled, styled};
-
-    #[must_use]
-    pub fn cyan(text: &str) -> String {
-        styled(stderr_enabled(), CYAN, text)
-    }
-
-    #[must_use]
-    pub fn green(text: &str) -> String {
-        styled(stderr_enabled(), GREEN, text)
-    }
+    use super::{GRAY, RED, YELLOW, stderr_enabled, styled};
 
     #[must_use]
     pub fn red(text: &str) -> String {
@@ -103,11 +77,6 @@ pub mod stderr {
     #[must_use]
     pub fn yellow(text: &str) -> String {
         styled(stderr_enabled(), YELLOW, text)
-    }
-
-    #[must_use]
-    pub fn bold(text: &str) -> String {
-        styled(stderr_enabled(), BOLD, text)
     }
 }
 
@@ -132,8 +101,8 @@ fn resolve(no_color_flag: bool) -> (bool, bool) {
     }
     let dumb = std::env::var("TERM").is_ok_and(|term| term == "dumb");
     (
-        !dumb && std::io::stdout().is_terminal(),
-        !dumb && std::io::stderr().is_terminal(),
+        !dumb && terminal::stdout_is_terminal(),
+        !dumb && terminal::stderr_is_terminal(),
     )
 }
 
@@ -180,12 +149,6 @@ pub fn stderr_enabled() -> bool {
     streams().1
 }
 
-/// Check if stdout styling is enabled.
-#[must_use]
-pub fn should_colorize() -> bool {
-    stdout_enabled()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -197,8 +160,6 @@ mod tests {
         assert_eq!(red("x"), "x");
         assert_eq!(gray("x"), "x");
         assert_eq!(yellow("x"), "x");
-        assert_eq!(bold("x"), "x");
-        assert_eq!(pnl("1", true), "1");
         assert_eq!(stderr::red("x"), "x");
         assert_eq!(stderr::yellow("x"), "x");
     }
@@ -207,13 +168,13 @@ mod tests {
     fn helpers_style_when_enabled() {
         with_streams_for_test(true, false, || {
             assert_eq!(cyan("x"), paint(CYAN, "x"));
-            assert_eq!(pnl("1", true), paint(GREEN, "1"));
-            assert_eq!(pnl("-1", false), paint(RED, "-1"));
+            assert_eq!(green("x"), paint(GREEN, "x"));
             assert_eq!(stderr::red("x"), "x");
         });
         with_streams_for_test(false, true, || {
             assert_eq!(cyan("x"), "x");
             assert_eq!(stderr::red("x"), paint(RED, "x"));
+            assert_eq!(stderr::yellow("x"), paint(YELLOW, "x"));
         });
     }
 }

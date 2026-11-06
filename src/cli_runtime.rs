@@ -1330,7 +1330,7 @@ fn validate_stream_bounds(cli: &Cli) -> Result<(), errors::CliError> {
 }
 
 fn machine_context(cli: &Cli) -> bool {
-    cli.format == output::OutputFormat::Json || hyperliquid_cli::mode::agent_env()
+    cli.format == output::OutputFormat::Json || output::terminal::agent_env()
 }
 
 fn snapshot_watch_requested_without_bound(command: &Option<Commands>) -> bool {

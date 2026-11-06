@@ -353,7 +353,6 @@ pub async fn transfer(
             &transfer_prompt(subaccount, args),
             &consent_preview(chain, signer, subaccount),
             "subaccount transfer aborted",
-            format,
         )?;
     }
 
@@ -413,7 +412,6 @@ pub async fn spot_transfer(
             &spot_transfer_prompt(subaccount, args),
             &consent_preview(chain, signer, subaccount),
             "subaccount spot transfer aborted",
-            format,
         )?;
     }
 
@@ -501,18 +499,12 @@ fn confirm_transfer(
     question: &str,
     preview: &[String],
     abort_message: &'static str,
-    format: OutputFormat,
 ) -> Result<(), CliError> {
     crate::prompt::ensure_can_prompt("--yes")?;
     for line in preview {
         eprintln!("{line}");
     }
-    let question = if format == OutputFormat::Pretty {
-        output::colors::yellow(question)
-    } else {
-        question.to_string()
-    };
-    if crate::prompt::confirm(&question, "--yes")? {
+    if crate::prompt::confirm_warning(question, "--yes")? {
         Ok(())
     } else {
         Err(CliError::Configuration(abort_message.to_string()))

@@ -247,11 +247,7 @@ pub async fn trailing_stop(
     let plan = prepare_trailing_stop_plan(resolver, args)?;
     if context.require_mainnet_confirmation
         && !args.yes
-        && !confirm_mainnet_trailing_stop(
-            &plan,
-            &ConsentTarget::new(context, vault_address, None),
-            format,
-        )?
+        && !confirm_mainnet_trailing_stop(&plan, &ConsentTarget::new(context, vault_address, None))?
     {
         return Err(CliError::Configuration(
             "Mainnet trailing stop confirmation required; trailing stop placement cancelled. Rerun with --yes for deliberate automation."
@@ -333,7 +329,6 @@ fn parse_trailing_stop_response(response: &serde_json::Value) -> Result<u64, Cli
 fn confirm_mainnet_trailing_stop(
     plan: &TrailingStopPlan,
     target: &ConsentTarget<'_>,
-    format: OutputFormat,
 ) -> Result<bool, CliError> {
     let tracking = if plan.side.is_buy() {
         "lowest"
@@ -363,7 +358,6 @@ fn confirm_mainnet_trailing_stop(
         target,
         &details,
         &format!("Place this trailing stop on {}?", target.network()),
-        format,
     )
 }
 

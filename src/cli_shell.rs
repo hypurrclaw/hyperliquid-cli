@@ -6,7 +6,7 @@
 
 use super::*;
 use clap::parser::ValueSource;
-use std::io::{IsTerminal, Write};
+use std::io::Write;
 
 const ENV_FORMAT: &str = "HYPERLIQUID_FORMAT";
 const REPORT_URL: &str = "https://github.com/hypurrclaw/hyperliquid-cli/issues/new";
@@ -466,7 +466,7 @@ fn error_format(matches: Option<&ArgMatches>) -> output::OutputFormat {
         Some(Err(_)) => return output::OutputFormat::Json,
         None => {}
     }
-    if hyperliquid_cli::mode::agent_env() || !std::io::stdout().is_terminal() {
+    if output::terminal::agent_env() || !output::terminal::stdout_is_terminal() {
         output::OutputFormat::Json
     } else {
         output::OutputFormat::Pretty
@@ -634,7 +634,7 @@ pub(super) fn resolve_output_format(
     if let Some(format) = env_output_format() {
         return format;
     }
-    if hyperliquid_cli::mode::agent_env() || !std::io::stdout().is_terminal() {
+    if output::terminal::agent_env() || !output::terminal::stdout_is_terminal() {
         return Ok(output::OutputFormat::Json);
     }
     Ok(cli_format)

@@ -751,7 +751,7 @@ pub async fn set_abstraction(
     format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
     if require_confirmation && !args.yes {
-        confirm_account_mode_change(args.mode, signer.address(), format)?;
+        confirm_account_mode_change(args.mode, signer.address())?;
     }
     let start = Instant::now();
     let user = signer.address();
@@ -824,22 +824,13 @@ fn mode_cli_value(mode: AbstractionModeArg) -> &'static str {
     }
 }
 
-fn confirm_account_mode_change(
-    mode: AbstractionModeArg,
-    user: Address,
-    format: OutputFormat,
-) -> Result<(), CliError> {
+fn confirm_account_mode_change(mode: AbstractionModeArg, user: Address) -> Result<(), CliError> {
     crate::prompt::ensure_can_prompt("--yes")?;
     let question = format!(
         "Set account abstraction for {user} to {}?",
         mode_cli_value(mode)
     );
-    let question = if format == OutputFormat::Pretty {
-        colors::yellow(&question)
-    } else {
-        question
-    };
-    if crate::prompt::confirm(&question, "--yes")? {
+    if crate::prompt::confirm_warning(&question, "--yes")? {
         Ok(())
     } else {
         Err(CliError::Configuration(

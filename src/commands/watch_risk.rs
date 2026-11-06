@@ -209,7 +209,7 @@ async fn watch_risk_loop(
 }
 
 fn agent_mode() -> bool {
-    !std::io::stdout().is_terminal() || crate::mode::agent_env()
+    !std::io::stdout().is_terminal() || output::terminal::agent_env()
 }
 struct RiskSnapshot<'a> {
     positions: &'a [hypersdk::hypercore::types::AssetPosition],

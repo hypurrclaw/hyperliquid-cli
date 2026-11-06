@@ -397,7 +397,7 @@ pub async fn send(
             reversibility: TransferActionKind::Send.reversibility(),
         },
     );
-    confirm_transfer(&prompt, "send transfer aborted", format, args.yes)?;
+    confirm_transfer(&prompt, "send transfer aborted", args.yes)?;
 
     let nonce = actions::nonce_now();
     let action = Action::UsdSend(
@@ -451,7 +451,7 @@ pub async fn spot_send(
             reversibility: TransferActionKind::SpotSend.reversibility(),
         },
     );
-    confirm_transfer(&prompt, "spot send transfer aborted", format, args.yes)?;
+    confirm_transfer(&prompt, "spot send transfer aborted", args.yes)?;
 
     let nonce = actions::nonce_now();
     let spot_send = SpotSend {
@@ -508,7 +508,7 @@ pub async fn send_asset(
             reversibility: TransferActionKind::SendAsset.reversibility(),
         },
     );
-    confirm_transfer(&prompt, "send-asset transfer aborted", format, args.yes)?;
+    confirm_transfer(&prompt, "send-asset transfer aborted", args.yes)?;
 
     let nonce = actions::nonce_now();
     let send_asset = SendAsset {
@@ -567,7 +567,7 @@ pub async fn withdraw(
             reversibility: TransferActionKind::Withdraw.reversibility(),
         },
     );
-    confirm_transfer(&prompt, "withdraw transfer aborted", format, args.yes)?;
+    confirm_transfer(&prompt, "withdraw transfer aborted", args.yes)?;
 
     let nonce = actions::nonce_now();
     let message = WithdrawMessage {
@@ -731,7 +731,7 @@ async fn class_transfer(
     } else {
         "perp-to-spot"
     };
-    confirm_transfer(&prompt, "transfer aborted", format, yes)?;
+    confirm_transfer(&prompt, "transfer aborted", yes)?;
 
     let nonce = actions::nonce_now();
     let amount = amount.normalize().to_string();
@@ -811,12 +811,7 @@ async fn ensure_perp_balance(
 
 /// Ask for consent. `prompt` is an optional preview block followed by the
 /// question on its last line. The block goes to stderr before the question.
-fn confirm_transfer(
-    prompt: &str,
-    abort_message: &'static str,
-    format: OutputFormat,
-    yes: bool,
-) -> Result<(), CliError> {
+fn confirm_transfer(prompt: &str, abort_message: &'static str, yes: bool) -> Result<(), CliError> {
     if yes {
         return Ok(());
     }
@@ -825,12 +820,7 @@ fn confirm_transfer(
     if !preview.is_empty() {
         eprintln!("{preview}");
     }
-    let question = if format == OutputFormat::Pretty {
-        output::colors::yellow(question)
-    } else {
-        question.to_string()
-    };
-    if crate::prompt::confirm(&question, "--yes")? {
+    if crate::prompt::confirm_warning(question, "--yes")? {
         Ok(())
     } else {
         Err(CliError::Configuration(abort_message.to_string()))

@@ -938,7 +938,7 @@ pub async fn link_staking_user(
     let start = Instant::now();
     let user = validate_link_user_address(&args.user)?;
     if !args.yes {
-        confirm_staking_link(user, is_finalize, format)?;
+        confirm_staking_link(user, is_finalize)?;
     }
 
     let nonce = actions::nonce_now();
@@ -1187,21 +1187,12 @@ fn action_kind_for_link(is_finalize: bool) -> StakingActionKind {
     }
 }
 
-fn confirm_staking_link(
-    user: Address,
-    is_finalize: bool,
-    format: OutputFormat,
-) -> Result<(), CliError> {
+fn confirm_staking_link(user: Address, is_finalize: bool) -> Result<(), CliError> {
     let phase = link_phase(is_finalize);
     crate::prompt::ensure_can_prompt("--yes")?;
     eprintln!("{STAKING_LINK_WARNING}");
     let question = format!("Submit staking link {phase} for user {user}?");
-    let question = if format == OutputFormat::Pretty {
-        output::colors::yellow(&question)
-    } else {
-        question
-    };
-    if crate::prompt::confirm(&question, "--yes")? {
+    if crate::prompt::confirm_warning(&question, "--yes")? {
         Ok(())
     } else {
         Err(CliError::Configuration(

@@ -11,7 +11,7 @@ use serde::Serialize;
 use crate::auth::{self, SignerSource};
 use crate::config::{self, Config};
 use crate::errors::CliError;
-use crate::output::{OutputFormat, TableData};
+use crate::output::{self, OutputFormat, TableData};
 use crate::prompt;
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -319,8 +319,8 @@ fn next_ows_name(
 pub fn import(private_key: Option<&str>, format: OutputFormat) -> Result<(), anyhow::Error> {
     let private_key = match private_key {
         Some(private_key) => {
-            eprintln!(
-                "Warning: passing a private key as an argument can expose it in OS process listings and shell history. Prefer `hyperliquid wallet import` and paste at the hidden prompt."
+            output::warn(
+                "passing a private key as an argument can expose it in OS process listings and shell history. Prefer `hyperliquid wallet import` and paste at the hidden prompt.",
             );
             private_key.trim().to_string()
         }
@@ -343,8 +343,8 @@ pub fn import_mnemonic(
 ) -> Result<(), anyhow::Error> {
     let mnemonic = match mnemonic {
         Some(mnemonic) => {
-            eprintln!(
-                "Warning: passing a mnemonic as an argument can expose it in OS process listings and shell history. Prefer `hyperliquid wallet import-mnemonic` and paste at the hidden prompt."
+            output::warn(
+                "passing a mnemonic as an argument can expose it in OS process listings and shell history. Prefer `hyperliquid wallet import-mnemonic` and paste at the hidden prompt.",
             );
             mnemonic.trim().to_string()
         }
@@ -621,8 +621,8 @@ pub fn account_add(
     let automation_mode = private_key.is_some() || alias.is_some() || make_default;
     let private_key = match private_key {
         Some(private_key) => {
-            eprintln!(
-                "Warning: passing a private key as an argument can expose it in OS process listings and shell history."
+            output::warn(
+                "passing a private key as an argument can expose it in OS process listings and shell history.",
             );
             private_key.trim().to_string()
         }
@@ -801,7 +801,7 @@ pub fn account_remove(
         eprintln!("Back up first:");
         eprintln!("    hyperliquid wallet export {}", shell_arg(&wallet.name));
         eprintln!();
-        let confirmed = if prompt::stdin_is_terminal() {
+        let confirmed = if output::terminal::stdin_is_terminal() {
             prompt::confirm_typed(
                 &format!("To confirm, type the wallet name \"{}\": ", wallet.name),
                 &wallet.name,
@@ -884,8 +884,8 @@ pub fn export(selector: &str, yes: bool, format: OutputFormat) -> Result<(), any
         crate::ows::export_ows_wallet(selector, passphrase.as_deref(), vault_path.as_deref())
             .map_err(|err| anyhow::anyhow!("{err}"))?;
 
-    eprintln!(
-        "Warning: this output contains a plaintext private key or mnemonic. Do not share or log it."
+    output::warn(
+        "this output contains a plaintext private key or mnemonic. Do not share or log it.",
     );
 
     if format == OutputFormat::Json {

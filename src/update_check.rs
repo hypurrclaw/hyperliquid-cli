@@ -78,8 +78,8 @@ impl Suppression {
             disabled,
             json: format == OutputFormat::Json,
             no_update_check_env: env_truthy(ENV_NO_UPDATE_CHECK),
-            agent: crate::mode::agent_env(),
-            ci: crate::mode::ci_env(),
+            agent: crate::output::terminal::agent_env(),
+            ci: crate::output::terminal::ci_env(),
             no_update_notifier: std::env::var_os(ENV_NO_UPDATE_NOTIFIER)
                 .is_some_and(|value| !value.is_empty()),
             stdout_is_terminal: crate::output::terminal::stdout_is_terminal(),
