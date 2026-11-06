@@ -123,7 +123,7 @@ impl TableData for PositionsOutput {
 
     fn rows(&self) -> Vec<Vec<String>> {
         if self.rows.is_empty() {
-            return vec![vec!["No open positions".to_string()]];
+            return vec![vec!["No open positions.".to_string()]];
         }
 
         self.rows

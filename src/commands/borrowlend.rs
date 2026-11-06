@@ -176,7 +176,7 @@ impl TableData for ReserveOutput {
 
     fn rows(&self) -> Vec<Vec<String>> {
         if self.rows.is_empty() {
-            return vec![vec!["No reserve states returned".to_string()]];
+            return vec![vec!["No reserve states.".to_string()]];
         }
 
         self.rows
@@ -226,7 +226,7 @@ impl TableData for UserBorrowLendOutput {
         if self.positions.is_empty() {
             return vec![vec![
                 self.user.clone(),
-                "No borrow/lend positions".to_string(),
+                "No borrow/lend positions.".to_string(),
             ]];
         }
 

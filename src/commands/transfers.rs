@@ -1,6 +1,5 @@
 //! Authenticated transfer commands.
 
-use std::io::{self, Write};
 use std::time::Instant;
 
 use alloy::sol;
@@ -306,32 +305,32 @@ pub fn validate_class_transfer_args(args: &ClassTransferArgs) -> Result<(), CliE
 
 pub fn validate_send_args(args: &SendArgs) -> Result<(), CliError> {
     validate_positive_amount(args.amount)?;
-    parse_address(&args.to)?;
+    parse_address(&args.to, "--to")?;
     Ok(())
 }
 
 pub fn validate_spot_send_args(args: &SpotSendArgs) -> Result<(), CliError> {
     validate_positive_amount(args.amount)?;
-    parse_address(&args.to)?;
+    parse_address(&args.to, "--to")?;
     validate_token_symbol(&args.token)?;
     Ok(())
 }
 
 pub fn validate_send_asset_args(args: &SendAssetArgs) -> Result<(), CliError> {
     validate_positive_amount(args.amount)?;
-    parse_address(&args.to)?;
+    parse_address(&args.to, "--to")?;
     validate_token_symbol(&args.token)?;
-    parse_asset_target(&args.source)?;
-    parse_asset_target(&args.dest)?;
+    parse_asset_target(&args.source, "--source")?;
+    parse_asset_target(&args.dest, "--dest")?;
     if let Some(from_subaccount) = args.from_subaccount.as_deref() {
-        parse_address(from_subaccount)?;
+        parse_address(from_subaccount, "--from-subaccount")?;
     }
     Ok(())
 }
 
 pub fn validate_withdraw_args(args: &WithdrawArgs) -> Result<(), CliError> {
     validate_positive_amount(args.amount)?;
-    parse_address(&args.to)?;
+    parse_address(&args.to, "--to")?;
     Ok(())
 }
 
@@ -342,7 +341,7 @@ pub async fn spot_send_dry_run_args(
 ) -> Result<serde_json::Value, CliError> {
     let token = resolve_spot_token(client, &args.token).await?;
     Ok(serde_json::json!({
-        "to": parse_address(&args.to)?.to_string(),
+        "to": parse_address(&args.to, "--to")?.to_string(),
         "token": token.name,
         "token_index": token.index,
         "amount": args.amount.normalize().to_string(),
@@ -355,10 +354,10 @@ pub async fn send_asset_dry_run_args(
     args: &SendAssetArgs,
 ) -> Result<serde_json::Value, CliError> {
     let token = resolve_spot_token(client, &args.token).await?;
-    let source = parse_asset_target(&args.source)?;
-    let dest = parse_asset_target(&args.dest)?;
+    let source = parse_asset_target(&args.source, "--source")?;
+    let dest = parse_asset_target(&args.dest, "--dest")?;
     Ok(serde_json::json!({
-        "to": parse_address(&args.to)?.to_string(),
+        "to": parse_address(&args.to, "--to")?.to_string(),
         "source": source.display,
         "source_wire": source.wire,
         "dest": dest.display,
@@ -381,11 +380,11 @@ pub async fn send(
     format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
     validate_positive_amount(args.amount)?;
-    let destination = parse_address(&args.to)?;
+    let destination = parse_address(&args.to, "--to")?;
     let start = Instant::now();
     ensure_perp_balance(client, balance_user, args.amount).await?;
     let prompt = external_transfer_prompt(
-        &format!("Send {} USDC to {}? [y/N] ", args.amount, args.to),
+        &format!("Send {} USDC to {}?", args.amount, args.to),
         TransferConfirmationContext {
             network: chain,
             signer: signer.address(),
@@ -432,12 +431,12 @@ pub async fn spot_send(
     format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
     validate_spot_send_args(args)?;
-    let destination = parse_address(&args.to)?;
+    let destination = parse_address(&args.to, "--to")?;
     let token = resolve_spot_token(client, &args.token).await?;
     let start = Instant::now();
     let prompt = external_transfer_prompt(
         &format!(
-            "Send {} {} spot token to {}? [y/N] ",
+            "Send {} {} spot token to {}?",
             args.amount, token.name, args.to
         ),
         TransferConfirmationContext {
@@ -488,14 +487,14 @@ pub async fn send_asset(
     emit_output: bool,
 ) -> Result<(), anyhow::Error> {
     validate_send_asset_args(args)?;
-    let destination = parse_address(&args.to)?;
+    let destination = parse_address(&args.to, "--to")?;
     let token = resolve_spot_token(client, &args.token).await?;
-    let source = parse_asset_target(&args.source)?;
-    let dest = parse_asset_target(&args.dest)?;
+    let source = parse_asset_target(&args.source, "--source")?;
+    let dest = parse_asset_target(&args.dest, "--dest")?;
     let start = Instant::now();
     let prompt = external_transfer_prompt(
         &format!(
-            "Send {} {} from {} to {} for {}? [y/N] ",
+            "Send {} {} from {} to {} for {}?",
             args.amount, token.name, source.display, dest.display, args.to
         ),
         TransferConfirmationContext {
@@ -550,12 +549,12 @@ pub async fn withdraw(
     format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
     validate_positive_amount(args.amount)?;
-    let destination = parse_address(&args.to)?;
+    let destination = parse_address(&args.to, "--to")?;
     let start = Instant::now();
     ensure_perp_balance(client, balance_user, args.amount).await?;
     let prompt = external_transfer_prompt(
         &format!(
-            "Withdraw {} USDC to Arbitrum address {}? [y/N] ",
+            "Withdraw {} USDC to Arbitrum address {}?",
             args.amount, args.to
         ),
         TransferConfirmationContext {
@@ -631,13 +630,13 @@ struct ParsedAssetTarget {
     wire: String,
 }
 
-fn parse_asset_target(input: &str) -> Result<ParsedAssetTarget, CliError> {
+fn parse_asset_target(input: &str, flag: &str) -> Result<ParsedAssetTarget, CliError> {
     let trimmed = input.trim();
     let (target, display, wire) = match trimmed {
         "" => {
-            return Err(CliError::Configuration(
-                "asset target must be perp, spot, or dex:<NAME>".to_string(),
-            ));
+            return Err(CliError::Configuration(format!(
+                "{flag} must be perp, spot, or dex:<NAME>"
+            )));
         }
         // Hyperliquid encodes the default perp venue as an empty string in sendAsset.
         "perp" => (AssetTarget::Perp, "perp".to_string(), String::new()),
@@ -656,9 +655,9 @@ fn parse_asset_target(input: &str) -> Result<ParsedAssetTarget, CliError> {
             )
         }
         _ => {
-            return Err(CliError::Configuration(
-                "asset target must be perp, spot, or dex:<NAME>".to_string(),
-            ));
+            return Err(CliError::Configuration(format!(
+                "{flag} must be perp, spot, or dex:<NAME>"
+            )));
         }
     };
     Ok(ParsedAssetTarget {
@@ -678,23 +677,27 @@ async fn resolve_spot_token(client: &HttpClient, token: &str) -> Result<SpotToke
         .ok_or_else(|| CliError::Unsupported(format!("spot token \"{token}\" not found")))
 }
 
-fn parse_address(input: &str) -> Result<Address, CliError> {
-    let stripped = input.strip_prefix("0x").ok_or_else(invalid_address_error)?;
+fn parse_address(input: &str, flag: &str) -> Result<Address, CliError> {
+    let stripped = input
+        .strip_prefix("0x")
+        .ok_or_else(|| invalid_address_error(flag))?;
     if stripped.len() != 40 || !stripped.chars().all(|ch| ch.is_ascii_hexdigit()) {
-        return Err(invalid_address_error());
+        return Err(invalid_address_error(flag));
     }
     if stripped.chars().all(|ch| ch == '0') {
-        return Err(CliError::Configuration(
-            "address must not be the zero address".to_string(),
-        ));
+        return Err(CliError::Configuration(format!(
+            "{flag}: address must not be the zero address"
+        )));
     }
     input
         .parse::<Address>()
-        .map_err(|_| invalid_address_error())
+        .map_err(|_| invalid_address_error(flag))
 }
 
-fn invalid_address_error() -> CliError {
-    CliError::Configuration("address must be a 0x-prefixed 40-byte hex string".to_string())
+fn invalid_address_error(flag: &str) -> CliError {
+    CliError::Configuration(format!(
+        "{flag}: address must be a 0x-prefixed 40-byte hex string"
+    ))
 }
 
 struct ClassTransferRuntime<'a> {
@@ -721,9 +724,9 @@ async fn class_transfer(
     }
 
     let prompt = if to_perp {
-        format!("Transfer {amount} USDC from spot to perp? [y/N] ")
+        format!("Transfer {amount} USDC from spot to perp?")
     } else {
-        format!("Transfer {amount} USDC from perp to spot? [y/N] ")
+        format!("Transfer {amount} USDC from perp to spot?")
     };
     let label = if to_perp {
         "spot-to-perp"
@@ -808,6 +811,8 @@ async fn ensure_perp_balance(
     Ok(())
 }
 
+/// Ask for consent. `prompt` is an optional preview block followed by the
+/// question on its last line. The block goes to stderr before the question.
 fn confirm_transfer(
     prompt: &str,
     abort_message: &'static str,
@@ -817,22 +822,17 @@ fn confirm_transfer(
     if yes {
         return Ok(());
     }
-    let mut stderr = io::stderr();
-    let prompt = if format == OutputFormat::Pretty {
-        output::colors::yellow(prompt)
+    crate::prompt::ensure_can_prompt("--yes")?;
+    let (preview, question) = prompt.rsplit_once('\n').unwrap_or(("", prompt));
+    if !preview.is_empty() {
+        eprintln!("{preview}");
+    }
+    let question = if format == OutputFormat::Pretty {
+        output::colors::yellow(question)
     } else {
-        prompt.to_string()
+        question.to_string()
     };
-    write!(stderr, "{prompt}").map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
-    stderr
-        .flush()
-        .map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
-
-    let mut input = String::new();
-    io::stdin()
-        .read_line(&mut input)
-        .map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
-    if matches!(input.trim().to_ascii_lowercase().as_str(), "y" | "yes") {
+    if crate::prompt::confirm(&question, "--yes")? {
         Ok(())
     } else {
         Err(CliError::Configuration(abort_message.to_string()))
@@ -905,19 +905,19 @@ mod tests {
 
     #[test]
     fn parse_address_accepts_0x_40_byte_hex() {
-        assert!(parse_address("0x0000000000000000000000000000000000000001").is_ok());
+        assert!(parse_address("0x0000000000000000000000000000000000000001", "--to").is_ok());
     }
 
     #[test]
     fn parse_address_rejects_zero_address_as_usage_error() {
-        let err = parse_address("0x0000000000000000000000000000000000000000").unwrap_err();
+        let err = parse_address("0x0000000000000000000000000000000000000000", "--to").unwrap_err();
         assert_eq!(err.exit_code(), 2);
         assert!(err.to_string().contains("zero address"));
     }
 
     #[test]
     fn parse_address_rejects_bad_format_as_usage_error() {
-        let err = parse_address("INVALID").unwrap_err();
+        let err = parse_address("INVALID", "--to").unwrap_err();
         assert_eq!(err.exit_code(), 2);
         assert!(err.to_string().contains("0x-prefixed"));
     }

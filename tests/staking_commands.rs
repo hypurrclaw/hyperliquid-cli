@@ -886,9 +886,7 @@ async fn staking_link_requires_confirmation_without_yes() {
         .assert()
         .code(2)
         .stdout(predicate::str::is_empty())
-        .stderr(predicate::str::contains(
-            "staking-link confirmation required",
-        ));
+        .stderr(predicate::str::contains("Can't continue without --yes"));
 
     let requests = server.received_requests().await.unwrap();
     assert!(exchange_bodies(&requests).is_empty());

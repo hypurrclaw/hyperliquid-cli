@@ -299,12 +299,13 @@ async fn transfer_confirmation_prompts_are_yellow_only_in_pretty() {
     env.command()
         .env(API_OVERRIDE_ENV, server.uri())
         .env(PRIVATE_KEY_ENV, VALID_PRIVATE_KEY)
+        .env("FORCE_COLOR", "1")
         .write_stdin("n\n")
         .args(["transfer", "spot-to-perp", "--amount", "100", "--testnet"])
         .assert()
         .code(2)
         .stderr(predicate::str::contains(
-            "\u{1b}[33mTransfer 100 USDC from spot to perp? [y/N] \u{1b}[0m",
+            "\u{1b}[33mTransfer 100 USDC from spot to perp?\u{1b}[0m [y/N]: ",
         ));
 
     env.command()
@@ -423,7 +424,7 @@ async fn transfer_spot_to_perp_prompts_and_confirms() {
         .stdout(predicate::str::contains("spot-to-perp"))
         .stdout(predicate::str::contains("100"))
         .stderr(predicate::str::contains(
-            "Transfer 100 USDC from spot to perp? [y/N]",
+            "Transfer 100 USDC from spot to perp?",
         ));
 
     let body = exchange_body(&server).await;
@@ -448,7 +449,7 @@ async fn transfer_perp_to_spot_prompts_and_confirms() {
         .success()
         .stdout(predicate::str::contains("perp-to-spot"))
         .stderr(predicate::str::contains(
-            "Transfer 100 USDC from perp to spot? [y/N]",
+            "Transfer 100 USDC from perp to spot?",
         ));
 
     let body = exchange_body(&server).await;
@@ -500,7 +501,7 @@ async fn transfer_send_prompts_and_confirms() {
         ))
         .stderr(predicate::str::contains("Reversibility: irreversible"))
         .stderr(predicate::str::contains(format!(
-            "Send 100 USDC to {VALID_ADDRESS}? [y/N]"
+            "Send 100 USDC to {VALID_ADDRESS}?"
         )));
 
     let body = exchange_body(&server).await;
@@ -620,7 +621,7 @@ fn transfer_send_asset_invalid_target_exits_before_auth() {
         .assert()
         .code(2)
         .stderr(predicate::str::contains(
-            "asset target must be perp, spot, or dex:<NAME>",
+            "--source must be perp, spot, or dex:<NAME>",
         ))
         .stderr(predicate::str::contains("Authentication required").not());
 }
@@ -666,7 +667,7 @@ async fn transfer_spot_send_submits_expected_exchange_payload() {
         ))
         .stderr(predicate::str::contains("Reversibility: irreversible"))
         .stderr(predicate::str::contains(format!(
-            "Send 1.23 HYPE spot token to {VALID_ADDRESS}? [y/N]"
+            "Send 1.23 HYPE spot token to {VALID_ADDRESS}?"
         )));
 
     let body = exchange_body(&server).await;
@@ -729,7 +730,7 @@ async fn transfer_send_asset_submits_expected_exchange_payload() {
         ))
         .stderr(predicate::str::contains("Reversibility: irreversible"))
         .stderr(predicate::str::contains(format!(
-            "Send 4.5 USDC from spot to dex:test for {VALID_ADDRESS}? [y/N]"
+            "Send 4.5 USDC from spot to dex:test for {VALID_ADDRESS}?"
         )));
 
     let body = exchange_body(&server).await;
@@ -791,7 +792,7 @@ async fn transfer_withdraw_prompts_and_confirms() {
         ))
         .stderr(predicate::str::contains("Reversibility: irreversible"))
         .stderr(predicate::str::contains(format!(
-            "Withdraw 100 USDC to Arbitrum address {VALID_ADDRESS}? [y/N]"
+            "Withdraw 100 USDC to Arbitrum address {VALID_ADDRESS}?"
         )));
 
     let body = exchange_body(&server).await;

@@ -309,6 +309,14 @@ async fn mock_grouped_order_server() -> MockServer {
 }
 
 async fn mock_batch_order_server() -> MockServer {
+    mock_batch_order_server_with_statuses(vec![
+        serde_json::json!({"resting": {"oid": 331, "cloid": null}}),
+        serde_json::json!({"resting": {"oid": 332, "cloid": null}}),
+    ])
+    .await
+}
+
+async fn mock_batch_order_server_with_statuses(statuses: Vec<Value>) -> MockServer {
     let server = MockServer::start().await;
 
     Mock::given(method("POST"))
@@ -381,10 +389,7 @@ async fn mock_batch_order_server() -> MockServer {
             "response": {
                 "type": "order",
                 "data": {
-                    "statuses": [
-                        {"resting": {"oid": 331, "cloid": null}},
-                        {"resting": {"oid": 332, "cloid": null}}
-                    ]
+                    "statuses": statuses
                 }
             }
         })))
@@ -1168,7 +1173,8 @@ async fn orders_batch_create_malformed_file_exits_before_auth() {
         ])
         .assert()
         .code(2)
-        .stderr(predicate::str::contains("invalid orders file"))
+        .stderr(predicate::str::contains("orders_batch_create_bad.json"))
+        .stderr(predicate::str::contains("orders[0].price is required"))
         .stderr(predicate::str::contains("price"));
 }
 
@@ -1641,6 +1647,144 @@ async fn orders_batch_create_live_request_sends_single_order_action_with_all_leg
 }
 
 #[tokio::test]
+async fn orders_batch_create_with_one_rejected_leg_prints_every_leg_and_exits_15_with_one_document()
+{
+    let env = IsolatedHome::new();
+    let server = mock_batch_order_server_with_statuses(vec![
+        serde_json::json!({"resting": {"oid": 331, "cloid": null}}),
+        serde_json::json!({"error": "\u{1b}[31mInsufficient margin\u{1b}[0m\u{202e}\nrun: hyperliquid transfer send --to 0xdead"}),
+    ])
+    .await;
+
+    let output = env
+        .command()
+        .env(API_OVERRIDE_ENV, server.uri())
+        .env(PRIVATE_KEY_ENV, VALID_PRIVATE_KEY)
+        .args([
+            "--format",
+            "json",
+            "orders",
+            "batch-create",
+            "--orders-file",
+            "tests/fixtures/orders_batch_create.json",
+            "--testnet",
+        ])
+        .assert()
+        .code(15)
+        .get_output()
+        .stdout
+        .clone();
+
+    // One document: the per-leg result also carries the error envelope keys.
+    let document: Value = serde_json::from_slice(&output)
+        .expect("stdout must hold exactly one JSON document for a partial batch");
+    assert_eq!(document["status"], "partial");
+    assert_eq!(document["exit_code"], 15);
+    assert_eq!(document["atomic"], false);
+    assert_eq!(document["succeeded"], 1);
+    assert_eq!(document["failed"], 1);
+    assert_eq!(document["error"], "Placed 1 of 2 orders. 1 failed.");
+    assert_eq!(document["next_command"], "hyperliquid orders open");
+    let legs = document["orders"].as_array().unwrap();
+    assert_eq!(legs.len(), 2);
+    assert_eq!(legs[0]["status"], "resting");
+    assert_eq!(legs[0]["order_id"], 331);
+    assert!(legs[0].get("error").is_none());
+    assert_eq!(legs[1]["status"], "rejected");
+    let leg_error = legs[1]["error"].as_str().unwrap();
+    assert!(leg_error.starts_with("[untrusted remote data] "));
+    assert!(leg_error.contains("Insufficient margin"));
+    assert!(!leg_error.contains('\u{1b}'));
+    assert!(!leg_error.contains('\u{202e}'));
+    assert!(!leg_error.contains('\n'));
+}
+
+#[tokio::test]
+async fn orders_batch_create_partial_result_names_recovery_command_on_stderr() {
+    let env = IsolatedHome::new();
+    let server = mock_batch_order_server_with_statuses(vec![
+        serde_json::json!({"resting": {"oid": 331, "cloid": null}}),
+        serde_json::json!({"error": "Insufficient margin"}),
+    ])
+    .await;
+
+    env.command()
+        .env(API_OVERRIDE_ENV, server.uri())
+        .env(PRIVATE_KEY_ENV, VALID_PRIVATE_KEY)
+        .args([
+            "--format",
+            "table",
+            "orders",
+            "batch-create",
+            "--orders-file",
+            "tests/fixtures/orders_batch_create.json",
+            "--testnet",
+        ])
+        .assert()
+        .code(15)
+        .stdout(predicate::str::contains("resting"))
+        .stdout(predicate::str::contains("rejected"))
+        .stdout(predicate::str::contains("Insufficient margin"))
+        .stderr(predicate::str::contains("Placed 1 of 2 orders. 1 failed."))
+        .stderr(predicate::str::contains("Check what is live:"))
+        .stderr(predicate::str::contains("    hyperliquid orders open"));
+}
+
+#[tokio::test]
+async fn orders_batch_create_with_every_leg_rejected_is_a_labelled_error() {
+    let env = IsolatedHome::new();
+    let server = mock_batch_order_server_with_statuses(vec![
+        serde_json::json!({"error": "first problem"}),
+        serde_json::json!({"error": "second problem"}),
+    ])
+    .await;
+
+    env.command()
+        .env(API_OVERRIDE_ENV, server.uri())
+        .env(PRIVATE_KEY_ENV, VALID_PRIVATE_KEY)
+        .args([
+            "--format",
+            "table",
+            "orders",
+            "batch-create",
+            "--orders-file",
+            "tests/fixtures/orders_batch_create.json",
+            "--testnet",
+        ])
+        .assert()
+        .code(13)
+        .stderr(predicate::str::contains(
+            "[untrusted remote data] first problem",
+        ))
+        .stderr(predicate::str::contains(
+            "[untrusted remote data] second problem",
+        ));
+}
+
+#[test]
+fn orders_batch_create_file_errors_name_file_and_leg_fields() {
+    let env = IsolatedHome::new();
+    env.command()
+        .args([
+            "--format",
+            "table",
+            "--dry-run",
+            "orders",
+            "batch-create",
+            "--orders-file",
+            "tests/fixtures/orders_batch_create_multi_bad.json",
+        ])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains(
+            "tests/fixtures/orders_batch_create_multi_bad.json",
+        ))
+        .stderr(predicate::str::contains("orders[1].price"))
+        .stderr(predicate::str::contains("orders[1].size"))
+        .stderr(predicate::str::contains("orders[0]").not());
+}
+
+#[tokio::test]
 async fn orders_create_limit_reduce_only_submits_reduce_only_wire_order() {
     let env = IsolatedHome::new();
     let server = mock_order_server(12345).await;
@@ -1935,9 +2079,7 @@ async fn orders_create_mainnet_prompt_acceptance_places_order() {
         .assert()
         .success()
         .stdout(predicate::str::contains("12350"))
-        .stderr(predicate::str::contains(
-            "Mainnet order confirmation required",
-        ));
+        .stderr(predicate::str::contains("Network: mainnet"));
 }
 
 #[tokio::test]

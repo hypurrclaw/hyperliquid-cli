@@ -1,0 +1,16 @@
+{
+  "orders": [
+    {
+      "coin": "BTC",
+      "side": "buy",
+      "price": "50000",
+      "size": "0.001"
+    },
+    {
+      "coin": "ETH",
+      "side": "sell",
+      "price": "abc",
+      "size": "x"
+    }
+  ]
+}

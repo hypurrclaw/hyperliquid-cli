@@ -1,6 +1,5 @@
 //! Authenticated subaccount workflows.
 
-use std::io::{self, Write};
 use std::time::Instant;
 
 use clap::{Args, ValueEnum};
@@ -352,6 +351,7 @@ pub async fn transfer(
     if !args.yes {
         confirm_transfer(
             &transfer_prompt(subaccount, args),
+            &consent_preview(chain, signer, subaccount),
             "subaccount transfer aborted",
             format,
         )?;
@@ -411,6 +411,7 @@ pub async fn spot_transfer(
     if !args.yes {
         confirm_transfer(
             &spot_transfer_prompt(subaccount, args),
+            &consent_preview(chain, signer, subaccount),
             "subaccount spot transfer aborted",
             format,
         )?;
@@ -470,12 +471,12 @@ fn validate_positive_amount(amount: Decimal, name: &'static str) -> Result<(), C
 fn transfer_prompt(subaccount: Address, args: &TransferArgs) -> String {
     if args.direction.is_deposit() {
         format!(
-            "Transfer {} USDC to subaccount {}? [y/N] ",
+            "Transfer {} USDC to subaccount {}?",
             args.amount, subaccount
         )
     } else {
         format!(
-            "Transfer {} USDC from subaccount {}? [y/N] ",
+            "Transfer {} USDC from subaccount {}?",
             args.amount, subaccount
         )
     }
@@ -484,42 +485,46 @@ fn transfer_prompt(subaccount: Address, args: &TransferArgs) -> String {
 fn spot_transfer_prompt(subaccount: Address, args: &SpotTransferArgs) -> String {
     if args.direction.is_deposit() {
         format!(
-            "Transfer {} {} to subaccount {}? [y/N] ",
+            "Transfer {} {} to subaccount {}?",
             args.amount, args.token, subaccount
         )
     } else {
         format!(
-            "Transfer {} {} from subaccount {}? [y/N] ",
+            "Transfer {} {} from subaccount {}?",
             args.amount, args.token, subaccount
         )
     }
 }
 
+/// Print the consent preview on stderr, then ask `question`.
 fn confirm_transfer(
-    prompt: &str,
+    question: &str,
+    preview: &[String],
     abort_message: &'static str,
     format: OutputFormat,
 ) -> Result<(), CliError> {
-    let mut stderr = io::stderr();
-    let prompt = if format == OutputFormat::Pretty {
-        output::colors::yellow(prompt)
+    crate::prompt::ensure_can_prompt("--yes")?;
+    for line in preview {
+        eprintln!("{line}");
+    }
+    let question = if format == OutputFormat::Pretty {
+        output::colors::yellow(question)
     } else {
-        prompt.to_string()
+        question.to_string()
     };
-    write!(stderr, "{prompt}").map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
-    stderr
-        .flush()
-        .map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
-
-    let mut input = String::new();
-    io::stdin()
-        .read_line(&mut input)
-        .map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
-    if matches!(input.trim().to_ascii_lowercase().as_str(), "y" | "yes") {
+    if crate::prompt::confirm(&question, "--yes")? {
         Ok(())
     } else {
         Err(CliError::Configuration(abort_message.to_string()))
     }
+}
+
+fn consent_preview(chain: Chain, signer: &SelectedSigner, subaccount: Address) -> Vec<String> {
+    vec![
+        format!("Network: {}", chain.to_string().to_lowercase()),
+        format!("Signer: {}", signer.address()),
+        format!("Subaccount: {subaccount}"),
+    ]
 }
 
 fn print_action(row: SubaccountActionConfirmation, format: OutputFormat, start: Instant) {

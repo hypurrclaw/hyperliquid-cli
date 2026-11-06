@@ -269,7 +269,7 @@ async fn orders_open_pretty_empty_state_uses_theme_colors() {
         .success()
         .stdout(predicate::str::contains("\u{1b}[36mMessage\u{1b}[0m"))
         .stdout(predicate::str::contains(
-            "\u{1b}[90mNo open orders\u{1b}[0m",
+            "\u{1b}[90mNo open orders.\u{1b}[0m",
         ));
 }
 

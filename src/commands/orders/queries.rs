@@ -40,7 +40,7 @@ pub async fn open_snapshot(
 
     Ok(OrderListOutput {
         rows,
-        empty_message: "No open orders",
+        empty_message: "No open orders.",
     })
 }
 
@@ -83,7 +83,7 @@ pub async fn status_query(
     };
     let value =
         post_info_json::<serde_json::Value>(api_base_url, &request, "loading order status").await?;
-    let output = JsonValueOutput::new(value, "no order status found");
+    let output = JsonValueOutput::new(value, "No order status.");
     Ok(OrderStatusResult {
         output,
         elapsed: start.elapsed(),
@@ -116,7 +116,7 @@ pub async fn history(
     output::print_data(
         &OrderListOutput {
             rows,
-            empty_message: "No historical orders",
+            empty_message: "No historical orders.",
         },
         format,
         start.elapsed(),
@@ -179,12 +179,7 @@ async fn historical_orders_raw(
         request_type: "historicalOrders",
         user,
     };
-    let response = post_info_raw(api_url.as_str(), &request)
-        .await
-        .map_err(|err| match err {
-            CliError::Unavailable(message) => map_api_error(anyhow::anyhow!(message)),
-            other => other,
-        })?;
+    let response = post_info_raw(api_url.as_str(), &request).await?;
     let status = response.status;
     let body = response.body;
 
