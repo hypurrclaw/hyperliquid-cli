@@ -70,10 +70,7 @@ pub fn validate_env() -> Result<(), CliError> {
 
 /// `HYPERLIQUID_AGENT` is set to a true value.
 pub fn agent_env() -> bool {
-    env_bool("HYPERLIQUID_AGENT")
-        .ok()
-        .flatten()
-        .unwrap_or(false)
+    env_bool("HYPERLIQUID_AGENT").ok().flatten().unwrap_or(false)
 }
 
 /// The process runs under CI (`CI` set to anything except empty, `0`, or `false`).
