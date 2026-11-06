@@ -204,7 +204,8 @@ fn usage_error_envelope_moves_usage_block_into_data() {
     assert!(!error.contains("Usage:"), "{error}");
     let usage = json["data"]["usage"].as_str().unwrap();
     assert!(usage.starts_with("Usage: "), "{usage}");
-    assert!(usage.contains("For more information"), "{usage}");
+    assert!(!usage.contains("See all options"), "{usage}");
+    assert_eq!(json["next"][0]["command"], "hyperliquid wallet show --help");
 }
 
 #[test]

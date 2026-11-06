@@ -293,7 +293,8 @@ fn transfer_action_plans_preserve_public_dry_run_envelopes() {
             "dry_run": true,
             "command": "transfer spot-to-perp",
             "would_execute": "transfer_spot_to_perp",
-            "args": {"amount": "1.23"}
+            "args": {"amount": "1.23"},
+            "signer": null
         })
     );
 
@@ -311,7 +312,8 @@ fn transfer_action_plans_preserve_public_dry_run_envelopes() {
             "dry_run": true,
             "command": "transfer perp-to-spot",
             "would_execute": "transfer_perp_to_spot",
-            "args": {"amount": "1.23"}
+            "args": {"amount": "1.23"},
+            "signer": null
         })
     );
 
@@ -334,7 +336,8 @@ fn transfer_action_plans_preserve_public_dry_run_envelopes() {
             "args": {
                 "to": "0x0000000000000000000000000000000000000001",
                 "amount": "1.23"
-            }
+            },
+            "signer": null
         })
     );
 
@@ -357,7 +360,8 @@ fn transfer_action_plans_preserve_public_dry_run_envelopes() {
             "args": {
                 "to": "0x0000000000000000000000000000000000000001",
                 "amount": "1.23"
-            }
+            },
+            "signer": null
         })
     );
 }
@@ -601,7 +605,25 @@ async fn staking_vault_and_borrowlend_action_plans_preserve_public_dry_run_envel
     );
 }
 
+/// Run a dry-run command and return its envelope without the run context.
+///
+/// Every dry-run envelope names the network, and a signed action whose signer
+/// can't be resolved without prompting carries a `signer_warning`. Those two
+/// keys are checked here; the contract fixtures pin the rest of the envelope.
 fn run_json(command: &mut assert_cmd::Command) -> Value {
     let output = command.assert().success().get_output().stdout.clone();
-    serde_json::from_slice(&output).unwrap()
+    let mut value: Value = serde_json::from_slice(&output).unwrap();
+    let object = value
+        .as_object_mut()
+        .expect("dry-run envelope is an object");
+    let network = object.remove("network");
+    assert!(
+        matches!(
+            network.as_ref().and_then(Value::as_str),
+            Some("mainnet" | "testnet")
+        ),
+        "dry-run envelope is missing its network: {network:?}"
+    );
+    object.remove("signer_warning");
+    value
 }

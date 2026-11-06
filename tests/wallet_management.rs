@@ -1026,16 +1026,17 @@ fn account_set_default_and_remove_without_accounts_have_clear_error() {
         .args(["--format", "json", "account", "set-default"])
         .write_stdin("\n")
         .assert()
-        .code(13)
+        .code(2)
         .get_output()
         .stdout
         .clone();
     let set_default_json: Value = serde_json::from_slice(&set_default_output).unwrap();
+    assert_eq!(set_default_json["reason"], "missing_input");
     assert!(
         set_default_json["error"]
             .as_str()
             .unwrap()
-            .contains("without a wallet selector in non-interactive mode")
+            .contains("<WALLET>")
     );
 
     let remove_output = env
@@ -1043,17 +1044,13 @@ fn account_set_default_and_remove_without_accounts_have_clear_error() {
         .args(["--format", "json", "account", "remove"])
         .write_stdin("\n")
         .assert()
-        .code(13)
+        .code(2)
         .get_output()
         .stdout
         .clone();
     let remove_json: Value = serde_json::from_slice(&remove_output).unwrap();
-    assert!(
-        remove_json["error"]
-            .as_str()
-            .unwrap()
-            .contains("without a wallet selector in non-interactive mode")
-    );
+    assert_eq!(remove_json["reason"], "missing_input");
+    assert!(remove_json["error"].as_str().unwrap().contains("<WALLET>"));
 
     let set_default_selector_output = env
         .account_command(TEST_ACCOUNT_PASSPHRASE)

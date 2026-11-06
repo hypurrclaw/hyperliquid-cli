@@ -659,7 +659,8 @@ impl ErrorEnvelope {
     ///
     /// `error` keeps the headline (and clap's tip line, if any). The `Usage:`
     /// block and the `For more information` line move to `data.usage`; a
-    /// "similar ... exists" tip also fills `data.suggestion`.
+    /// "similar ... exists" tip also fills `data.suggestion`; a `See all
+    /// options:` pointer becomes the `next` help command.
     pub fn usage(message: impl Into<String>) -> Self {
         let raw = message.into();
         let parsed = parse_clap_text(&raw);
@@ -682,7 +683,10 @@ impl ErrorEnvelope {
             reason,
             retryable: None,
             retry_after: None,
-            next: Vec::new(),
+            next: parsed
+                .help_command
+                .map(|command| vec![NextCommand { command }])
+                .unwrap_or_default(),
             data,
         }
     }
@@ -708,6 +712,7 @@ struct ClapText {
     headline: String,
     usage: Option<String>,
     suggestion: Option<String>,
+    help_command: Option<String>,
 }
 
 fn parse_clap_text(raw: &str) -> ClapText {
@@ -716,6 +721,7 @@ fn parse_clap_text(raw: &str) -> ClapText {
     let mut kept = Vec::new();
     let mut usage = Vec::new();
     let mut suggestion = None;
+    let mut help_command = None;
     for paragraph in text.split("\n\n") {
         let paragraph = paragraph.trim();
         if paragraph.is_empty() {
@@ -723,6 +729,10 @@ fn parse_clap_text(raw: &str) -> ClapText {
         }
         if paragraph.starts_with("Usage:") || paragraph.starts_with("For more information") {
             usage.push(paragraph);
+            continue;
+        }
+        if let Some(command) = paragraph.strip_prefix("See all options:") {
+            help_command = Some(command.trim().to_string());
             continue;
         }
         if suggestion.is_none()
@@ -741,6 +751,7 @@ fn parse_clap_text(raw: &str) -> ClapText {
         headline,
         usage: (!usage.is_empty()).then(|| usage.join("\n\n")),
         suggestion,
+        help_command,
     }
 }
 

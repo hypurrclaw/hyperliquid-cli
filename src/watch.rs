@@ -624,38 +624,8 @@ fn subscription_closed_error() -> CliError {
 fn subscription_idle_timeout_error(idle_timeout: Duration) -> CliError {
     CliError::Timeout(format!(
         "Timed out waiting for subscription events after {}.",
-        format_duration_compact(idle_timeout)
+        crate::output::format::duration(idle_timeout)
     ))
-}
-
-/// Compact duration: `250ms`, `1.5s`, `2m`, `1h 5m`. Sub-units are truncated.
-fn format_duration_compact(duration: Duration) -> String {
-    let millis = duration.as_millis();
-    if millis < 1_000 {
-        return format!("{millis}ms");
-    }
-    if millis < 60_000 {
-        let tenths = millis / 100;
-        let (whole, tenth) = (tenths / 10, tenths % 10);
-        return if tenth == 0 {
-            format!("{whole}s")
-        } else {
-            format!("{whole}.{tenth}s")
-        };
-    }
-
-    let total_secs = millis / 1_000;
-    let (hours, minutes, seconds) = (
-        total_secs / 3_600,
-        (total_secs % 3_600) / 60,
-        total_secs % 60,
-    );
-    [(hours, 'h'), (minutes, 'm'), (seconds, 's')]
-        .into_iter()
-        .filter(|(value, _)| *value > 0)
-        .map(|(value, unit)| format!("{value}{unit}"))
-        .collect::<Vec<_>>()
-        .join(" ")
 }
 
 /// Render a [`TableData`] value as a compact single NDJSON line.
@@ -1285,29 +1255,6 @@ mod tests {
         let err = write_line(&mut Failing, "{}").unwrap_err();
         assert!(!is_stdout_closed(&err));
         assert!(err.to_string().contains("disk full"));
-    }
-
-    #[test]
-    fn compact_durations_use_the_largest_readable_unit() {
-        let cases = [
-            (5, "5ms"),
-            (999, "999ms"),
-            (1_000, "1s"),
-            (1_500, "1.5s"),
-            (10_000, "10s"),
-            (59_999, "59.9s"),
-            (60_000, "1m"),
-            (130_000, "2m 10s"),
-            (120_000, "2m"),
-            (3_900_000, "1h 5m"),
-        ];
-        for (millis, expected) in cases {
-            assert_eq!(
-                format_duration_compact(Duration::from_millis(millis)),
-                expected,
-                "{millis}ms"
-            );
-        }
     }
 
     #[test]

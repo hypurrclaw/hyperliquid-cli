@@ -3,10 +3,15 @@
   "error": {
     "category": "usage",
     "data": {
-      "usage": "Usage: hyperliquid wallet show [OPTIONS]\n\nFor more information, try '--help'."
+      "usage": "Usage: hyperliquid wallet show [OPTIONS]"
     },
     "error": "unexpected argument '--bogus' found",
     "exit_code": 2,
+    "next": [
+      {
+        "command": "hyperliquid wallet show --help"
+      }
+    ],
     "reason": "invalid_arguments"
   },
   "review_required_to_update": true

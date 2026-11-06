@@ -983,7 +983,7 @@ async fn main() {
         // This path handles CliError and anyhow errors from command handlers.
         // clap usage errors (exit 2) are handled by exit_for_clap_error before
         // the command runs, so they don't go through this path.
-        hyperliquid_cli::update_check::flush_update_check(update_check_handle).await;
+        hyperliquid_cli::update_check::flush_update_check_silent(update_check_handle).await;
         let cli_err = errors::from_anyhow(err);
         errors::exit_with_error(cli_err, format);
     }

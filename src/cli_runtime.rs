@@ -55,6 +55,22 @@ async fn run_command(
     }
 
     let context = AppContext::resolve(cli)?;
+    if cli.dry_run {
+        // Signed exchange actions name the signer in their preview. Resolution
+        // never prompts; a failure is reported inside the preview instead.
+        let signer = command_contract
+            .as_ref()
+            .is_some_and(|command| {
+                command.auth_required && command.lifecycle == Lifecycle::LiveMutating
+            })
+            .then(|| {
+                context
+                    .resolve_signer()
+                    .map(|signer| signer.address().to_string())
+                    .map_err(|err| err.to_string())
+            });
+        hyperliquid_cli::dry_run::init_run_context(context.network, signer);
+    }
     if context.has_api_base_url_override() && command_uses_api(command_contract.as_ref()) {
         context.validate_api_override().await?;
     }
@@ -775,12 +791,6 @@ fn validate_prompt_policy(
                 .to_string(),
         ));
     }
-    if !cli.dry_run
-        && !hyperliquid_cli::mode::can_prompt()
-        && let Some(error) = missing_selector_error(&cli.command)
-    {
-        return Err(error);
-    }
     if cli.dry_run
         || hyperliquid_cli::mode::can_prompt()
         || command.confirmation != ConfirmationPolicy::Prompt
@@ -848,29 +858,17 @@ fn argv_secret_supplied(command: &Option<Commands>) -> bool {
     }
 }
 
-/// `account set-default` and `account remove` choose a wallet interactively
-/// when no selector is given. Without a prompt that is missing input.
-fn missing_selector_error(command: &Option<Commands>) -> Option<errors::CliError> {
-    let key = match command {
-        Some(Commands::Account {
-            subcommand: AccountCommands::SetDefault { selector: None },
-        }) => "account set-default",
-        Some(Commands::Account {
-            subcommand: AccountCommands::Remove { selector: None, .. },
-        }) => "account remove",
-        _ => return None,
-    };
-    Some(errors::CliError::Unsupported(format!(
-        "Can't run `{key}` without a wallet selector in non-interactive mode.\nList wallets:\n    hyperliquid account ls\nThen pass one:\n    hyperliquid {key} <SELECTOR>"
-    )))
-}
-
-/// `account set-default` only switches a pointer. It never asks for confirmation.
+/// Commands whose confirmation prompt doesn't apply.
+///
+/// `account set-default` only switches a pointer. `account remove` without a
+/// selector has nothing to confirm yet: its handler fails on the missing
+/// selector (missing input) instead of prompting for one.
 fn confirmation_not_required(command: &Option<Commands>) -> bool {
     matches!(
         command,
         Some(Commands::Account {
             subcommand: AccountCommands::SetDefault { .. }
+                | AccountCommands::Remove { selector: None, .. },
         })
     )
 }
@@ -1610,23 +1608,20 @@ impl AppContext {
             .json(&serde_json::json!({ "type": "allMids" }))
             .send()
             .await
-            .map_err(|err| {
-                errors::CliError::Unavailable(format!("Check your network connection. {err}"))
-            })?;
+            .map_err(|err| errors::network_error(&err, Some(Duration::from_secs(5))))?;
 
         let status = response.status();
-        let body = response.text().await.map_err(|err| {
-            errors::CliError::Unavailable(format!("Failed to read API response. {err}"))
-        })?;
+        let body = response
+            .text()
+            .await
+            .map_err(|err| errors::network_error(&err, Some(Duration::from_secs(5))))?;
 
         if errors::http_response_indicates_rate_limit(status.as_u16(), &body) {
             return Err(errors::CliError::RateLimited);
         }
 
         if !status.is_success() {
-            return Err(errors::CliError::Unavailable(format!(
-                "API returned HTTP {status}. Check your network connection."
-            )));
+            return Err(errors::CliError::api_status(status, &body));
         }
 
         Ok(())
