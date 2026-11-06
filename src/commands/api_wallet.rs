@@ -1,5 +1,6 @@
 //! API/agent wallet approval and management commands.
 
+use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, InputKind, OwsSupport, Risk, arg};
 use clap::Args;
 use hypersdk::Address;
 use hypersdk::hypercore::types::api::ApproveAgent;
@@ -598,6 +599,174 @@ fn parse_address(raw: &str) -> Result<Address, CliError> {
 
 fn print_action_output(inv: &Invocation, row: ApiWalletActionRow) {
     inv.print_untimed(&ApiWalletActionOutput { row });
+}
+
+pub const GROUP: GroupSpec = GroupSpec::new(&["api-wallet"], "Approve and manage API wallets")
+    .long_about("Approve and manage API wallets.\n\
+\n\
+API wallets, also called agent wallets, can sign trading actions on behalf of a master account, but cannot withdraw. Account data queries must use the master or subaccount address, not the API wallet address.")
+    .aliases(&["api-wallets"])
+    .schema_aliases();
+
+#[derive(Args, Debug, Clone)]
+pub struct ApiWalletListArgs {
+    /// Master address, wallet name, or wallet id. Defaults to the selected signer.
+    pub account: Option<String>,
+}
+
+pub struct ApiWalletCreate;
+
+impl CliCommand for ApiWalletCreate {
+    type Args = CreateArgs;
+
+    const SPEC: CommandSpec = CommandSpec::signed(
+        &["api-wallet", "create"],
+        "wallet",
+        "Generate or approve an API wallet",
+        "Generate or approve a Hyperliquid API/agent wallet. When the CLI generates a local agent keypair, it prints the private key exactly once before approval.",
+    )
+    .long_about("Generate or approve an API wallet.\n\
+\n\
+By default this command generates a new local API wallet keypair, signs an approveAgent action for that address with the selected master account, and prints the generated private key exactly once unless command is running in dry-run.")
+    .args(&[
+        arg("name").describe("Optional API wallet name."),
+        arg("expires_in").kind(InputKind::Duration).describe("Expiration duration such as 30d, 12h, or 1w. Requires name."),
+        arg("agent_address"),
+        arg("generate").kind(InputKind::Boolean).describe("Generate a new API wallet key before approval."),
+    ]);
+
+    fn validate(args: &CreateArgs) -> Result<(), CliError> {
+        validate_api_wallet_args(args.name.as_deref(), args.agent_address.as_deref())
+    }
+
+    async fn run(inv: &Invocation, args: &CreateArgs) -> Result<(), anyhow::Error> {
+        let signer = api_wallet_approval_signer(inv)?;
+        create(inv, signer.as_ref(), args).await
+    }
+}
+
+pub struct ApiWalletApprove;
+
+impl CliCommand for ApiWalletApprove {
+    type Args = ApproveArgs;
+
+    const SPEC: CommandSpec = CommandSpec::signed(
+        &["api-wallet", "approve"],
+        "wallet",
+        "Approve an existing or generated API wallet address",
+        "Approve an existing or generated API/agent wallet address for the selected master account.",
+    )
+    .args(&[
+        arg("name").describe("Optional API wallet name."),
+        arg("expires_in").kind(InputKind::Duration).describe("Expiration duration such as 30d, 12h, or 1w. Requires name."),
+        arg("agent_address"),
+        arg("generate").kind(InputKind::Boolean),
+    ]);
+
+    fn validate(args: &ApproveArgs) -> Result<(), CliError> {
+        validate_api_wallet_args(args.name.as_deref(), args.agent_address.as_deref())
+    }
+
+    async fn run(inv: &Invocation, args: &ApproveArgs) -> Result<(), anyhow::Error> {
+        let signer = api_wallet_approval_signer(inv)?;
+        approve(inv, signer.as_ref(), args).await
+    }
+}
+
+pub struct ApiWalletList;
+
+impl CliCommand for ApiWalletList {
+    type Args = ApiWalletListArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["api-wallet", "list"],
+        "wallet",
+        "List API wallets approved by a master account",
+        "List API wallets approved by a master account. Stored agent accounts query under their master address.",
+    )
+    .risk(Risk::AccountState)
+    .ows(OwsSupport::ExperimentalFeatureGated)
+    .auth(true)
+    .cli_aliases(&["ls"])
+    .schema_command("hyperliquid api-wallet list")
+    .args(&[
+        arg("account").kind(InputKind::SignerSelector).resource_id("account selector"),
+    ]);
+
+    async fn run(inv: &Invocation, args: &ApiWalletListArgs) -> Result<(), anyhow::Error> {
+        let master_address = match args.account.as_deref() {
+            Some(account) => inv.resolve_protocol_user(account)?,
+            None => inv.resolve_signer()?.query_address(),
+        };
+        list(inv, master_address).await
+    }
+}
+
+pub struct ApiWalletRevoke;
+
+impl CliCommand for ApiWalletRevoke {
+    type Args = RevokeArgs;
+
+    const SPEC: CommandSpec = CommandSpec::signed(
+        &["api-wallet", "revoke"],
+        "wallet",
+        "Revoke an API wallet by replacing it with a short-lived throwaway agent",
+        "Revoke a named API wallet by replacing it with a short-lived throwaway agent.",
+    )
+    .args(&[arg("name")
+        .describe("Named API wallet to revoke.")
+        .resource_id("API wallet name")]);
+
+    async fn run(inv: &Invocation, args: &RevokeArgs) -> Result<(), anyhow::Error> {
+        if args.name.chars().count() > MAX_AGENT_NAME_LEN {
+            return Err(CliError::Configuration(format!(
+                "--name must be between 1 and {} characters",
+                MAX_AGENT_NAME_LEN
+            ))
+            .into());
+        }
+        let signer = api_wallet_approval_signer(inv)?;
+        revoke(inv, signer.as_ref(), args).await
+    }
+}
+
+fn api_wallet_approval_signer(
+    inv: &Invocation,
+) -> Result<Option<crate::signing::SelectedSigner>, anyhow::Error> {
+    if inv.dry_run() {
+        return Ok(None);
+    }
+    let resolved = inv.resolve_signer()?;
+    if resolved.query_address() != resolved.address() {
+        return Err(CliError::Unsupported(
+            "approveAgent must be signed by the master account; select the master wallet, not a stored API wallet"
+                .to_string(),
+        )
+        .into());
+    }
+    Ok(Some(resolved.selected_signer()))
+}
+
+fn validate_api_wallet_args(
+    name: Option<&str>,
+    agent_address: Option<&str>,
+) -> Result<(), CliError> {
+    use crate::input_hardening::validate_resource_id;
+    use MAX_AGENT_NAME_LEN;
+
+    if let Some(name) = name {
+        validate_resource_id("API wallet name", name)?;
+        let trimmed = name.trim();
+        if !trimmed.is_empty() && trimmed.chars().count() > MAX_AGENT_NAME_LEN {
+            return Err(CliError::Configuration(format!(
+                "--name must be between 1 and {MAX_AGENT_NAME_LEN} characters"
+            )));
+        }
+    }
+    if let Some(agent_address) = agent_address {
+        validate_resource_id("agent address", agent_address)?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

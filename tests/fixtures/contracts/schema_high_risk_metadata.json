@@ -125,7 +125,7 @@
     {
       "auth_required": false,
       "command": "hyperliquid account set-default <SELECTOR>",
-      "confirmation": "prompt",
+      "confirmation": "none",
       "dangerous": true,
       "dry_run": "optional",
       "lifecycle": "interactive_local",

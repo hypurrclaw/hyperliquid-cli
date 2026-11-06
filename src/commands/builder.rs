@@ -5,6 +5,10 @@
 //! - `hyperliquid builder approved --user <ADDRESS>`
 //! - `hyperliquid builder approve --builder <ADDRESS> --max-fee-rate <PERCENT>`
 
+use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, InputKind, arg};
+use crate::commands::support::{
+    default_dry_run_signing_context, print_dry_run_envelope, signed_action_dry_run_envelope,
+};
 use alloy::sol;
 use clap::Args;
 use futures::future::try_join_all;
@@ -542,6 +546,119 @@ fn format_reversibility(reversibility: ActionReversibility) -> &'static str {
         ActionReversibility::Reversible => "reversible",
         ActionReversibility::PartiallyReversible => "partially_reversible",
         ActionReversibility::Irreversible => "irreversible",
+    }
+}
+
+pub const GROUP: GroupSpec =
+    GroupSpec::new(&["builder"], "Manage builder fee approvals").aliases(&["builders"]);
+
+pub struct BuilderMaxFee;
+
+impl CliCommand for BuilderMaxFee {
+    type Args = MaxFeeArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["builder", "max-fee"],
+        "builder",
+        "Query max builder fee approved by a user",
+        "Query the max builder fee a user has approved for a builder, returned in tenths of a basis point and percent form.",
+    )
+    .args(&[
+        arg("user").kind(InputKind::PublicUserSelector).describe("User address, wallet name, or wallet id.").resource_id("account selector"),
+        arg("builder").kind(InputKind::ProtocolObjectAddress).resource_id("builder address"),
+    ]);
+
+    fn validate(args: &MaxFeeArgs) -> Result<(), CliError> {
+        parse_builder_address(&args.builder)?;
+        Ok(())
+    }
+
+    async fn run(inv: &Invocation, args: &MaxFeeArgs) -> Result<(), anyhow::Error> {
+        let user = inv.resolve_protocol_user(&args.user)?;
+        let builder_address = parse_builder_address(&args.builder)?;
+        max_fee(inv, user, builder_address).await
+    }
+}
+
+pub struct BuilderApproved;
+
+impl CliCommand for BuilderApproved {
+    type Args = ApprovedArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["builder", "approved"],
+        "builder",
+        "List all builders approved by a user",
+        "List builders approved by a user, enriched with each approved max fee cap.",
+    )
+    .args(&[arg("user")
+        .kind(InputKind::PublicUserSelector)
+        .describe("User address, wallet name, or wallet id.")
+        .resource_id("account selector")]);
+
+    async fn run(inv: &Invocation, args: &ApprovedArgs) -> Result<(), anyhow::Error> {
+        let user = inv.resolve_protocol_user(&args.user)?;
+        approved(inv, user).await
+    }
+}
+
+pub struct BuilderApprove;
+
+impl CliCommand for BuilderApprove {
+    type Args = ApproveArgs;
+
+    const SPEC: CommandSpec = CommandSpec::signed(
+        &["builder", "approve"],
+        "builder",
+        "Approve or update a max builder fee for the selected signer",
+        "Approve, update, or revoke a max builder fee for the selected master signer. Use 0% to revoke.",
+    )
+    .prompt()
+    .args(&[
+        arg("builder").kind(InputKind::ProtocolObjectAddress).resource_id("builder address"),
+        arg("max_fee_rate").kind(InputKind::Amount).describe("Maximum builder fee as a percent string, e.g. 0.001%."),
+        arg("yes").kind(InputKind::Boolean).describe("Skip confirmation prompt for live execution."),
+    ]);
+
+    fn validate(args: &ApproveArgs) -> Result<(), CliError> {
+        parse_builder_address(&args.builder)?;
+        validate_max_fee_rate(&args.max_fee_rate)?;
+        Ok(())
+    }
+
+    async fn run(inv: &Invocation, args: &ApproveArgs) -> Result<(), anyhow::Error> {
+        let builder = parse_builder_address(&args.builder)?;
+        validate_max_fee_rate(&args.max_fee_rate)?;
+        if inv.dry_run() {
+            let signer_context = inv.resolve_signer().ok();
+            let preview_args = approve_dry_run_value(
+                inv.remote()?.chain(),
+                signer_context.as_ref().map(|resolved| resolved.address()),
+                signer_context
+                    .as_ref()
+                    .map(|resolved| resolved.query_address()),
+                builder,
+                args,
+            )?;
+            let envelope = signed_action_dry_run_envelope(
+                inv,
+                "builder approve",
+                "approve_builder_fee",
+                BuilderActionKind::ApproveFee.reversibility(),
+                preview_args,
+                default_dry_run_signing_context(inv),
+            );
+            return print_dry_run_envelope(inv, envelope);
+        }
+        let resolved = inv.resolve_signer()?;
+        if resolved.query_address() != resolved.address() {
+            return Err(CliError::Unsupported(
+            "approveBuilderFee must be signed by the master account; select the master wallet, not a stored API wallet"
+                .to_string(),
+        )
+        .into());
+        }
+        approve(inv, &resolved.selected_signer(), builder, args, true).await
     }
 }
 

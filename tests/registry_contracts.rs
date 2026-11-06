@@ -2,31 +2,17 @@ mod contract_support;
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use hyperliquid_cli::command_registry::{
-    CommandRegistry, ConfirmationPolicy, DryRunPolicy, Lifecycle, OutputContract, RawPayloadPolicy,
-    Risk,
+use hyperliquid_cli::command_registry::CommandRegistry;
+use hyperliquid_cli::command_spec::{
+    ConfirmationPolicy, DryRunPolicy, Lifecycle, OutputContract, RawPayloadPolicy, Risk,
 };
 use serde_json::{Value, json};
 
-use contract_support::{assert_json_fixture, command_path, schema_all};
-
-#[test]
-fn typed_registry_snapshot_matches_characterization_fixture() {
-    let registry = CommandRegistry::load().unwrap();
-
-    assert_json_fixture(
-        "registry_inventory.json",
-        &json!({
-            "characterization": true,
-            "review_required_to_update": true,
-            "commands": registry.commands(),
-        }),
-    );
-}
+use contract_support::{command_path, schema_all};
 
 #[test]
 fn registry_inventory_matches_schema_contracts() {
-    let registry = CommandRegistry::load().unwrap();
+    let registry = CommandRegistry::get();
     let schemas = schema_all();
     let schemas_by_path = schemas
         .iter()
@@ -82,7 +68,7 @@ fn registry_inventory_matches_schema_contracts() {
 
 #[test]
 fn registry_explicitly_classifies_critical_command_classes() {
-    let registry = CommandRegistry::load().unwrap();
+    let registry = CommandRegistry::get();
 
     let orders_create = registry.find_path(&["orders", "create"]).unwrap();
     assert!(orders_create.dangerous);
@@ -215,7 +201,7 @@ fn registry_explicitly_classifies_critical_command_classes() {
 
 #[test]
 fn authenticated_reads_do_not_inherit_mutating_preview_policy() {
-    let registry = CommandRegistry::load().unwrap();
+    let registry = CommandRegistry::get();
 
     for path in [
         &["api-wallet", "list"][..],

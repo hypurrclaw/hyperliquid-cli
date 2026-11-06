@@ -1,5 +1,6 @@
 use assert_cmd::Command;
-use hyperliquid_cli::command_registry::{CommandRegistry, OwsSupport};
+use hyperliquid_cli::command_registry::CommandRegistry;
+use hyperliquid_cli::command_spec::OwsSupport;
 use predicates::prelude::*;
 use std::fs;
 use std::path::Path;
@@ -142,9 +143,8 @@ fn main_entrypoint_stays_thin_and_registry_path_drift_free() {
         "CLI registry paths should come from clap ArgMatches, not a manual enum match table"
     );
     assert!(
-        runtime_rs.contains("command_contract_for_path")
-            && runtime_rs.contains("CommandRegistry::load()"),
-        "runtime policy should continue resolving command contracts through the registry"
+        runtime_rs.contains("selected.entry.spec") && !runtime_rs.contains("Commands::"),
+        "runtime policy should read the selected command's spec, not match on command variants"
     );
 }
 
@@ -219,7 +219,7 @@ fn ci_workflow_runs_release_quality_gates() {
         "cargo build",
         "cargo test",
         "Contract characterization tests",
-        "cargo test --test command_contracts --test schema_contracts --test registry_contracts --test dry_run_contracts --test output_contracts",
+        "cargo test --test contract_fixtures --test command_contracts --test schema_contracts --test registry_contracts --test dry_run_contracts --test output_contracts",
         "cargo clippy -- -D warnings",
         "cargo test --lib --bins",
         "cargo clippy --lib --bins -- -D warnings",
@@ -239,7 +239,7 @@ fn taskfile_exposes_contract_characterization_gate() {
 
     for required in [
         "contracts:",
-        "cargo test --test command_contracts --test schema_contracts --test registry_contracts --test dry_run_contracts --test output_contracts",
+        "cargo test --test contract_fixtures --test command_contracts --test schema_contracts --test registry_contracts --test dry_run_contracts --test output_contracts",
         "task: contracts",
     ] {
         assert!(
@@ -264,7 +264,7 @@ fn taskfile_exposes_contract_characterization_gate() {
 fn schema_emitters_read_the_registry() {
     let cli_schema = repo_file("src/commands/schema.rs");
 
-    assert!(cli_schema.contains("CommandRegistry::load()"));
+    assert!(cli_schema.contains("CommandRegistry::get()"));
     assert!(
         !cli_schema.contains("command_metadata("),
         "CLI schema should emit from CommandRegistry instead of re-inferring metadata"
@@ -337,8 +337,8 @@ fn registry_authoring_guide_documents_operating_model() {
         "Signer Capabilities",
         "Dry-Run And Raw Payload Policy",
         "Generated Artifact Workflow",
-        "src/command_catalog.json",
-        "CommandRegistry::load()",
+        "CommandSpec",
+        "CommandRegistry::get()",
         "input_kind",
         "ACCOUNT_SELECTOR",
         "*_ADDRESS",
@@ -464,7 +464,7 @@ fn top_level_help_lists_all_release_command_groups() {
 
 #[test]
 fn live_command_dispatch_has_no_unclassified_local_signer_bypasses() {
-    let registry = CommandRegistry::load().unwrap();
+    let registry = CommandRegistry::get();
 
     let path = &["prio", "bid"][..];
     let command = registry.find_path(path).unwrap();
@@ -473,78 +473,4 @@ fn live_command_dispatch_has_no_unclassified_local_signer_bypasses() {
         OwsSupport::LocalOnly,
         "{path:?} must advertise local-only signer support"
     );
-}
-
-#[test]
-fn tool_catalog_and_registry_cover_the_same_command_inventory() {
-    let catalog_text = repo_file("src/command_catalog.json");
-    let catalog: serde_json::Value = serde_json::from_str(&catalog_text).unwrap();
-    let registry = CommandRegistry::load().unwrap();
-    let catalog_commands = catalog["commands"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|command| command["command"].as_str().unwrap())
-        .collect::<Vec<_>>();
-    let registry_commands = registry
-        .commands()
-        .iter()
-        .map(|command| command.command.as_str())
-        .collect::<Vec<_>>();
-
-    assert_eq!(registry_commands, catalog_commands);
-}
-
-#[test]
-fn tool_catalog_materializes_registry_policy_metadata() {
-    let catalog_text = repo_file("src/command_catalog.json");
-    let catalog: serde_json::Value = serde_json::from_str(&catalog_text).unwrap();
-    let registry = CommandRegistry::load().unwrap();
-    let commands = catalog["commands"].as_array().unwrap();
-
-    for catalog_command in commands {
-        let command_name = catalog_command["command"].as_str().unwrap();
-        let registry_command = registry
-            .commands()
-            .iter()
-            .find(|command| command.command == command_name)
-            .unwrap_or_else(|| panic!("catalog command missing from registry: {command_name}"));
-        let registry_value = serde_json::to_value(registry_command).unwrap();
-
-        for field in [
-            "lifecycle",
-            "risk",
-            "dry_run",
-            "raw_payload",
-            "confirmation",
-            "ows_signer",
-        ] {
-            assert_eq!(
-                catalog_command[field], registry_value[field],
-                "{command_name} must explicitly materialize registry metadata field {field}"
-            );
-        }
-
-        for registry_input in &registry_command.inputs {
-            let Some(kind) = registry_input.kind else {
-                continue;
-            };
-            let catalog_args = catalog_command["args"].as_array().unwrap();
-            let catalog_arg = catalog_args
-                .iter()
-                .find(|arg| arg["id"].as_str() == Some(registry_input.id.as_str()))
-                .unwrap_or_else(|| {
-                    panic!(
-                        "{command_name} catalog is missing input {}",
-                        registry_input.id
-                    )
-                });
-            assert_eq!(
-                catalog_arg["input_kind"],
-                kind.as_str(),
-                "{command_name} input {} must explicitly materialize input_kind",
-                registry_input.id
-            );
-        }
-    }
 }

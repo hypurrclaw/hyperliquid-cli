@@ -1,5 +1,9 @@
 //! Vault public queries and authenticated vault transfers.
 
+use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, InputKind, arg};
+use crate::commands::support::{
+    default_dry_run_signing_context, print_dry_run_envelope, signed_action_dry_run_envelope,
+};
 use clap::{Args, ValueEnum};
 use hypersdk::hypercore::api::VaultTransfer;
 use hypersdk::hypercore::types::{Action, LeverageType};
@@ -928,6 +932,190 @@ fn validate_usdc_amount(amount: Decimal) -> Result<u64, CliError> {
     micro_units
         .to_u64()
         .ok_or_else(|| CliError::Configuration("amount is too large".to_string()))
+}
+
+pub const GROUP: GroupSpec = GroupSpec::new(&["vault"], "Query and fund vaults")
+    .aliases(&["vaults"])
+    .schema_aliases();
+
+#[derive(Args, Debug, Clone)]
+pub struct VaultAddressArgs {
+    /// Vault address
+    pub address: String,
+}
+
+pub struct VaultList;
+
+impl CliCommand for VaultList {
+    type Args = VaultListArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["vault", "list"],
+        "vault",
+        "List vault summaries",
+        "List vault summaries with filtering, sorting, and limits.",
+    )
+    .cli_aliases(&["ls"])
+    .args(&[
+        arg("kind").describe("Vault relationship kind filter. protocol maps to normal protocol vaults; user maps to child/parent user vaults."),
+        arg("user").describe("Optional user address for user-specific deposit context when available."),
+        arg("limit"),
+        arg("sort"),
+    ]);
+
+    async fn run(inv: &Invocation, args: &VaultListArgs) -> Result<(), anyhow::Error> {
+        list(inv, args).await
+    }
+}
+
+pub struct VaultSearch;
+
+impl CliCommand for VaultSearch {
+    type Args = VaultSearchArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["vault", "search"],
+        "vault",
+        "Search vault summaries by name, leader, or address",
+        "Search vault summaries by name, leader, or address.",
+    )
+    .args(&[
+        arg("query").describe("Search query."),
+        arg("user")
+            .describe("Optional user address for user-specific deposit context when available."),
+        arg("limit"),
+        arg("sort"),
+    ]);
+
+    async fn run(inv: &Invocation, args: &VaultSearchArgs) -> Result<(), anyhow::Error> {
+        search(inv, args).await
+    }
+}
+
+pub struct VaultGet;
+
+impl CliCommand for VaultGet {
+    type Args = VaultAddressArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["vault", "get"],
+        "vault",
+        "Get vault details",
+        "Show vault details.",
+    )
+    .args(&[arg("address")
+        .kind(InputKind::ProtocolObjectAddress)
+        .resource_id("vault address")]);
+
+    async fn run(inv: &Invocation, args: &VaultAddressArgs) -> Result<(), anyhow::Error> {
+        get(inv, &args.address).await
+    }
+}
+
+pub struct VaultPositions;
+
+impl CliCommand for VaultPositions {
+    type Args = VaultAddressArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["vault", "positions"],
+        "vault",
+        "List vault positions",
+        "List vault positions.",
+    )
+    .args(&[arg("address")
+        .kind(InputKind::ProtocolObjectAddress)
+        .resource_id("vault address")]);
+
+    async fn run(inv: &Invocation, args: &VaultAddressArgs) -> Result<(), anyhow::Error> {
+        positions(inv, &args.address).await
+    }
+}
+
+pub struct VaultDeposit;
+
+impl CliCommand for VaultDeposit {
+    type Args = VaultTransferArgs;
+
+    const SPEC: CommandSpec = CommandSpec::signed(
+        &["vault", "deposit"],
+        "vault",
+        "Deposit to a vault",
+        "Deposit USDC to a vault.",
+    )
+    .args(&[
+        arg("vault")
+            .kind(InputKind::ProtocolObjectAddress)
+            .resource_id("vault address"),
+        arg("amount")
+            .kind(InputKind::Amount)
+            .describe("USDC amount."),
+    ]);
+
+    async fn run(inv: &Invocation, args: &VaultTransferArgs) -> Result<(), anyhow::Error> {
+        validate_transfer_args(args)?;
+        if inv.dry_run() {
+            let args_json = transfer_dry_run_value(
+                inv.remote()?.chain(),
+                args,
+                VaultTransferActionKind::Deposit,
+            )?;
+            let envelope = signed_action_dry_run_envelope(
+                inv,
+                "vault deposit",
+                "deposit_usdc_to_vault",
+                VaultTransferActionKind::Deposit.reversibility(),
+                args_json,
+                default_dry_run_signing_context(inv),
+            );
+            return print_dry_run_envelope(inv, envelope);
+        }
+        let resolved = inv.resolve_signer()?;
+        deposit(inv, &resolved.selected_signer(), args).await
+    }
+}
+
+pub struct VaultWithdraw;
+
+impl CliCommand for VaultWithdraw {
+    type Args = VaultTransferArgs;
+
+    const SPEC: CommandSpec = CommandSpec::signed(
+        &["vault", "withdraw"],
+        "vault",
+        "Withdraw from a vault",
+        "Withdraw USDC from a vault.",
+    )
+    .args(&[
+        arg("vault")
+            .kind(InputKind::ProtocolObjectAddress)
+            .resource_id("vault address"),
+        arg("amount")
+            .kind(InputKind::Amount)
+            .describe("USDC amount."),
+    ]);
+
+    async fn run(inv: &Invocation, args: &VaultTransferArgs) -> Result<(), anyhow::Error> {
+        validate_transfer_args(args)?;
+        if inv.dry_run() {
+            let args_json = transfer_dry_run_value(
+                inv.remote()?.chain(),
+                args,
+                VaultTransferActionKind::Withdraw,
+            )?;
+            let envelope = signed_action_dry_run_envelope(
+                inv,
+                "vault withdraw",
+                "withdraw_usdc_from_vault",
+                VaultTransferActionKind::Withdraw.reversibility(),
+                args_json,
+                default_dry_run_signing_context(inv),
+            );
+            return print_dry_run_envelope(inv, envelope);
+        }
+        let resolved = inv.resolve_signer()?;
+        withdraw(inv, &resolved.selected_signer(), args).await
+    }
 }
 
 #[cfg(test)]

@@ -4,6 +4,7 @@
 //! - `hyperliquid outcomes list` — list active outcome market sides
 //! - `hyperliquid outcomes get <NOTATION>` — inspect an outcome side by `#N` or `+N`
 
+use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, arg};
 use clap::Args;
 use serde::{Deserialize, Serialize};
 
@@ -243,4 +244,51 @@ struct OutcomeMetaOutcome {
 struct OutcomeSideSpec {
     name: String,
     token: Option<u64>,
+}
+
+pub const GROUP: GroupSpec =
+    GroupSpec::new(&["outcomes"], "Browse outcome markets").aliases(&["outcome"]);
+
+pub struct OutcomesList;
+
+impl CliCommand for OutcomesList {
+    type Args = OutcomeListArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["outcomes", "list"],
+        "market",
+        "List active outcome market sides",
+        "List active outcome market sides from outcomeMeta. Use orders create with #<encoding> or +<encoding> notation for verified outcome limit orders.",
+    )
+    .cli_aliases(&["ls"])
+    .args(&[
+        arg("limit").describe("Maximum number of outcome side rows to return."),
+    ]);
+
+    async fn run(inv: &Invocation, args: &OutcomeListArgs) -> Result<(), anyhow::Error> {
+        list(inv, args).await
+    }
+}
+
+pub struct OutcomesGet;
+
+impl CliCommand for OutcomesGet {
+    type Args = OutcomeGetArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["outcomes", "get"],
+        "market",
+        "Get outcome side metadata by #N or +N notation",
+        "Show outcome side metadata by #N coin notation or +N token notation.",
+    )
+    .args(&[arg("notation")]);
+
+    fn validate(args: &OutcomeGetArgs) -> Result<(), CliError> {
+        crate::assets::asset_id::parse_outcome_notation(&args.notation)?;
+        Ok(())
+    }
+
+    async fn run(inv: &Invocation, args: &OutcomeGetArgs) -> Result<(), anyhow::Error> {
+        get(inv, args).await
+    }
 }

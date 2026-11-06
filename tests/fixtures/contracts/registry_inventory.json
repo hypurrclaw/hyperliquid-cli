@@ -769,8 +769,8 @@
           "description": "Time in force: gtc, ioc, or alo.",
           "enum_values": [
             "gtc",
-            "ioc",
-            "alo"
+            "alo",
+            "ioc"
           ],
           "id": "tif",
           "kind": null,
@@ -1003,8 +1003,8 @@
           "description": "Time in force: gtc, ioc, or alo.",
           "enum_values": [
             "gtc",
-            "ioc",
-            "alo"
+            "alo",
+            "ioc"
           ],
           "id": "tif",
           "kind": null,
@@ -1237,8 +1237,8 @@
           "description": "Time in force: gtc, ioc, or alo.",
           "enum_values": [
             "gtc",
-            "ioc",
-            "alo"
+            "alo",
+            "ioc"
           ],
           "id": "tif",
           "kind": null,
@@ -1471,8 +1471,8 @@
           "description": "Time in force: gtc, ioc, or alo.",
           "enum_values": [
             "gtc",
-            "ioc",
-            "alo"
+            "alo",
+            "ioc"
           ],
           "id": "tif",
           "kind": null,
@@ -2997,7 +2997,7 @@
         "account",
         "set-default"
       ],
-      "confirmation": "prompt",
+      "confirmation": "none",
       "dangerous": true,
       "description": "Set the default signing wallet.",
       "dry_run": "optional",
@@ -4727,8 +4727,8 @@
           "description": "Time in force: gtc, ioc, or alo.",
           "enum_values": [
             "gtc",
-            "ioc",
-            "alo"
+            "alo",
+            "ioc"
           ],
           "id": "tif",
           "kind": null,
@@ -5012,8 +5012,8 @@
           "description": "Time in force for generated limit orders: gtc, ioc, or alo.",
           "enum_values": [
             "gtc",
-            "ioc",
-            "alo"
+            "alo",
+            "ioc"
           ],
           "id": "tif",
           "kind": null,
@@ -6421,7 +6421,11 @@
           "description": "Entry order type.",
           "enum_values": [
             "limit",
-            "market"
+            "market",
+            "stop-loss",
+            "take-profit",
+            "stop-limit",
+            "take-limit"
           ],
           "id": "entry",
           "kind": null,

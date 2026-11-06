@@ -2,6 +2,7 @@
 //!
 //! Looping, bounds, signals and line output belong to [`crate::stream`].
 
+use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, InputKind, arg};
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -670,6 +671,46 @@ impl output::TableData for AlertTable {
 
     fn to_json_value(&self) -> serde_json::Value {
         serde_json::to_value(&self.0).unwrap_or(json!({}))
+    }
+}
+
+pub const GROUP: GroupSpec = GroupSpec::new(&["watch"], "Watch accounts for risk alerts");
+
+pub struct WatchRisk;
+
+impl CliCommand for WatchRisk {
+    type Args = WatchRiskArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["watch", "risk"],
+        "watch",
+        "Watch an address for liquidation and risk alerts",
+        "Read-only liquidation and risk watcher. Emits JSON-line alerts with kind alert or heartbeat and never places orders. Retry: safe. Agent mode requires --max-events or --idle-timeout-ms.",
+    )
+    .long_about("Read-only liquidation and risk watcher. Emits JSON-line alerts and never places orders.\n\
+\n\
+Retry: safe. Agent/non-TTY mode requires --max-events or --idle-timeout-ms.\n\
+\n\
+Examples:\n  \
+hyperliquid --format json watch risk --user 0x0000000000000000000000000000000000000001 --max-events 20\n  \
+hyperliquid --format json watch risk --user 0x0000000000000000000000000000000000000001 --idle-timeout-ms 8000")
+    .args(&[
+        arg("user").kind(InputKind::Identifier).resource_id("user"),
+        arg("min_severity").describe("Minimum alert severity to emit."),
+        arg("disable").describe("Disable a risk rule.").schema_single(),
+        arg("only").describe("Only evaluate these risk rules.").schema_single(),
+        arg("interval").kind(InputKind::Duration).describe("Polling interval between risk checks, for example 15s or 500ms. Default 15s."),
+        arg("max_events"),
+        arg("idle_timeout_ms"),
+    ]);
+
+    async fn run(inv: &Invocation, args: &WatchRiskArgs) -> Result<(), anyhow::Error> {
+        let user = if let Some(raw) = args.user.as_deref() {
+            parse_watch_user(raw)?
+        } else {
+            inv.resolve_signer()?.query_address()
+        };
+        watch_risk(inv, user, args).await
     }
 }
 

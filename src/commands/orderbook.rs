@@ -7,6 +7,9 @@
 //! - `hyperliquid funding <COIN>` — show current and predicted funding
 //! - `hyperliquid mids` — show all mid prices
 
+use crate::command_spec::{CliCommand, CommandSpec, InputKind, StreamBound, arg};
+use crate::stream::SnapshotWatchArgs;
+use clap::Args;
 use std::time::Duration;
 
 use chrono::Utc;
@@ -602,6 +605,264 @@ fn format_optional_decimal(value: Option<Decimal>) -> String {
     value
         .map(|value| value.to_string())
         .unwrap_or_else(|| "n/a".to_string())
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct CoinArgs {
+    /// Asset name (e.g., BTC)
+    pub coin: String,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct BookArgs {
+    /// Asset name (e.g., BTC)
+    pub coin: String,
+    #[command(flatten)]
+    pub watch: SnapshotWatchArgs,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct MidsArgs {
+    #[command(flatten)]
+    pub watch: SnapshotWatchArgs,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct CandlesArgs {
+    /// Asset name (e.g., BTC)
+    pub coin: String,
+    /// Candle interval (1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 8h, 12h, 1d, 3d, 1w, 1M)
+    #[arg(
+        long,
+        default_value = "1h",
+        value_parser = parse_candle_interval
+    )]
+    pub interval: hypersdk::hypercore::CandleInterval,
+    /// Number of candles to return
+    #[arg(
+        long,
+        default_value = "100",
+        value_parser = parse_candle_limit
+    )]
+    pub limit: usize,
+    #[command(flatten)]
+    pub watch: SnapshotWatchArgs,
+}
+
+pub struct Book;
+
+impl CliCommand for Book {
+    type Args = BookArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["book"],
+        "market",
+        "Show the L2 order book",
+        "Show an L2 order book snapshot.",
+    )
+    .stream(StreamBound::SnapshotWatch)
+    .args(&[
+        arg("coin")
+            .kind(InputKind::MarketSymbol)
+            .describe("Asset name, for example BTC.")
+            .resource_id("coin"),
+        arg("watch")
+            .kind(InputKind::Boolean)
+            .describe("Watch live snapshots. Use max_ticks to bound automation calls."),
+        arg("max_ticks").describe("Stop after this many watch snapshots."),
+    ]);
+
+    async fn run(inv: &Invocation, args: &BookArgs) -> Result<(), anyhow::Error> {
+        if args.watch.watch {
+            watch_book(inv, &args.coin, args.watch.max_ticks).await
+        } else {
+            book(inv, &args.coin).await
+        }
+    }
+}
+
+pub struct Mids;
+
+impl CliCommand for Mids {
+    type Args = MidsArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["mids"],
+        "market",
+        "Show mid prices",
+        "Show all mid prices.",
+    )
+    .stream(StreamBound::SnapshotWatch)
+    .args(&[
+        arg("watch")
+            .kind(InputKind::Boolean)
+            .describe("Watch live snapshots. Use max_ticks to bound automation calls."),
+        arg("max_ticks").describe("Stop after this many watch snapshots."),
+    ]);
+
+    async fn run(inv: &Invocation, args: &MidsArgs) -> Result<(), anyhow::Error> {
+        if args.watch.watch {
+            watch_mids(inv, args.watch.max_ticks).await
+        } else {
+            mids(inv).await
+        }
+    }
+}
+
+pub struct Candles;
+
+impl CliCommand for Candles {
+    type Args = CandlesArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["candles"],
+        "market",
+        "Show candle history",
+        "Show candle history.",
+    )
+    .stream(StreamBound::SnapshotWatch)
+    .args(&[
+        arg("coin")
+            .kind(InputKind::MarketSymbol)
+            .describe("Asset name, for example BTC.")
+            .resource_id("coin"),
+        arg("interval").describe("Candle interval such as 1m, 5m, 1h, or 1d."),
+        arg("limit"),
+        arg("watch")
+            .kind(InputKind::Boolean)
+            .describe("Watch live snapshots. Use max_ticks to bound automation calls."),
+        arg("max_ticks").describe("Stop after this many watch snapshots."),
+    ]);
+
+    async fn run(inv: &Invocation, args: &CandlesArgs) -> Result<(), anyhow::Error> {
+        if args.watch.watch {
+            watch_candles(
+                inv,
+                &args.coin,
+                args.interval,
+                args.limit,
+                args.watch.max_ticks,
+            )
+            .await
+        } else {
+            candles(inv, &args.coin, args.interval, args.limit).await
+        }
+    }
+}
+
+pub struct Spread;
+
+impl CliCommand for Spread {
+    type Args = CoinArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["spread"],
+        "market",
+        "Show the bid-ask spread",
+        "Show bid, ask, and spread.",
+    )
+    .args(&[arg("coin")
+        .kind(InputKind::MarketSymbol)
+        .describe("Asset name, for example BTC.")
+        .resource_id("coin")]);
+
+    async fn run(inv: &Invocation, args: &CoinArgs) -> Result<(), anyhow::Error> {
+        spread(inv, &args.coin).await
+    }
+}
+
+pub struct Funding;
+
+impl CliCommand for Funding {
+    type Args = CoinArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["funding"],
+        "market",
+        "Show the current funding rate",
+        "Show current funding rate.",
+    )
+    .args(&[arg("coin")
+        .kind(InputKind::MarketSymbol)
+        .describe("Asset name, for example BTC.")
+        .resource_id("coin")]);
+
+    async fn run(inv: &Invocation, args: &CoinArgs) -> Result<(), anyhow::Error> {
+        funding(inv, &args.coin).await
+    }
+}
+
+async fn watch_book(
+    inv: &Invocation,
+    coin: &str,
+    max_ticks: Option<usize>,
+) -> Result<(), anyhow::Error> {
+    let resolver = std::sync::Arc::new(inv.asset_resolver().await?);
+    let subscription_coin = resolve_subscription_info_coin(&resolver, coin)?;
+    let chain = inv.remote()?.chain();
+
+    crate::watch::run_snapshot_watch(
+        inv.session(),
+        &format!("Live order book: {subscription_coin}"),
+        chain,
+        vec![Subscription::L2Book {
+            coin: subscription_coin,
+            n_sig_figs: None,
+            mantissa: None,
+            fast: false,
+        }],
+        max_ticks,
+        move || {
+            let resolver = std::sync::Arc::clone(&resolver);
+            async move { book_snapshot(chain, &resolver, coin).await }
+        },
+    )
+    .await
+}
+
+async fn watch_mids(inv: &Invocation, max_ticks: Option<usize>) -> Result<(), anyhow::Error> {
+    let remote = inv.remote()?;
+    let client = remote.api().sdk();
+    let selected = inv.session().json_options().selected_fields();
+
+    crate::watch::run_snapshot_watch(
+        inv.session(),
+        "Live mid prices",
+        remote.chain(),
+        vec![Subscription::AllMids { dex: None }],
+        max_ticks,
+        move || async move { mids_snapshot(client, selected).await },
+    )
+    .await
+}
+
+async fn watch_candles(
+    inv: &Invocation,
+    coin: &str,
+    interval: hypersdk::hypercore::CandleInterval,
+    limit: usize,
+    max_ticks: Option<usize>,
+) -> Result<(), anyhow::Error> {
+    let remote = inv.remote()?;
+    let client = remote.api().sdk();
+    let resolver = std::sync::Arc::new(inv.asset_resolver().await?);
+    let subscription_coin = resolve_subscription_info_coin(&resolver, coin)?;
+
+    crate::watch::run_snapshot_watch(
+        inv.session(),
+        &format!("Live candles: {subscription_coin} {interval}"),
+        remote.chain(),
+        vec![Subscription::Candle {
+            coin: subscription_coin,
+            interval: interval.to_string(),
+        }],
+        max_ticks,
+        move || {
+            let resolver = std::sync::Arc::clone(&resolver);
+            async move { candles_snapshot(client, &resolver, coin, interval, limit).await }
+        },
+    )
+    .await
 }
 
 #[cfg(test)]

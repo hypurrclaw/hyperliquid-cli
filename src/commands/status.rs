@@ -1,5 +1,6 @@
 //! API health and rate-limit status command.
 
+use crate::command_spec::{CliCommand, CommandSpec, NoArgs};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
@@ -69,6 +70,23 @@ pub async fn show(inv: &Invocation) -> Result<(), anyhow::Error> {
                 .to_string(),
     });
     Ok(())
+}
+
+pub struct Status;
+
+impl CliCommand for Status {
+    type Args = NoArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["status"],
+        "market",
+        "Show API health and rate limits",
+        "Show Hyperliquid API health and rate-limit context.",
+    );
+
+    async fn run(inv: &Invocation, _args: &NoArgs) -> Result<(), anyhow::Error> {
+        show(inv).await
+    }
 }
 
 #[cfg(test)]

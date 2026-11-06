@@ -3,58 +3,7 @@ mod contract_support;
 use serde_json::json;
 
 use assert_cmd::Command;
-use contract_support::{assert_json_fixture, schema_all, selected_schemas};
-
-#[test]
-fn representative_schema_snapshot_matches_characterization_fixture() {
-    let snapshot = selected_schemas(&[
-        "orders create",
-        "orders modify",
-        "transfer send",
-        "wallet address",
-        "borrowlend supply",
-        "subscribe all-mids",
-    ]);
-
-    assert_json_fixture("schema_representative.json", &snapshot);
-}
-
-#[test]
-fn high_risk_schema_metadata_stays_classified() {
-    let schemas = schema_all();
-    let high_risk = schemas
-        .iter()
-        .filter(|schema| {
-            schema["dangerous"].as_bool().unwrap_or(false)
-                || matches!(
-                    schema["risk"].as_str(),
-                    Some("funds_movement" | "local_secret" | "local_state")
-                )
-        })
-        .map(|schema| {
-            json!({
-                "command": schema["command"],
-                "auth_required": schema["auth_required"],
-                "dangerous": schema["dangerous"],
-                "lifecycle": schema["lifecycle"],
-                "risk": schema["risk"],
-                "dry_run": schema["dry_run"],
-                "raw_payload": schema["raw_payload"],
-                "confirmation": schema["confirmation"],
-                "ows_signer": schema["json_schema"]["x-hyperliquid"]["ows_signer"],
-            })
-        })
-        .collect::<Vec<_>>();
-
-    assert_json_fixture(
-        "schema_high_risk_metadata.json",
-        &json!({
-            "characterization": true,
-            "review_required_to_update": true,
-            "commands": high_risk,
-        }),
-    );
-}
+use contract_support::schema_all;
 
 #[test]
 fn subscribe_schema_exposes_machine_context_stream_bounds() {

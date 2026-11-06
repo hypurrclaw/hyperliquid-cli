@@ -207,6 +207,28 @@ where
 
 // ── Bounds ──────────────────────────────────────────────────────────────
 
+/// A count of at least 1.
+pub fn parse_positive_usize(raw: &str) -> Result<usize, String> {
+    let value = raw
+        .parse::<usize>()
+        .map_err(|err| format!("invalid positive integer: {err}"))?;
+    if value == 0 {
+        return Err("value must be at least 1".to_string());
+    }
+    Ok(value)
+}
+
+/// `--watch` / `--max-ticks`, shared by every snapshot command.
+#[derive(Args, Debug, Clone, Default)]
+pub struct SnapshotWatchArgs {
+    /// Watch live updates in-place
+    #[arg(short = 'w', long)]
+    pub watch: bool,
+    /// Stop after rendering this many watch snapshots (useful for automation)
+    #[arg(long, value_name = "TICKS", requires = "watch", value_parser = parse_positive_usize)]
+    pub max_ticks: Option<usize>,
+}
+
 /// `--max-events` / `--idle-timeout-ms`, shared by `subscribe` and `watch risk`.
 #[derive(Args, Debug, Clone, Default)]
 pub struct StreamBoundArgs {

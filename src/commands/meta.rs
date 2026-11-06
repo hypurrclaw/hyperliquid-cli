@@ -1,5 +1,6 @@
 //! Raw exchange metadata command.
 
+use crate::command_spec::{CliCommand, CommandSpec, NoArgs};
 use hypersdk::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -245,6 +246,23 @@ fn value_to_summary(value: &Value) -> Option<String> {
         Value::String(text) => Some(text.clone()),
         Value::Number(number) => Some(number.to_string()),
         _ => None,
+    }
+}
+
+pub struct Meta;
+
+impl CliCommand for Meta {
+    type Args = NoArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["meta"],
+        "market",
+        "Show raw exchange metadata",
+        "Show raw exchange metadata.",
+    );
+
+    async fn run(inv: &Invocation, _args: &NoArgs) -> Result<(), anyhow::Error> {
+        show(inv).await
     }
 }
 

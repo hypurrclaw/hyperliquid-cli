@@ -6,9 +6,11 @@
 //! - `hyperliquid account portfolio <ADDRESS>` — public portfolio summary
 //! - `hyperliquid account subaccounts <ADDRESS>` — public subaccount list
 
+use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, InputKind, Risk, arg};
+use crate::commands::support::{dry_run_signed_details, dry_run_signer_address, print_dry_run};
 use alloy::sol;
 use chrono::DateTime;
-use clap::{Args, Subcommand, ValueEnum};
+use clap::{Args, ValueEnum};
 use hypersdk::Address;
 use hypersdk::Decimal;
 use hypersdk::hypercore::{
@@ -91,15 +93,6 @@ pub struct TwapFillsArgs {
 pub struct AbstractionArgs {
     /// Address, stored account alias, or stored account id to read
     pub address: Option<String>,
-
-    #[command(subcommand)]
-    pub command: Option<AbstractionCommand>,
-}
-
-#[derive(Subcommand, Debug, Clone)]
-pub enum AbstractionCommand {
-    /// Set abstraction mode for the selected signer
-    Set(SetAbstractionArgs),
 }
 
 #[derive(Args, Debug, Clone)]
@@ -1281,6 +1274,383 @@ impl TableData for SubaccountsOutput {
 
     fn to_json_value(&self) -> serde_json::Value {
         serde_json::to_value(&self.subaccounts).unwrap_or_else(|_| serde_json::json!([]))
+    }
+}
+
+pub const GROUP: GroupSpec = GroupSpec::new(&["account"], "Read account data and manage OWS wallets")
+    .long_about("Read account data and manage OWS wallets.\n\
+\n\
+Public reads (`fills`, `orders`, `portfolio`, `subaccounts`) query any Ethereum address and do not require a signer. For these commands, wallets can also be selected by name, id, or address.\n\
+\n\
+OWS account commands (`add`, `ls`, `set-default`, `remove`) manage wallets used for authenticated actions.\n\
+\n\
+Use global --account <WALLET_NAME_OR_ID_OR_ADDRESS> to set the signer for the current command without changing the default wallet.")
+    .aliases(&["accounts"]);
+
+#[derive(Args, Debug, Clone)]
+pub struct OptionalAddressArgs {
+    /// Ethereum address, wallet name, or wallet id.
+    /// Defaults to the selected/default signer when omitted.
+    pub address: Option<String>,
+}
+
+pub struct AccountFills;
+
+impl CliCommand for AccountFills {
+    type Args = FillsArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["account", "fills"],
+        "account",
+        "Show fill history for an address or wallet",
+        "Query public fill history for an address or wallet, optionally bounded by time.",
+    )
+    .args(&[
+        arg("address")
+            .kind(InputKind::PublicUserSelector)
+            .describe("Ethereum address, wallet name, or wallet id.")
+            .resource_id("account selector")
+            .schema_required(),
+        arg("start").schema_string().describe(
+            "RFC3339 or epoch-millisecond start time. Uses userFillsByTime when present.",
+        ),
+        arg("end")
+            .schema_string()
+            .describe("RFC3339 or epoch-millisecond end time."),
+        arg("aggregate_by_time")
+            .kind(InputKind::Boolean)
+            .describe("Ask the API to aggregate fills by time where supported."),
+    ]);
+
+    async fn run(inv: &Invocation, args: &FillsArgs) -> Result<(), anyhow::Error> {
+        let address = inv.resolve_user(args.address.as_deref())?.to_string();
+        fills(inv, &address, args).await
+    }
+}
+
+pub struct AccountFees;
+
+impl CliCommand for AccountFees {
+    type Args = AddressArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["account", "fees"],
+        "account",
+        "Show the fee schedule and volume context for an address or wallet",
+        "Query fee schedule and volume context for an address or wallet.",
+    )
+    .args(&[arg("address")
+        .kind(InputKind::PublicUserSelector)
+        .describe("Ethereum address, wallet name, or wallet id.")
+        .resource_id("account selector")
+        .schema_required()]);
+
+    async fn run(inv: &Invocation, args: &AddressArgs) -> Result<(), anyhow::Error> {
+        let address = inv.resolve_user(args.address.as_deref())?.to_string();
+        fees(inv, &address).await
+    }
+}
+
+pub struct AccountRateLimit;
+
+impl CliCommand for AccountRateLimit {
+    type Args = AddressArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["account", "rate-limit"],
+        "account",
+        "Show rate-limit context for an address or wallet",
+        "Query user rate-limit context for an address or wallet.",
+    )
+    .args(&[arg("address")
+        .kind(InputKind::PublicUserSelector)
+        .describe("Ethereum address, wallet name, or wallet id.")
+        .resource_id("account selector")
+        .schema_required()]);
+
+    async fn run(inv: &Invocation, args: &AddressArgs) -> Result<(), anyhow::Error> {
+        let address = inv.resolve_user(args.address.as_deref())?.to_string();
+        rate_limit(inv, &address).await
+    }
+}
+
+pub struct AccountOrders;
+
+impl CliCommand for AccountOrders {
+    type Args = OptionalAddressArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["account", "orders"],
+        "account",
+        "List open orders for an address or wallet",
+        "Query public open orders for an address or wallet.",
+    )
+    .args(&[arg("address")
+        .kind(InputKind::PublicUserSelector)
+        .describe("Ethereum address, wallet name, or wallet id.")
+        .resource_id("account selector")
+        .schema_required()]);
+
+    async fn run(inv: &Invocation, args: &OptionalAddressArgs) -> Result<(), anyhow::Error> {
+        let address = inv.resolve_user(args.address.as_deref())?.to_string();
+        orders(inv, &address).await
+    }
+}
+
+pub struct AccountPortfolio;
+
+impl CliCommand for AccountPortfolio {
+    type Args = OptionalAddressArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["account", "portfolio"],
+        "account",
+        "Show the portfolio summary for an address or wallet",
+        "Query public portfolio summary for an address or wallet.",
+    )
+    .args(&[arg("address")
+        .kind(InputKind::PublicUserSelector)
+        .describe("Ethereum address, wallet name, or wallet id.")
+        .resource_id("account selector")
+        .schema_required()]);
+
+    async fn run(inv: &Invocation, args: &OptionalAddressArgs) -> Result<(), anyhow::Error> {
+        let address = inv.resolve_user(args.address.as_deref())?.to_string();
+        portfolio(inv, &address).await
+    }
+}
+
+pub struct AccountSubaccounts;
+
+impl CliCommand for AccountSubaccounts {
+    type Args = OptionalAddressArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["account", "subaccounts"],
+        "account",
+        "List subaccounts for an address or wallet",
+        "Query public subaccounts for an address or wallet.",
+    )
+    .args(&[arg("address")
+        .kind(InputKind::PublicUserSelector)
+        .describe("Ethereum address, wallet name, or wallet id.")
+        .resource_id("account selector")
+        .schema_required()]);
+
+    async fn run(inv: &Invocation, args: &OptionalAddressArgs) -> Result<(), anyhow::Error> {
+        let address = inv.resolve_user(args.address.as_deref())?.to_string();
+        subaccounts(inv, &address).await
+    }
+}
+
+pub struct AccountPortfolioHistory;
+
+impl CliCommand for AccountPortfolioHistory {
+    type Args = AddressArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["account", "portfolio-history"],
+        "account",
+        "Show portfolio history for an address or wallet",
+        "Query frontend portfolio graph/history data for an address or wallet.",
+    )
+    .args(&[arg("address")
+        .kind(InputKind::PublicUserSelector)
+        .describe("Ethereum address, wallet name, or wallet id.")
+        .resource_id("account selector")
+        .schema_required()]);
+
+    async fn run(inv: &Invocation, args: &AddressArgs) -> Result<(), anyhow::Error> {
+        let address = inv.resolve_user(args.address.as_deref())?.to_string();
+        portfolio_history(inv, &address).await
+    }
+}
+
+pub struct AccountLedger;
+
+impl CliCommand for AccountLedger {
+    type Args = TimeRangeArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["account", "ledger"],
+        "account",
+        "Show non-funding ledger updates: deposits, withdrawals, and transfers",
+        "Query non-funding ledger updates, including deposits and withdrawals.",
+    )
+    .args(&[
+        arg("address")
+            .kind(InputKind::PublicUserSelector)
+            .describe("Ethereum address, wallet name, or wallet id.")
+            .resource_id("account selector")
+            .schema_required(),
+        arg("start")
+            .schema_string()
+            .describe("RFC3339 or epoch-millisecond start time."),
+        arg("end")
+            .schema_string()
+            .describe("RFC3339 or epoch-millisecond end time."),
+    ]);
+
+    async fn run(inv: &Invocation, args: &TimeRangeArgs) -> Result<(), anyhow::Error> {
+        let address = inv.resolve_user(args.address.as_deref())?.to_string();
+        ledger(inv, &address, args).await
+    }
+}
+
+pub struct AccountFunding;
+
+impl CliCommand for AccountFunding {
+    type Args = TimeRangeArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["account", "funding"],
+        "account",
+        "Show funding payment history",
+        "Query user funding payment history.",
+    )
+    .args(&[
+        arg("address")
+            .kind(InputKind::PublicUserSelector)
+            .describe("Ethereum address, wallet name, or wallet id.")
+            .resource_id("account selector")
+            .schema_required(),
+        arg("start")
+            .schema_string()
+            .describe("RFC3339 or epoch-millisecond start time."),
+        arg("end")
+            .schema_string()
+            .describe("RFC3339 or epoch-millisecond end time."),
+    ]);
+
+    async fn run(inv: &Invocation, args: &TimeRangeArgs) -> Result<(), anyhow::Error> {
+        let address = inv.resolve_user(args.address.as_deref())?.to_string();
+        funding(inv, &address, args).await
+    }
+}
+
+pub struct AccountTwapHistory;
+
+impl CliCommand for AccountTwapHistory {
+    type Args = AddressArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["account", "twap-history"],
+        "account",
+        "Show TWAP order history",
+        "Query user TWAP order history.",
+    )
+    .args(&[arg("address")
+        .kind(InputKind::PublicUserSelector)
+        .describe("Ethereum address, wallet name, or wallet id.")
+        .resource_id("account selector")
+        .schema_required()]);
+
+    async fn run(inv: &Invocation, args: &AddressArgs) -> Result<(), anyhow::Error> {
+        let address = inv.resolve_user(args.address.as_deref())?.to_string();
+        twap_history(inv, &address).await
+    }
+}
+
+pub struct AccountTwapFills;
+
+impl CliCommand for AccountTwapFills {
+    type Args = TwapFillsArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["account", "twap-fills"],
+        "account",
+        "Show TWAP slice fills",
+        "Query user TWAP slice fills, optionally bounded by time.",
+    )
+    .args(&[
+        arg("address")
+            .kind(InputKind::PublicUserSelector)
+            .describe("Ethereum address, wallet name, or wallet id.")
+            .resource_id("account selector")
+            .schema_required(),
+        arg("start").schema_string().describe(
+            "RFC3339 or epoch-millisecond start time. Uses userTwapSliceFillsByTime when present.",
+        ),
+        arg("end")
+            .schema_string()
+            .describe("RFC3339 or epoch-millisecond end time."),
+        arg("aggregate_by_time")
+            .kind(InputKind::Boolean)
+            .describe("Ask the API to aggregate TWAP fills by time where supported."),
+    ]);
+
+    async fn run(inv: &Invocation, args: &TwapFillsArgs) -> Result<(), anyhow::Error> {
+        let address = inv.resolve_user(args.address.as_deref())?.to_string();
+        twap_fills(inv, &address, args).await
+    }
+}
+
+pub struct AccountAbstraction;
+
+impl CliCommand for AccountAbstraction {
+    type Args = AbstractionArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["account", "abstraction"],
+        "account",
+        "Show or set the account abstraction mode",
+        "Read account abstraction mode via userAbstraction. When ADDRESS is omitted, uses the configured signer address.",
+    )
+    .args(&[
+        arg("address").kind(InputKind::PublicUserSelector).describe("Ethereum address, wallet name, or wallet id.").resource_id("account selector"),
+    ]);
+
+    async fn run(inv: &Invocation, args: &AbstractionArgs) -> Result<(), anyhow::Error> {
+        let address = inv.resolve_user(args.address.as_deref())?.to_string();
+        abstraction(inv, &address).await
+    }
+}
+
+pub struct AccountAbstractionSet;
+
+impl CliCommand for AccountAbstractionSet {
+    type Args = SetAbstractionArgs;
+
+    const SPEC: CommandSpec = CommandSpec::signed(
+        &["account", "abstraction", "set"],
+        "account",
+        "Set abstraction mode for the selected signer",
+        "Set account abstraction for the signer (userSetAbstraction). Use --dry-run to preview; confirm or pass -y for live submit.",
+    )
+    .risk(Risk::AccountState)
+    .prompt()
+    .args(&[
+        arg("mode").describe("Target abstraction mode."),
+        arg("yes").kind(InputKind::Boolean).describe("Skip confirmation prompt for live execution."),
+    ]);
+
+    async fn run(inv: &Invocation, args: &SetAbstractionArgs) -> Result<(), anyhow::Error> {
+        if inv.dry_run() {
+            let signer_address = inv.resolve_signer().ok().map(|r| r.address());
+            let fallback_address: Address = "0x0000000000000000000000000000000000000001"
+                .parse()
+                .expect("valid placeholder address");
+            let preview_args = abstraction_set_dry_run_value(
+                inv.remote()?.chain(),
+                signer_address.unwrap_or(fallback_address),
+                args,
+            );
+            let signer = dry_run_signer_address(inv);
+            return print_dry_run(
+                inv,
+                "account abstraction set",
+                dry_run_signed_details(inv, "set_abstraction", preview_args, signer, None, None),
+            );
+        }
+        let resolved = inv.resolve_signer()?;
+        if resolved.query_address() != resolved.address() {
+            return Err(CliError::Unsupported(
+                "userSetAbstraction must be signed by the master account; select the master wallet, not a stored API wallet"
+                    .to_string(),
+            )
+            .into());
+        }
+        set_abstraction(inv, &resolved.selected_signer(), args, true).await
     }
 }
 

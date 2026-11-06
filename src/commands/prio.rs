@@ -1,5 +1,7 @@
 //! Gossip priority auction commands.
 
+use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, NoArgs, OwsSupport, arg};
+use crate::commands::support::{dry_run_details, print_dry_run};
 use clap::Args;
 use hypersdk::Decimal;
 use hypersdk::hypercore::types::{Action, GossipPriorityBid};
@@ -256,6 +258,62 @@ fn hype_to_wei_u64(amount: Decimal, decimals: u32, label: &str) -> Result<u64, C
     hypersdk::hyperevm::to_wei(amount, decimals)
         .try_into()
         .map_err(|_| CliError::Configuration(format!("{label} is too large")))
+}
+
+pub const GROUP: GroupSpec = GroupSpec::new(&["prio"], "Manage gossip priority bids");
+
+pub struct PrioStatus;
+
+impl CliCommand for PrioStatus {
+    type Args = NoArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["prio", "status"],
+        "prio",
+        "Show priority auction status",
+        "Show priority auction status.",
+    );
+
+    async fn run(inv: &Invocation, _args: &NoArgs) -> Result<(), anyhow::Error> {
+        status(inv).await
+    }
+}
+
+pub struct PrioBid;
+
+impl CliCommand for PrioBid {
+    type Args = BidArgs;
+
+    const SPEC: CommandSpec = CommandSpec::signed(
+        &["prio", "bid"],
+        "prio",
+        "Place a priority bid",
+        "Place a priority auction bid.",
+    )
+    .ows(OwsSupport::LocalOnly)
+    .args(&[
+        arg("max").describe("Maximum HYPE bid."),
+        arg("ip")
+            .describe("Validator IP address.")
+            .resource_id("validator ip"),
+        arg("slot").describe("Priority slot."),
+    ]);
+
+    async fn run(inv: &Invocation, args: &BidArgs) -> Result<(), anyhow::Error> {
+        if inv.dry_run() {
+            return print_dry_run(
+                inv,
+                "prio bid",
+                dry_run_details(
+                    inv,
+                    "place_priority_auction_bid",
+                    serde_json::json!({"ip": args.ip, "max": args.max.to_string(), "slot": args.slot}),
+                ),
+            );
+        }
+        let resolved = inv.resolve_signer()?;
+        bid(inv, &resolved.selected_signer(), args).await
+    }
 }
 
 #[cfg(test)]

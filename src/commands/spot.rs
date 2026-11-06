@@ -3,6 +3,7 @@
 /// Commands:
 /// - `hyperliquid spot list` — list all spot markets
 /// - `hyperliquid spot get <PAIR>` — get details for a specific spot pair
+use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, InputKind, NoArgs, arg};
 use clap::Args;
 use hypersdk::Decimal;
 use hypersdk::hypercore::PriceTick;
@@ -13,9 +14,6 @@ use crate::errors::CliError;
 use crate::http_api::ApiClient;
 use crate::invocation::Invocation;
 use crate::output::TableData;
-
-#[derive(Args, Debug)]
-pub struct SpotListArgs {}
 
 #[derive(Args, Debug)]
 pub struct SpotGetArgs {
@@ -175,6 +173,47 @@ async fn load_spot_market_rows(api: &ApiClient) -> Result<Vec<SpotMarketRow>, Cl
         .into_iter()
         .map(SpotMarketRow::from)
         .collect())
+}
+
+pub const GROUP: GroupSpec = GroupSpec::new(&["spot"], "Query spot markets");
+
+pub struct SpotList;
+
+impl CliCommand for SpotList {
+    type Args = NoArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["spot", "list"],
+        "market",
+        "List all spot markets",
+        "List spot markets.",
+    )
+    .cli_aliases(&["ls"]);
+
+    async fn run(inv: &Invocation, _args: &NoArgs) -> Result<(), anyhow::Error> {
+        list(inv).await
+    }
+}
+
+pub struct SpotGet;
+
+impl CliCommand for SpotGet {
+    type Args = SpotGetArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["spot", "get"],
+        "market",
+        "Get details for a specific spot pair",
+        "Get details for a spot pair.",
+    )
+    .args(&[arg("pair")
+        .kind(InputKind::MarketSymbol)
+        .describe("Spot pair, for example PURR/USDC.")
+        .resource_id("spot pair")]);
+
+    async fn run(inv: &Invocation, args: &SpotGetArgs) -> Result<(), anyhow::Error> {
+        get(inv, &args.pair).await
+    }
 }
 
 #[cfg(test)]

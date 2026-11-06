@@ -4,6 +4,7 @@
 //! - `hyperliquid asset decode <ASSET_ID>` — explain the protocol asset IDs surfaced in exchange errors.
 //! - `hyperliquid asset search <QUERY>` — find assets by symbol, title, slug, notation, or ID.
 
+use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, InputKind, arg};
 use std::collections::BTreeSet;
 
 use clap::{Args, ValueEnum};
@@ -43,7 +44,13 @@ pub struct AssetSearchArgs {
     pub query: String,
 
     /// Restrict results to one venue
-    #[arg(long = "type", value_enum, default_value = "all")]
+    #[arg(
+        id = "type",
+        long = "type",
+        value_name = "VENUE",
+        value_enum,
+        default_value = "all"
+    )]
     pub venue: SearchVenueFilter,
 
     /// Maximum number of matching assets to return
@@ -872,6 +879,80 @@ fn humanize_field(field: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+pub const GROUP: GroupSpec =
+    GroupSpec::new(&["asset"], "Decode and search protocol asset IDs").aliases(&["assets"]);
+
+pub struct AssetDecode;
+
+impl CliCommand for AssetDecode {
+    type Args = AssetDecodeArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["asset", "decode"],
+        "market",
+        "Decode a raw protocol asset ID",
+        "Decode a raw Hyperliquid protocol asset ID from exchange errors, schemas, or payloads into reusable market notation when metadata is available.",
+    )
+    .args(&[
+        arg("asset_id").kind(InputKind::Identifier).describe("Raw non-negative decimal protocol asset ID, for example 100000400."),
+    ]);
+
+    async fn run(inv: &Invocation, args: &AssetDecodeArgs) -> Result<(), anyhow::Error> {
+        decode(inv, args).await
+    }
+}
+
+pub struct AssetSearch;
+
+impl CliCommand for AssetSearch {
+    type Args = AssetSearchArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["asset", "search"],
+        "market",
+        "Search assets by symbol, market title, slug, notation, or protocol ID",
+        "Search Hyperliquid assets by symbol, market title, app slug, outcome notation, or protocol asset ID and return reusable CLI selectors plus protocol IDs.",
+    )
+    .args(&[
+        arg("query").kind(InputKind::Identifier).describe("Asset search query, for example BTC, xyz:TSLA, PURR/USDC, #400, or btc-above-79779-yes-may-15-0600.").asset_input("asset search query"),
+        arg("limit"),
+        arg("type").describe("Restrict results to one venue."),
+    ]);
+
+    async fn run(inv: &Invocation, args: &AssetSearchArgs) -> Result<(), anyhow::Error> {
+        search(inv, args).await
+    }
+}
+
+pub struct Search;
+
+impl CliCommand for Search {
+    type Args = AssetSearchArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["search"],
+        "market",
+        "Search markets across perps, HIP-3, spot, and outcomes",
+        "Search perps, HIP-3, spot, and outcome markets in one list. Each row includes a stable venue field. Retry: safe. Pipe --select coin into buy --dry-run.",
+    )
+    .long_about("Search markets across perps, HIP-3, spot, and outcomes.\n\
+\n\
+Retry: safe.\n\
+\n\
+Examples:\n  \
+hyperliquid --format json search GOLD --select venue,coin\n  \
+hyperliquid --format json search ETH --type perp --select coin")
+    .args(&[
+        arg("query").kind(InputKind::Identifier).describe("Search query, for example GOLD, BTC, PURR/USDC, or #10.").asset_input("asset search query"),
+        arg("limit"),
+        arg("type").describe("Restrict results to one venue."),
+    ]);
+
+    async fn run(inv: &Invocation, args: &AssetSearchArgs) -> Result<(), anyhow::Error> {
+        search(inv, args).await
+    }
 }
 
 #[cfg(test)]

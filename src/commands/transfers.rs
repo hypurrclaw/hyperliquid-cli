@@ -1,5 +1,10 @@
 //! Authenticated transfer commands.
 
+use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, InputKind, arg};
+use crate::commands::support::{
+    dry_run_signer_address, print_dry_run_envelope, transfer_dry_run_envelope,
+};
+use crate::dry_run::DryRunSigningContext;
 use alloy::sol;
 use clap::Args;
 use hypersdk::hypercore::types::{Action, AssetTarget, SendAsset, SendToken, SpotSend, UsdSend};
@@ -835,6 +840,302 @@ fn print_transfer(
             destination,
         }],
     });
+}
+
+pub const GROUP: GroupSpec = GroupSpec::new(
+    &["transfer"],
+    "Move funds between spot, perp, and addresses",
+)
+.aliases(&["transfers"])
+.schema_aliases();
+
+pub struct TransferSpotToPerp;
+
+impl CliCommand for TransferSpotToPerp {
+    type Args = ClassTransferArgs;
+
+    const SPEC: CommandSpec = CommandSpec::signed(
+        &["transfer", "spot-to-perp"],
+        "transfer",
+        "Transfer from spot to perp",
+        "Transfer USDC from spot to perp.",
+    )
+    .prompt()
+    .args(&[
+        arg("amount")
+            .kind(InputKind::Amount)
+            .describe("USDC amount."),
+        arg("yes")
+            .kind(InputKind::Boolean)
+            .describe("Skip confirmation prompt for deliberate automation."),
+    ]);
+
+    async fn run(inv: &Invocation, args: &ClassTransferArgs) -> Result<(), anyhow::Error> {
+        validate_class_transfer_args(args)?;
+        if inv.dry_run() {
+            let envelope = transfer_dry_run_envelope(
+                inv,
+                "transfer spot-to-perp",
+                TransferActionKind::SpotToPerp,
+                "transfer_spot_to_perp",
+                serde_json::json!({"amount": args.amount.to_string()}),
+            );
+            return print_dry_run_envelope(inv, envelope);
+        }
+        let resolved = inv.resolve_signer()?;
+        let signer = resolved.selected_signer();
+        spot_to_perp(inv, &signer, resolved.query_address(), args).await
+    }
+}
+
+pub struct TransferPerpToSpot;
+
+impl CliCommand for TransferPerpToSpot {
+    type Args = ClassTransferArgs;
+
+    const SPEC: CommandSpec = CommandSpec::signed(
+        &["transfer", "perp-to-spot"],
+        "transfer",
+        "Transfer from perp to spot",
+        "Transfer USDC from perp to spot.",
+    )
+    .prompt()
+    .args(&[
+        arg("amount")
+            .kind(InputKind::Amount)
+            .describe("USDC amount."),
+        arg("yes")
+            .kind(InputKind::Boolean)
+            .describe("Skip confirmation prompt for deliberate automation."),
+    ]);
+
+    async fn run(inv: &Invocation, args: &ClassTransferArgs) -> Result<(), anyhow::Error> {
+        validate_class_transfer_args(args)?;
+        if inv.dry_run() {
+            let envelope = transfer_dry_run_envelope(
+                inv,
+                "transfer perp-to-spot",
+                TransferActionKind::PerpToSpot,
+                "transfer_perp_to_spot",
+                serde_json::json!({"amount": args.amount.to_string()}),
+            );
+            return print_dry_run_envelope(inv, envelope);
+        }
+        let resolved = inv.resolve_signer()?;
+        let signer = resolved.selected_signer();
+        perp_to_spot(inv, &signer, resolved.query_address(), args).await
+    }
+}
+
+pub struct TransferSend;
+
+impl CliCommand for TransferSend {
+    type Args = SendArgs;
+
+    const SPEC: CommandSpec = CommandSpec::signed(
+        &["transfer", "send"],
+        "transfer",
+        "Send USDC to an address",
+        "Send USDC to another Hyperliquid address.",
+    )
+    .prompt()
+    .args(&[
+        arg("to")
+            .kind(InputKind::RawDestinationAddress)
+            .describe("Explicit destination address. Wallet aliases are not resolved.")
+            .resource_id("destination address"),
+        arg("amount")
+            .kind(InputKind::Amount)
+            .describe("USDC amount."),
+        arg("yes")
+            .kind(InputKind::Boolean)
+            .describe("Skip confirmation prompt for deliberate automation."),
+    ]);
+
+    async fn run(inv: &Invocation, args: &SendArgs) -> Result<(), anyhow::Error> {
+        validate_send_args(args)?;
+        if inv.dry_run() {
+            let envelope = transfer_dry_run_envelope(
+                inv,
+                "transfer send",
+                TransferActionKind::Send,
+                "send_usdc",
+                serde_json::json!({"to": args.to, "amount": args.amount.to_string()}),
+            );
+            return print_dry_run_envelope(inv, envelope);
+        }
+        let resolved = inv.resolve_signer()?;
+        send(
+            inv,
+            &resolved.selected_signer(),
+            resolved.query_address(),
+            args,
+        )
+        .await
+    }
+}
+
+pub struct TransferSpotSend;
+
+impl CliCommand for TransferSpotSend {
+    type Args = SpotSendArgs;
+
+    const SPEC: CommandSpec = CommandSpec::signed(
+        &["transfer", "spot-send"],
+        "transfer",
+        "Send a spot token to an address",
+        "Send a spot token to another Hyperliquid address.",
+    )
+    .prompt()
+    .args(&[
+        arg("to")
+            .kind(InputKind::RawDestinationAddress)
+            .describe("Explicit destination address. Wallet aliases are not resolved.")
+            .resource_id("destination address"),
+        arg("token")
+            .kind(InputKind::MarketSymbol)
+            .describe("Spot token symbol, for example HYPE.")
+            .resource_id("token"),
+        arg("amount")
+            .kind(InputKind::Amount)
+            .describe("Token amount."),
+        arg("yes")
+            .kind(InputKind::Boolean)
+            .describe("Skip confirmation prompt for deliberate automation."),
+    ]);
+
+    async fn run(inv: &Invocation, args: &SpotSendArgs) -> Result<(), anyhow::Error> {
+        validate_spot_send_args(args)?;
+        let client = inv.remote()?.api().sdk();
+        let args_json = spot_send_dry_run_args(client, args).await?;
+        if inv.dry_run() {
+            let signer = dry_run_signer_address(inv);
+            let envelope = transfer_dry_run_envelope(
+                inv,
+                "transfer spot-send",
+                TransferActionKind::SpotSend,
+                "spot_send",
+                args_json,
+            )
+            .with_signing_context(DryRunSigningContext::new(
+                signer,
+                Some(args.to.clone()),
+                None,
+            ));
+            return print_dry_run_envelope(inv, envelope);
+        }
+        let resolved = inv.resolve_signer()?;
+        spot_send(inv, &resolved.selected_signer(), args).await
+    }
+}
+
+pub struct TransferSendAsset;
+
+impl CliCommand for TransferSendAsset {
+    type Args = SendAssetArgs;
+
+    const SPEC: CommandSpec = CommandSpec::signed(
+        &["transfer", "send-asset"],
+        "transfer",
+        "Send an asset between spot, perp, or DEX contexts",
+        "Send an asset between accounts, spot, perp, or DEX contexts.",
+    )
+    .prompt()
+    .args(&[
+        arg("to")
+            .kind(InputKind::RawDestinationAddress)
+            .describe("Explicit destination address. Wallet aliases are not resolved.")
+            .resource_id("destination address"),
+        arg("source")
+            .kind(InputKind::VenueSelector)
+            .resource_id("source asset target"),
+        arg("dest")
+            .kind(InputKind::VenueSelector)
+            .resource_id("destination asset target"),
+        arg("token")
+            .kind(InputKind::MarketSymbol)
+            .resource_id("token"),
+        arg("amount")
+            .kind(InputKind::Amount)
+            .describe("Token amount."),
+        arg("from_subaccount")
+            .describe("Optional explicit source subaccount address.")
+            .resource_id("from subaccount address"),
+        arg("yes")
+            .kind(InputKind::Boolean)
+            .describe("Skip confirmation prompt for deliberate automation."),
+    ]);
+
+    async fn run(inv: &Invocation, args: &SendAssetArgs) -> Result<(), anyhow::Error> {
+        validate_send_asset_args(args)?;
+        let client = inv.remote()?.api().sdk();
+        let args_json = send_asset_dry_run_args(client, args).await?;
+        if inv.dry_run() {
+            let signer = dry_run_signer_address(inv);
+            let envelope = transfer_dry_run_envelope(
+                inv,
+                "transfer send-asset",
+                TransferActionKind::SendAsset,
+                "send_asset",
+                args_json,
+            )
+            .with_signing_context(DryRunSigningContext::new(
+                signer,
+                Some(args.to.clone()),
+                None,
+            ));
+            return print_dry_run_envelope(inv, envelope);
+        }
+        let resolved = inv.resolve_signer()?;
+        send_asset(inv, &resolved.selected_signer(), args).await
+    }
+}
+
+pub struct TransferWithdraw;
+
+impl CliCommand for TransferWithdraw {
+    type Args = WithdrawArgs;
+
+    const SPEC: CommandSpec = CommandSpec::signed(
+        &["transfer", "withdraw"],
+        "transfer",
+        "Withdraw to Arbitrum",
+        "Withdraw USDC to Arbitrum.",
+    )
+    .prompt()
+    .args(&[
+        arg("to")
+            .kind(InputKind::RawDestinationAddress)
+            .resource_id("destination address"),
+        arg("amount")
+            .kind(InputKind::Amount)
+            .describe("USDC amount."),
+        arg("yes")
+            .kind(InputKind::Boolean)
+            .describe("Skip confirmation prompt for deliberate automation."),
+    ]);
+
+    async fn run(inv: &Invocation, args: &WithdrawArgs) -> Result<(), anyhow::Error> {
+        validate_withdraw_args(args)?;
+        if inv.dry_run() {
+            let envelope = transfer_dry_run_envelope(
+                inv,
+                "transfer withdraw",
+                TransferActionKind::Withdraw,
+                "withdraw_usdc",
+                serde_json::json!({"to": args.to, "amount": args.amount.to_string()}),
+            );
+            return print_dry_run_envelope(inv, envelope);
+        }
+        let resolved = inv.resolve_signer()?;
+        withdraw(
+            inv,
+            &resolved.selected_signer(),
+            resolved.query_address(),
+            args,
+        )
+        .await
+    }
 }
 
 #[cfg(test)]

@@ -1,5 +1,10 @@
 //! Borrow/lend public market data commands.
 
+use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, InputKind, NoArgs, arg};
+use crate::commands::account::OptionalAddressArgs;
+use crate::commands::support::{
+    default_dry_run_signing_context, print_dry_run_envelope, signed_action_dry_run_envelope,
+};
 use clap::Args;
 use hypersdk::hypercore::HttpClient;
 use hypersdk::{Address, Decimal};
@@ -676,6 +681,147 @@ fn parse_address(input: &str) -> Result<Address, CliError> {
 
 fn invalid_address_error() -> CliError {
     CliError::Configuration("address must be a 0x-prefixed 40-byte hex string".to_string())
+}
+
+pub const GROUP: GroupSpec = GroupSpec::new(
+    &["borrowlend"],
+    "Supply, withdraw, and query borrow/lend reserves",
+);
+
+#[derive(Args, Debug, Clone)]
+pub struct BorrowlendGetArgs {
+    /// Token symbol (e.g., USDC)
+    pub token: String,
+}
+
+pub struct BorrowlendRates;
+
+impl CliCommand for BorrowlendRates {
+    type Args = NoArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["borrowlend", "rates"],
+        "market",
+        "Show borrow and lend rates",
+        "List borrow/lend rates.",
+    );
+
+    async fn run(inv: &Invocation, _args: &NoArgs) -> Result<(), anyhow::Error> {
+        rates(inv).await
+    }
+}
+
+pub struct BorrowlendGet;
+
+impl CliCommand for BorrowlendGet {
+    type Args = BorrowlendGetArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["borrowlend", "get"],
+        "market",
+        "Show a token reserve",
+        "Show a single borrow/lend token reserve.",
+    )
+    .args(&[arg("token")
+        .kind(InputKind::MarketSymbol)
+        .describe("Token symbol, for example USDC.")
+        .resource_id("token")]);
+
+    async fn run(inv: &Invocation, args: &BorrowlendGetArgs) -> Result<(), anyhow::Error> {
+        get(inv, &args.token).await
+    }
+}
+
+pub struct BorrowlendUser;
+
+impl CliCommand for BorrowlendUser {
+    type Args = OptionalAddressArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["borrowlend", "user"],
+        "account",
+        "Show borrow and lend state for an address or wallet",
+        "Show user borrow/lend state.",
+    )
+    .args(&[arg("address")
+        .kind(InputKind::PublicUserSelector)
+        .describe("Ethereum address, wallet name, or wallet id.")
+        .resource_id("account selector")
+        .schema_required()]);
+
+    async fn run(inv: &Invocation, args: &OptionalAddressArgs) -> Result<(), anyhow::Error> {
+        let address = inv.resolve_user(args.address.as_deref())?.to_string();
+        user(inv, &address).await
+    }
+}
+
+pub struct BorrowlendSupply;
+
+impl CliCommand for BorrowlendSupply {
+    type Args = ActionArgs;
+
+    const SPEC: CommandSpec = CommandSpec::signed(
+        &["borrowlend", "supply"],
+        "market",
+        "Supply a token to a borrow/lend reserve",
+        "Supply a borrow/lend reserve token with a wallet-signed borrowLend exchange action. Runs live without a confirmation prompt; --dry-run previews the action without submitting.",
+    )
+    .schema_command("hyperliquid borrowlend supply <TOKEN> --amount <AMOUNT>")
+    .args(&[
+        arg("token").kind(InputKind::MarketSymbol).resource_id("token"),
+        arg("amount").kind(InputKind::Amount).describe("Human-readable token amount to supply.").schema_required(),
+        arg("max").describe("Not supported for supply: the command rejects --max and requires --amount. Only withdraw accepts --max.").schema_string(),
+    ]);
+
+    async fn run(inv: &Invocation, args: &ActionArgs) -> Result<(), anyhow::Error> {
+        borrowlend_action(inv, BorrowLendOperation::Supply, args).await
+    }
+}
+
+pub struct BorrowlendWithdraw;
+
+impl CliCommand for BorrowlendWithdraw {
+    type Args = ActionArgs;
+
+    const SPEC: CommandSpec = CommandSpec::signed(
+        &["borrowlend", "withdraw"],
+        "market",
+        "Withdraw a token from a borrow/lend reserve",
+        "Withdraw from a borrow/lend reserve with a wallet-signed borrowLend exchange action. Runs live without a confirmation prompt; --dry-run previews the action without submitting.",
+    )
+    .schema_command("hyperliquid borrowlend withdraw <TOKEN> --amount <AMOUNT>")
+    .args(&[
+        arg("token").kind(InputKind::MarketSymbol).resource_id("token"),
+        arg("amount").kind(InputKind::Amount).describe("Human-readable token amount."),
+        arg("max").describe("Withdraw maximum amount; sends amount=null in the exchange borrowLend action.").schema_string(),
+    ]);
+
+    async fn run(inv: &Invocation, args: &ActionArgs) -> Result<(), anyhow::Error> {
+        borrowlend_action(inv, BorrowLendOperation::Withdraw, args).await
+    }
+}
+
+async fn borrowlend_action(
+    inv: &Invocation,
+    operation: BorrowLendOperation,
+    args: &ActionArgs,
+) -> Result<(), anyhow::Error> {
+    let preview = action_preview(inv.remote()?.api(), operation, args).await?;
+    if inv.dry_run() {
+        let envelope = signed_action_dry_run_envelope(
+            inv,
+            &format!("borrowlend {}", operation.as_str()),
+            &format!("{}_borrowlend", operation.as_str()),
+            operation.reversibility(),
+            preview,
+            default_dry_run_signing_context(inv),
+        );
+        return print_dry_run_envelope(inv, envelope);
+    }
+
+    let resolved = inv.resolve_signer()?;
+    let signer = resolved.selected_signer();
+    action(inv, &signer, operation, args).await
 }
 
 #[cfg(test)]

@@ -1,5 +1,7 @@
 //! Structured feedback submission command.
 
+use crate::command_spec::{CliCommand, CommandSpec, InputKind, Lifecycle, arg};
+use crate::input_hardening::validate_input_path;
 use std::io::Read;
 use std::time::Duration;
 
@@ -332,6 +334,43 @@ fn env_guard() -> impl Drop {
         }
     }
     EnvRestore { _guard: guard }
+}
+
+pub struct Feedback;
+
+impl CliCommand for Feedback {
+    type Args = FeedbackArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["feedback"],
+        "system",
+        "Send structured CLI feedback as a scenario JSON object",
+        "Send structured CLI feedback as a scenario JSON object to the configured feedback service.",
+    )
+    .lifecycle(Lifecycle::LiveMutating)
+    .local()
+    .dry_run_refusal("--dry-run is not supported for feedback")
+    .one_of_required(&[&["scenario_json"], &["scenario_file"]])
+    .args(&[
+        arg("scenario_json").kind(InputKind::JsonObject).describe("Structured scenario JSON object describing the command, context, expected behavior, and actual behavior. May include agent_address, signer_address, or wallet_address for feedback rate-limit attribution. Mutually exclusive with scenario_file."),
+        arg("scenario_file").kind(InputKind::FilePath).describe("Path to a structured scenario JSON object, or '-' to read from stdin. Scenario may include agent_address, signer_address, or wallet_address for feedback rate-limit attribution. Mutually exclusive with scenario_json."),
+        arg("contact").kind(InputKind::Identifier),
+        arg("tags").kind(InputKind::Identifier),
+        arg("url").kind(InputKind::Url),
+    ]);
+
+    fn validate(args: &FeedbackArgs) -> Result<(), CliError> {
+        if let Some(path) = args.scenario_file.as_deref()
+            && path != "-"
+        {
+            validate_input_path(path)?;
+        }
+        Ok(())
+    }
+
+    async fn run(inv: &Invocation, args: &FeedbackArgs) -> Result<(), anyhow::Error> {
+        submit(inv, args).await
+    }
 }
 
 #[cfg(test)]

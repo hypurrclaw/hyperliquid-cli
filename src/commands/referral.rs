@@ -1,5 +1,10 @@
 //! Referral status and set-referrer commands.
 
+use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, NoArgs, OwsSupport, Risk, arg};
+use crate::commands::support::{
+    default_dry_run_signing_context, print_dry_run_envelope, signed_action_dry_run_envelope,
+};
+use clap::Args;
 use hypersdk::Address;
 use hypersdk::hypercore::Chain;
 use serde::Serialize;
@@ -363,6 +368,151 @@ fn format_reversibility(reversibility: ActionReversibility) -> &'static str {
         ActionReversibility::Reversible => "reversible",
         ActionReversibility::PartiallyReversible => "partially_reversible",
         ActionReversibility::Irreversible => "irreversible",
+    }
+}
+
+pub const GROUP: GroupSpec =
+    GroupSpec::new(&["referral"], "Manage referral codes").aliases(&["referrals"]);
+
+#[derive(Args, Debug, Clone)]
+pub struct ReferralSetArgs {
+    /// Referral code to apply (defaults to TESTNET for testnet verification)
+    pub code: Option<String>,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct ReferralRegisterArgs {
+    /// Referral code to create. Hyperliquid currently caps referrer codes at 20 characters.
+    pub code: String,
+}
+
+pub struct ReferralSet;
+
+impl CliCommand for ReferralSet {
+    type Args = ReferralSetArgs;
+
+    const SPEC: CommandSpec = CommandSpec::signed(
+        &["referral", "set"],
+        "referral",
+        "Set a referral code",
+        "Set referral code.",
+    )
+    .args(&[arg("code")
+        .describe("Referral code. Optional on testnet.")
+        .resource_id("referral code")]);
+
+    async fn run(inv: &Invocation, args: &ReferralSetArgs) -> Result<(), anyhow::Error> {
+        let code = args.code.as_deref();
+
+        let owned_default: Option<String>;
+        let code: &str = match code {
+            Some(code) => code,
+            None => {
+                let remote = inv.remote()?;
+                owned_default = resolve_default_referral_code(
+                    remote.settings(),
+                    remote.network().is_testnet(),
+                )?;
+                match owned_default.as_deref() {
+                    Some(default_code) => default_code,
+                    None => {
+                        return Err(CliError::Unsupported(
+                        "referral code is required; pass CODE explicitly, set HYPERLIQUID_DEFAULT_REFERRAL_CODE, or use --testnet"
+                            .to_string(),
+                    )
+                    .into());
+                    }
+                }
+            }
+        };
+        validate_referral_code(code)?;
+        if inv.dry_run() {
+            let signer_context = inv.resolve_signer().ok();
+            let envelope = signed_action_dry_run_envelope(
+                inv,
+                "referral set",
+                "set_referral_code",
+                ReferralActionKind::Set.reversibility(),
+                referral_dry_run_value(
+                    inv.remote()?.chain(),
+                    signer_context.as_ref().map(|resolved| resolved.address()),
+                    signer_context
+                        .as_ref()
+                        .map(|resolved| resolved.query_address()),
+                    code,
+                    ReferralActionKind::Set,
+                ),
+                default_dry_run_signing_context(inv),
+            );
+            return print_dry_run_envelope(inv, envelope);
+        }
+        let resolved = inv.resolve_signer()?;
+        let signer = resolved.selected_signer();
+        set(inv, &signer, code).await
+    }
+}
+
+pub struct ReferralRegister;
+
+impl CliCommand for ReferralRegister {
+    type Args = ReferralRegisterArgs;
+
+    const SPEC: CommandSpec = CommandSpec::signed(
+        &["referral", "register"],
+        "referral",
+        "Register your own referral code",
+        "Register/create your own referral code.",
+    )
+    .args(&[arg("code").resource_id("referrer code")]);
+
+    async fn run(inv: &Invocation, args: &ReferralRegisterArgs) -> Result<(), anyhow::Error> {
+        let code = args.code.as_str();
+
+        validate_referrer_code(code)?;
+        if inv.dry_run() {
+            let signer_context = inv.resolve_signer().ok();
+            let envelope = signed_action_dry_run_envelope(
+                inv,
+                "referral register",
+                "register_referrer_code",
+                ReferralActionKind::Register.reversibility(),
+                referral_dry_run_value(
+                    inv.remote()?.chain(),
+                    signer_context.as_ref().map(|resolved| resolved.address()),
+                    signer_context
+                        .as_ref()
+                        .map(|resolved| resolved.query_address()),
+                    code,
+                    ReferralActionKind::Register,
+                ),
+                default_dry_run_signing_context(inv),
+            );
+            return print_dry_run_envelope(inv, envelope);
+        }
+        let resolved = inv.resolve_signer()?;
+        let signer = resolved.selected_signer();
+        register(inv, &signer, code).await
+    }
+}
+
+pub struct ReferralStatus;
+
+impl CliCommand for ReferralStatus {
+    type Args = NoArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["referral", "status"],
+        "referral",
+        "Show referral status",
+        "Show referral status for the configured signer.",
+    )
+    .risk(Risk::AccountState)
+    .ows(OwsSupport::ExperimentalFeatureGated)
+    .auth(true);
+
+    async fn run(inv: &Invocation, _args: &NoArgs) -> Result<(), anyhow::Error> {
+        let user = inv.resolve_signer()?.query_address();
+        status(inv, user).await
     }
 }
 

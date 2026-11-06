@@ -46,6 +46,7 @@ const BPS_DENOMINATOR: i64 = 10_000;
 mod args;
 mod bracket;
 mod chase;
+pub mod cli;
 mod hip3;
 mod planning;
 mod queries;
@@ -108,6 +109,7 @@ struct PreparedOrder {
     warning: Option<String>,
     builder: Option<OrderBuilderFee>,
 }
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 struct OrderBuilderFee {
     b: String,

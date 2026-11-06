@@ -1,9 +1,15 @@
 //! Authenticated position management commands.
 
+use crate::command_spec::{
+    CliCommand, CommandSpec, GroupSpec, InputKind, OwsSupport, Risk, StreamBound, arg,
+};
+use crate::commands::support::{dry_run_signed_details, dry_run_signing_addresses, print_dry_run};
+use crate::stream::SnapshotWatchArgs;
 use clap::Args;
 use hypersdk::Address;
 use hypersdk::Decimal;
 use hypersdk::hypercore::HttpClient;
+use hypersdk::hypercore::Subscription;
 use hypersdk::hypercore::api::UpdateLeverage;
 use hypersdk::hypercore::types::api::UpdateIsolatedMargin;
 use hypersdk::hypercore::types::{Action, AssetPosition, LeverageType};
@@ -496,6 +502,165 @@ fn usd_to_micro_units(value: Decimal, name: &'static str) -> Result<i64, CliErro
     scaled.to_i64().ok_or_else(|| {
         CliError::Configuration(format!("{name} is too large for Hyperliquid micro-units"))
     })
+}
+
+pub const GROUP: GroupSpec =
+    GroupSpec::new(&["positions"], "Manage positions").aliases(&["position"]);
+
+#[derive(Args, Debug, Clone)]
+pub struct PositionsListArgs {
+    #[command(flatten)]
+    pub watch: SnapshotWatchArgs,
+}
+
+pub struct PositionsList;
+
+impl CliCommand for PositionsList {
+    type Args = PositionsListArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["positions", "list"],
+        "account",
+        "List open positions",
+        "List positions for the configured signer.",
+    )
+    .risk(Risk::AccountState)
+    .ows(OwsSupport::ExperimentalFeatureGated)
+    .auth(true)
+    .stream(StreamBound::SnapshotWatch)
+    .args(&[
+        arg("watch")
+            .kind(InputKind::Boolean)
+            .describe("Watch live snapshots. Use max_ticks to bound automation calls."),
+        arg("max_ticks").describe("Stop after this many watch snapshots."),
+    ])
+    .cli_aliases(&["ls"]);
+
+    async fn run(inv: &Invocation, args: &PositionsListArgs) -> Result<(), anyhow::Error> {
+        if args.watch.watch {
+            watch_positions(inv, args.watch.max_ticks).await
+        } else {
+            let user = inv.resolve_signer()?.query_address();
+            list(inv, user).await
+        }
+    }
+}
+
+pub struct PositionsUpdateLeverage;
+
+impl CliCommand for PositionsUpdateLeverage {
+    type Args = UpdateLeverageArgs;
+
+    const SPEC: CommandSpec = CommandSpec::signed(
+        &["positions", "update-leverage"],
+        "trade",
+        "Update leverage for a position",
+        "Update leverage for a position.",
+    )
+    .args(&[
+        arg("coin")
+            .kind(InputKind::MarketSymbol)
+            .describe("Perpetual coin.")
+            .resource_id("coin"),
+        arg("leverage").describe("Target leverage."),
+        arg("isolated")
+            .kind(InputKind::Boolean)
+            .describe("Use isolated margin mode."),
+    ]);
+
+    async fn run(inv: &Invocation, args: &UpdateLeverageArgs) -> Result<(), anyhow::Error> {
+        validate_update_leverage_args(args)?;
+        let resolver = inv.trading_resolver().await?;
+        let prepared = prepare_update_leverage(&resolver, args)?;
+        if inv.dry_run() {
+            let (signer, acting_as) = dry_run_signing_addresses(inv);
+            return print_dry_run(
+                inv,
+                "positions update-leverage",
+                dry_run_signed_details(
+                    inv,
+                    "update_position_leverage",
+                    update_leverage_dry_run_value(
+                        inv.remote()?.network().to_string(),
+                        args,
+                        &prepared,
+                    ),
+                    signer,
+                    acting_as,
+                    None,
+                ),
+            );
+        }
+        let resolved = inv.resolve_signer()?;
+        submit_update_leverage(inv, &resolved.selected_signer(), prepared).await
+    }
+}
+
+pub struct PositionsUpdateMargin;
+
+impl CliCommand for PositionsUpdateMargin {
+    type Args = UpdateMarginArgs;
+
+    const SPEC: CommandSpec = CommandSpec::signed(
+        &["positions", "update-margin"],
+        "trade",
+        "Update margin for a position",
+        "Add or remove isolated margin.",
+    )
+    .args(&[
+        arg("coin")
+            .kind(InputKind::MarketSymbol)
+            .describe("Perpetual coin.")
+            .resource_id("coin"),
+        arg("amount")
+            .kind(InputKind::Amount)
+            .describe("Margin amount."),
+    ]);
+
+    async fn run(inv: &Invocation, args: &UpdateMarginArgs) -> Result<(), anyhow::Error> {
+        validate_update_margin_args(args)?;
+        let resolver = inv.trading_resolver().await?;
+        let prepared = prepare_update_margin(&resolver, args)?;
+        if inv.dry_run() {
+            let (signer, acting_as) = dry_run_signing_addresses(inv);
+            return print_dry_run(
+                inv,
+                "positions update-margin",
+                dry_run_signed_details(
+                    inv,
+                    "update_isolated_margin",
+                    update_margin_dry_run_value(
+                        inv.remote()?.network().to_string(),
+                        args,
+                        &prepared,
+                    ),
+                    signer,
+                    acting_as,
+                    None,
+                ),
+            );
+        }
+        let resolved = inv.resolve_signer()?;
+        let signer = resolved.selected_signer();
+        submit_update_margin(inv, &signer, prepared).await
+    }
+}
+
+async fn watch_positions(inv: &Invocation, max_ticks: Option<usize>) -> Result<(), anyhow::Error> {
+    let remote = inv.remote()?;
+    let client = remote.api().sdk();
+    let resolved = inv.resolve_signer()?;
+    let user = resolved.query_address();
+
+    crate::watch::run_snapshot_watch(
+        inv.session(),
+        "Live positions",
+        remote.chain(),
+        vec![Subscription::WebData3 { user }],
+        max_ticks,
+        move || async move { list_snapshot(client, user).await },
+    )
+    .await
 }
 
 #[cfg(test)]

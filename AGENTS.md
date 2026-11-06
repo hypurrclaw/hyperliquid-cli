@@ -12,11 +12,14 @@
 
 ## Architecture
 
-- `src/main.rs` — clap entry point, global flags, command dispatch, network/client setup.
-- `src/cli_shell.rs` — clap tree decoration (help order, aliases, catalog-derived option help and `Notes:`), usage-error and help rendering, panic hook, output-format resolution.
+- `src/main.rs` — global options and process boot. The commands are not declared here.
+- `src/command_spec.rs` — the one definition of a command: `CliCommand` (clap `Args`, `CommandSpec` policy, `run`), `ArgSpec`, `GroupSpec`, and `Entry`, which erases the type for the clap tree builder.
+- `src/command_registry.rs` — `CommandRegistry`, generated from the clap tree plus each command's `CommandSpec`. `hyperliquid schema`, help notes and the contract fixtures read it; nothing in it is written by hand per command.
+- `src/cli_runtime.rs` — the one pipeline every command runs through: validate, bound streams, payload, dry-run, confirmation, API override, run.
+- `src/cli_shell.rs` — clap tree decoration (registry-derived option help and `Notes:`), usage-error and help rendering, panic hook, output-format resolution.
 - `src/errors/` — `CliError` and its one variant spec table (exit code, category, reason, retryability), the remote-text classifier (`classify`), transport failure naming, JSON envelope and human rendering.
 - `src/output/` — pretty/table/JSON rendering, color theme, JSON projection.
-- `src/commands/` — one module per command domain.
+- `src/commands/` — one module per command domain. A command is a type implementing `CliCommand` next to its `Args`; `commands::entries` (help order) registers it with one line, `commands::groups` lists group names such as `orders`.
 - `src/assets/` — asset names (`AssetQuery`), resolved markets (`Market`), exchange metadata loaders and cache, the HIP-3 live lookup, and the protocol asset-id layout (`asset_id`).
 - `src/http_api.rs` — `ApiClient`, the one HTTP edge to the Hyperliquid API: chain, resolved base URL (loopback override applied once), the `hypersdk` client, typed and raw `/info` reads with the retry policy, single-send `/exchange` posts with unknown-outcome mapping, and the override probe. Nothing else builds API request URLs.
 - `src/auth.rs` — the one signer-selection resolver. `src/settings.rs` — env var names, help-text env section and layered flag/env/config settings. `src/config.rs` — the config file. `src/wallet_store.rs` — vault + config wallet workflow. `src/ows/` — `vault.rs` (wallet lifecycle) and `signing.rs` (signing backend). `src/legacy_accounts.rs` — read-only reader for old `accounts.db`. `src/private_fs.rs` — owner-only file writes and locks. `src/update/` — update notifier and self-updater.
@@ -96,6 +99,7 @@ hyperliquid --format json --max-results 5 perps list
 hyperliquid --format json schema orders create
 ```
 
+Adding a command: implement `CliCommand` in its domain module (`Args`, `SPEC` with risk, dry-run, confirmation, input kinds and schema descriptions, `run`), add one `Entry::of::<..>()` line to `commands::entries`, and regenerate the contract fixtures with `HYPERLIQUID_UPDATE_CONTRACTS=1 cargo test --test contract_fixtures`.
 When adding or changing commands, ensure `--select` filters JSON output and `--results-only` remains harmless for commands that already return bare arrays or objects.
 Use `--dry-run` for mutating-command validation when side effects are not intended.
 Effective output format precedence is: explicit `--format pretty|table|json`, then `HYPERLIQUID_FORMAT=pretty|table|json`, then agent/non-TTY defaults. `HYPERLIQUID_AGENT=1` and non-TTY stdout default one-shot commands to JSON so agents can parse output even when `--format json` is omitted.

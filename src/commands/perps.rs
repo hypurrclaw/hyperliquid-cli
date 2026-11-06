@@ -3,6 +3,7 @@
 /// Commands:
 /// - `hyperliquid perps list` — list all perpetual markets
 /// - `hyperliquid perps get <COIN>` — get details for a specific perpetual market
+use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, InputKind, arg};
 use clap::Args;
 use hypersdk::Decimal;
 use hypersdk::hypercore::PerpMarket;
@@ -200,6 +201,58 @@ pub async fn get(inv: &Invocation, args: &PerpsGetArgs) -> Result<(), anyhow::Er
 
     inv.print(&PerpMarketDetailsOutput::new(market));
     Ok(())
+}
+
+pub const GROUP: GroupSpec =
+    GroupSpec::new(&["perps"], "Query perpetual markets").aliases(&["perp"]);
+
+pub struct PerpsList;
+
+impl CliCommand for PerpsList {
+    type Args = PerpsListArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["perps", "list"],
+        "market",
+        "List all perpetual markets",
+        "List perpetual markets.",
+    )
+    .cli_aliases(&["ls"])
+    .args(&[arg("dex")
+        .kind(InputKind::VenueSelector)
+        .describe("HIP-3 DEX name.")
+        .resource_id("dex")]);
+
+    async fn run(inv: &Invocation, args: &PerpsListArgs) -> Result<(), anyhow::Error> {
+        list(inv, args).await
+    }
+}
+
+pub struct PerpsGet;
+
+impl CliCommand for PerpsGet {
+    type Args = PerpsGetArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["perps", "get"],
+        "market",
+        "Get details for a specific perpetual market",
+        "Get details for a perpetual market.",
+    )
+    .args(&[
+        arg("coin")
+            .kind(InputKind::MarketSymbol)
+            .describe("Perpetual coin, for example BTC.")
+            .resource_id("coin"),
+        arg("dex")
+            .kind(InputKind::VenueSelector)
+            .describe("HIP-3 DEX name.")
+            .resource_id("dex"),
+    ]);
+
+    async fn run(inv: &Invocation, args: &PerpsGetArgs) -> Result<(), anyhow::Error> {
+        get(inv, args).await
+    }
 }
 
 #[cfg(test)]

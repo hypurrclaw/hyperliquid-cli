@@ -1,9 +1,146 @@
-use serde::{Deserialize, Serialize};
+//! The command contract registry, generated from the registered commands.
+//!
+//! The clap tree supplies names, args, defaults and help; each command's
+//! [`CommandSpec`] supplies policy. Nothing here is written by hand per command.
+
+use std::sync::LazyLock;
+
+use clap::builder::ValueParser;
+use clap::{Arg, ArgAction, Command};
+use serde::Serialize;
 use serde_json::{Value, json};
 
-use crate::command_metadata::{
-    CatalogArgMetadata, CatalogCommandMetadata, command_metadata, normalize_arg,
+use crate::command_spec::{
+    ArgSpec, CommandSpec, ConfirmationPolicy, DryRunPolicy, GroupSpec, InputKind, Lifecycle,
+    OutputContract, OwsSupport, RawPayloadPolicy, Risk, StreamBound,
 };
+use crate::commands;
+
+/// `schema` lists commands in this order, the order the hand-written catalog had.
+/// Commands that are not listed follow in registration order.
+const SCHEMA_ORDER: &[&str] = &[
+    "status",
+    "meta",
+    "perps list",
+    "perps get",
+    "spot list",
+    "spot get",
+    "book",
+    "mids",
+    "candles",
+    "spread",
+    "funding",
+    "asset decode",
+    "asset search",
+    "search",
+    "buy",
+    "sell",
+    "outcome-buy",
+    "outcome-sell",
+    "watch risk",
+    "outcomes list",
+    "outcomes get",
+    "builder max-fee",
+    "builder approved",
+    "builder approve",
+    "account fills",
+    "account fees",
+    "account rate-limit",
+    "account orders",
+    "account portfolio",
+    "account subaccounts",
+    "account portfolio-history",
+    "account ledger",
+    "account funding",
+    "account twap-history",
+    "account twap-fills",
+    "account abstraction",
+    "account abstraction set",
+    "subaccount list",
+    "subaccount create",
+    "subaccount transfer",
+    "subaccount spot-transfer",
+    "account ls",
+    "account add",
+    "account set-default",
+    "account remove",
+    "api-wallet create",
+    "api-wallet approve",
+    "api-wallet list",
+    "api-wallet revoke",
+    "wallet create",
+    "wallet import",
+    "wallet show",
+    "wallet address",
+    "wallet reset",
+    "wallet import-mnemonic",
+    "wallet list",
+    "wallet rename",
+    "wallet delete",
+    "wallet export",
+    "orders open",
+    "orders history",
+    "orders status",
+    "positions list",
+    "staking validators",
+    "staking summary",
+    "staking rewards",
+    "staking history",
+    "vault list",
+    "vault search",
+    "vault get",
+    "vault positions",
+    "borrowlend rates",
+    "borrowlend get",
+    "borrowlend user",
+    "borrowlend supply",
+    "borrowlend withdraw",
+    "prio status",
+    "referral status",
+    "orders create",
+    "orders scale",
+    "orders batch-create",
+    "orders tpsl",
+    "orders trailing-stop",
+    "orders cancel",
+    "orders cancel-all",
+    "orders modify",
+    "orders twap-create",
+    "orders twap-cancel",
+    "positions update-leverage",
+    "positions update-margin",
+    "orders schedule-cancel",
+    "orders chase",
+    "orders bracket",
+    "transfer spot-to-perp",
+    "transfer perp-to-spot",
+    "transfer send",
+    "transfer spot-send",
+    "transfer send-asset",
+    "transfer withdraw",
+    "staking delegate",
+    "staking undelegate",
+    "staking deposit",
+    "staking withdraw",
+    "staking claim-rewards",
+    "staking link initiate",
+    "staking link finalize",
+    "vault deposit",
+    "vault withdraw",
+    "prio bid",
+    "referral set",
+    "referral register",
+    "subscribe trades",
+    "subscribe orderbook",
+    "subscribe candles",
+    "subscribe all-mids",
+    "subscribe order-updates",
+    "subscribe fills",
+    "feedback",
+    "schema",
+    "update",
+    "setup",
+];
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CommandRegistry {
@@ -11,14 +148,29 @@ pub struct CommandRegistry {
 }
 
 impl CommandRegistry {
-    pub fn load() -> Result<Self, anyhow::Error> {
-        let catalog: Catalog = serde_json::from_str(include_str!("command_catalog.json"))?;
-        let commands = catalog
-            .commands
-            .into_iter()
-            .map(CommandContract::from_catalog)
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(Self { commands })
+    /// The registry of every registered command, built once.
+    pub fn get() -> &'static Self {
+        static REGISTRY: LazyLock<CommandRegistry> = LazyLock::new(CommandRegistry::build);
+        &REGISTRY
+    }
+
+    fn build() -> Self {
+        let groups = commands::groups();
+        let mut tree = commands::command_tree();
+        tree.build();
+        let mut contracts = commands::entries()
+            .iter()
+            .map(|entry| CommandContract::generate(&tree, entry.spec, groups))
+            .collect::<Vec<_>>();
+        contracts.sort_by_key(|contract| {
+            SCHEMA_ORDER
+                .iter()
+                .position(|key| *key == contract.command_key())
+                .unwrap_or(SCHEMA_ORDER.len())
+        });
+        Self {
+            commands: contracts,
+        }
     }
 
     pub fn commands(&self) -> &[CommandContract] {
@@ -56,45 +208,85 @@ pub struct CommandContract {
     pub output_contract: OutputContract,
     pub one_of_required: Vec<Vec<String>>,
     pub inputs: Vec<InputContract>,
+    #[serde(skip)]
+    pub spec: &'static CommandSpec,
 }
 
 impl CommandContract {
-    fn from_catalog(command: CatalogCommand) -> Result<Self, anyhow::Error> {
-        let command_path = command_parts(&command.command)?;
-        let command_key = command_path.join(" ");
-        let metadata = command_metadata(&command, &command_key);
-        let args = command
-            .args
-            .into_iter()
-            .map(normalize_arg)
+    fn generate(tree: &Command, spec: &'static CommandSpec, groups: &[GroupSpec]) -> Self {
+        let node = find_node(tree, spec.path);
+        let mut args = node
+            .get_arguments()
+            .filter(|arg| !matches!(arg.get_id().as_str(), "help" | "version"))
             .collect::<Vec<_>>();
-        let lifecycle = Lifecycle::from(metadata.lifecycle.as_str());
-        let risk = Risk::from(metadata.risk.as_str());
-        let dry_run = DryRunPolicy::from(metadata.dry_run.as_str());
-        let raw_payload = RawPayloadPolicy::from(metadata.raw_payload.as_str());
-        let confirmation = ConfirmationPolicy::from(metadata.confirmation.as_str());
-        let ows_signer = OwsSupport::from(metadata.ows_signer.as_str());
-        let transport = primary_transport(lifecycle);
-        Ok(Self {
-            command: command.command,
-            command_path,
-            aliases: metadata.aliases,
-            group: command.group,
-            description: command.description,
-            auth_required: command.auth_required,
-            dangerous: command.dangerous,
-            lifecycle,
-            risk,
-            mutability: Mutability::from_lifecycle_and_risk(lifecycle, risk),
-            dry_run,
-            raw_payload,
-            confirmation,
-            transport,
-            ows_signer,
-            output_contract: output_contract(&command_key, lifecycle, dry_run),
-            one_of_required: command.one_of_required,
-            inputs: args.into_iter().map(InputContract::from_catalog).collect(),
-        })
+        for listed in spec.args {
+            assert!(
+                args.iter().any(|arg| arg.get_id() == listed.id),
+                "command {} lists arg {} that clap does not define",
+                spec.key(),
+                listed.id
+            );
+        }
+        args.sort_by_key(|arg| {
+            spec.args
+                .iter()
+                .position(|listed| listed.id == arg.get_id())
+                .unwrap_or(spec.args.len())
+        });
+        let usage = spec.schema_command.map_or_else(
+            || {
+                let mut positionals = args
+                    .iter()
+                    .filter(|arg| arg.is_positional())
+                    .collect::<Vec<_>>();
+                positionals.sort_by_key(|arg| arg.get_index());
+                positionals
+                    .iter()
+                    .fold(format!("hyperliquid {}", spec.key()), |usage, arg| {
+                        format!("{usage} <{}>", arg.get_id().as_str().to_uppercase())
+                    })
+            },
+            str::to_string,
+        );
+        let aliases = groups
+            .iter()
+            .find(|group| group.path == &spec.path[..1] && group.schema_aliases)
+            .map(|group| {
+                group
+                    .aliases
+                    .iter()
+                    .map(|alias| (*alias).to_string())
+                    .collect()
+            })
+            .unwrap_or_default();
+        Self {
+            command: usage,
+            command_path: spec.path.iter().map(|part| (*part).to_string()).collect(),
+            aliases,
+            group: spec.group.to_string(),
+            description: spec.description.to_string(),
+            auth_required: spec.auth_required,
+            dangerous: spec.dangerous,
+            lifecycle: spec.lifecycle,
+            risk: spec.risk,
+            mutability: Mutability::from_lifecycle_and_risk(spec.lifecycle, spec.risk),
+            dry_run: spec.dry_run,
+            raw_payload: spec.raw_payload,
+            confirmation: spec.confirmation,
+            transport: primary_transport(spec.lifecycle),
+            ows_signer: spec.ows_signer,
+            output_contract: output_contract(spec),
+            one_of_required: spec
+                .one_of_required
+                .iter()
+                .map(|required| required.iter().map(|id| (*id).to_string()).collect())
+                .collect(),
+            inputs: args
+                .into_iter()
+                .map(|arg| InputContract::generate(arg, spec.arg(arg.get_id().as_str())))
+                .collect(),
+            spec,
+        }
     }
 
     pub fn command_key(&self) -> String {
@@ -102,7 +294,7 @@ impl CommandContract {
     }
 
     /// Name of the boolean flag that answers this command's confirmation prompt,
-    /// derived from the catalog args: `Some("yes")` for every command with a `yes` arg.
+    /// derived from the args: `Some("yes")` for every command with a `yes` arg.
     pub fn confirmation_bypass_arg(&self) -> Option<&'static str> {
         self.inputs
             .iter()
@@ -110,12 +302,12 @@ impl CommandContract {
             .then_some("yes")
     }
 
-    /// Catalog input for an arg id.
+    /// Input for an arg id.
     pub fn input(&self, id: &str) -> Option<&InputContract> {
         self.inputs.iter().find(|input| input.id == id)
     }
 
-    /// Catalog description for an arg id, when it has one.
+    /// Schema description for an arg id, when it has one.
     pub fn arg_description(&self, id: &str) -> Option<&str> {
         self.input(id)
             .and_then(|input| input.description.as_deref())
@@ -123,25 +315,21 @@ impl CommandContract {
 
     pub fn metadata_json(&self) -> Value {
         let yes_support = self.confirmation_bypass_arg();
-        let has_snapshot_watch = self.inputs.iter().any(|input| input.id == "watch")
-            && self.inputs.iter().any(|input| input.id == "max_ticks");
-        let stream_bounds = if self.output_contract == OutputContract::BoundedNdjsonStream {
-            json!({
+        let stream_bounds = match self.spec.stream {
+            Some(StreamBound::Subscribe) => json!({
                 "required_in_machine_context": true,
                 "cli_args": ["max_events", "idle_timeout_ms"],
                 "env": ["HYPERLIQUID_SUBSCRIBE_MAX_EVENTS"],
                 "output_mode": "ndjson"
-            })
-        } else if has_snapshot_watch {
-            json!({
+            }),
+            Some(StreamBound::SnapshotWatch) => json!({
                 "required_in_machine_context": true,
                 "required_when": {"watch": true},
                 "cli_args": ["max_ticks"],
                 "env": ["HYPERLIQUID_WATCH_MAX_TICKS"],
                 "output_mode": "ndjson"
-            })
-        } else {
-            Value::Null
+            }),
+            None => Value::Null,
         };
         json!({
             "aliases": self.aliases,
@@ -179,41 +367,70 @@ pub struct InputContract {
 }
 
 impl InputContract {
-    fn from_catalog(arg: CatalogArg) -> Self {
+    fn generate(arg: &Arg, spec: Option<&ArgSpec>) -> Self {
+        let flag = matches!(arg.get_action(), ArgAction::SetTrue | ArgAction::SetFalse);
+        let repeats = matches!(arg.get_action(), ArgAction::Append);
         Self {
-            kind: arg.input_kind.as_deref().map(InputKind::from),
-            id: arg.id,
-            long: arg.long,
-            short: arg.short,
-            positional_index: arg.positional_index,
-            arg_type: arg.arg_type,
-            required: arg.required,
-            multiple: arg.multiple,
-            enum_values: arg.enum_values,
-            description: arg.description,
-            default: arg.default,
+            id: arg.get_id().to_string(),
+            long: arg.get_long().map(str::to_string),
+            short: arg.get_short().map(String::from),
+            positional_index: arg.get_index().map(|index| index - 1),
+            arg_type: if spec.is_some_and(|spec| spec.schema_string) {
+                "string"
+            } else if flag {
+                "boolean"
+            } else if is_integer(arg) {
+                "integer"
+            } else {
+                "string"
+            }
+            .to_string(),
+            required: arg.is_required_set() || spec.is_some_and(|spec| spec.schema_required),
+            multiple: repeats && !spec.is_some_and(|spec| spec.schema_single),
+            enum_values: arg
+                .get_possible_values()
+                .iter()
+                .map(|value| value.get_name().to_string())
+                .collect(),
+            description: spec
+                .and_then(|spec| spec.description)
+                .map(str::to_string)
+                .or_else(|| arg.get_help().map(|help| format!("{help}."))),
+            default: if flag {
+                None
+            } else {
+                arg.get_default_values()
+                    .first()
+                    .map(|value| value.to_string_lossy().to_string())
+            },
+            kind: spec.and_then(|spec| spec.kind),
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Lifecycle {
-    ReadOnly,
-    Streaming,
-    InteractiveLocal,
-    LiveMutating,
-    BlockedUnsupported,
+fn find_node<'a>(tree: &'a Command, path: &[&str]) -> &'a Command {
+    path.iter().fold(tree, |node, name| {
+        node.find_subcommand(name)
+            .unwrap_or_else(|| panic!("command path {path:?} is not in the clap tree"))
+    })
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Risk {
-    None,
-    AccountState,
-    FundsMovement,
-    LocalSecret,
-    LocalState,
+fn is_integer(arg: &Arg) -> bool {
+    let actual = arg.get_value_parser().type_id();
+    [
+        ValueParser::from(clap::value_parser!(u8)),
+        ValueParser::from(clap::value_parser!(u16)),
+        ValueParser::from(clap::value_parser!(u32)),
+        ValueParser::from(clap::value_parser!(u64)),
+        ValueParser::from(clap::value_parser!(usize)),
+        ValueParser::from(clap::value_parser!(i8)),
+        ValueParser::from(clap::value_parser!(i16)),
+        ValueParser::from(clap::value_parser!(i32)),
+        ValueParser::from(clap::value_parser!(i64)),
+        ValueParser::from(clap::value_parser!(isize)),
+    ]
+    .iter()
+    .any(|integer| integer.type_id() == actual)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -224,122 +441,6 @@ pub enum Mutability {
     LocalOnly,
     LiveMutating,
     Blocked,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum DryRunPolicy {
-    NotSupported,
-    Optional,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum RawPayloadPolicy {
-    Unsupported,
-    DryRunOnly,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ConfirmationPolicy {
-    None,
-    Prompt,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Transport {
-    CliProcess,
-    CliInteractive,
-    CliBlocked,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum OwsSupport {
-    NotRequired,
-    AddressSelectorSupported,
-    ExperimentalFeatureGated,
-    LocalOnly,
-    NotApplicable,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum OutputContract {
-    JsonValue,
-    SchemaArrayOrObject,
-    BoundedNdjsonStream,
-    CommandResultOrDryRunEnvelope,
-    InteractiveLocal,
-    BlockedUnsupported,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum InputKind {
-    SignerSelector,
-    ActingAccountSelector,
-    PublicUserSelector,
-    RawDestinationAddress,
-    ProtocolObjectAddress,
-    MarketSymbol,
-    VenueSelector,
-    Boolean,
-    Price,
-    Amount,
-    FilePath,
-    Duration,
-    JsonObject,
-    Url,
-    Identifier,
-}
-
-impl InputKind {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::SignerSelector => "signer_selector",
-            Self::ActingAccountSelector => "acting_account_selector",
-            Self::PublicUserSelector => "public_user_selector",
-            Self::RawDestinationAddress => "raw_destination_address",
-            Self::ProtocolObjectAddress => "protocol_object_address",
-            Self::MarketSymbol => "market_symbol",
-            Self::VenueSelector => "venue_selector",
-            Self::Boolean => "boolean",
-            Self::Price => "price",
-            Self::Amount => "amount",
-            Self::FilePath => "file_path",
-            Self::Duration => "duration",
-            Self::JsonObject => "json_object",
-            Self::Url => "url",
-            Self::Identifier => "identifier",
-        }
-    }
-}
-
-impl From<&str> for Lifecycle {
-    fn from(value: &str) -> Self {
-        match value {
-            "streaming" => Self::Streaming,
-            "interactive_local" => Self::InteractiveLocal,
-            "live_mutating" => Self::LiveMutating,
-            "blocked_unsupported" => Self::BlockedUnsupported,
-            _ => Self::ReadOnly,
-        }
-    }
-}
-
-impl From<&str> for Risk {
-    fn from(value: &str) -> Self {
-        match value {
-            "account_state" => Self::AccountState,
-            "funds_movement" => Self::FundsMovement,
-            "local_secret" => Self::LocalSecret,
-            "local_state" => Self::LocalState,
-            _ => Self::None,
-        }
-    }
 }
 
 impl Mutability {
@@ -357,79 +458,12 @@ impl Mutability {
     }
 }
 
-impl From<&str> for DryRunPolicy {
-    fn from(value: &str) -> Self {
-        match value {
-            "optional" => Self::Optional,
-            _ => Self::NotSupported,
-        }
-    }
-}
-
-impl From<&str> for RawPayloadPolicy {
-    fn from(value: &str) -> Self {
-        match value {
-            "dry_run_only" => Self::DryRunOnly,
-            _ => Self::Unsupported,
-        }
-    }
-}
-
-impl From<&str> for ConfirmationPolicy {
-    fn from(value: &str) -> Self {
-        match value {
-            "prompt" => Self::Prompt,
-            _ => Self::None,
-        }
-    }
-}
-
-impl From<&str> for OwsSupport {
-    fn from(value: &str) -> Self {
-        match value {
-            "address_selector_supported" => Self::AddressSelectorSupported,
-            "experimental_feature_gated" => Self::ExperimentalFeatureGated,
-            "local_only" => Self::LocalOnly,
-            "not_applicable" => Self::NotApplicable,
-            _ => Self::NotRequired,
-        }
-    }
-}
-
-impl From<&str> for InputKind {
-    fn from(value: &str) -> Self {
-        match value {
-            "signer_selector" => Self::SignerSelector,
-            "acting_account_selector" => Self::ActingAccountSelector,
-            "public_user_selector" => Self::PublicUserSelector,
-            "raw_destination_address" => Self::RawDestinationAddress,
-            "protocol_object_address" => Self::ProtocolObjectAddress,
-            "market_symbol" => Self::MarketSymbol,
-            "venue_selector" => Self::VenueSelector,
-            "boolean" => Self::Boolean,
-            "price" => Self::Price,
-            "amount" => Self::Amount,
-            "file_path" => Self::FilePath,
-            "duration" => Self::Duration,
-            "json_object" => Self::JsonObject,
-            "url" => Self::Url,
-            _ => Self::Identifier,
-        }
-    }
-}
-
-fn command_parts(command: &str) -> Result<Vec<String>, anyhow::Error> {
-    let parts = command
-        .split_whitespace()
-        .filter(|part| *part != "hyperliquid")
-        .filter(|part| !part.starts_with('-'))
-        .filter(|part| !part.starts_with('<') && !part.ends_with('>'))
-        .map(str::to_string)
-        .collect::<Vec<_>>();
-    if parts.is_empty() {
-        anyhow::bail!("catalog command '{command}' did not contain a command path");
-    }
-    Ok(parts)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Transport {
+    CliProcess,
+    CliInteractive,
+    CliBlocked,
 }
 
 fn primary_transport(lifecycle: Lifecycle) -> Vec<Transport> {
@@ -440,136 +474,19 @@ fn primary_transport(lifecycle: Lifecycle) -> Vec<Transport> {
     }
 }
 
-fn output_contract(
-    command_key: &str,
-    lifecycle: Lifecycle,
-    dry_run: DryRunPolicy,
-) -> OutputContract {
-    if command_key.starts_with("subscribe ") {
+fn output_contract(spec: &CommandSpec) -> OutputContract {
+    if let Some(contract) = spec.output {
+        contract
+    } else if spec.stream == Some(StreamBound::Subscribe) {
         OutputContract::BoundedNdjsonStream
-    } else if command_key == "schema" {
-        OutputContract::SchemaArrayOrObject
-    } else if lifecycle == Lifecycle::InteractiveLocal {
+    } else if spec.lifecycle == Lifecycle::InteractiveLocal {
         OutputContract::InteractiveLocal
-    } else if lifecycle == Lifecycle::BlockedUnsupported {
+    } else if spec.lifecycle == Lifecycle::BlockedUnsupported {
         OutputContract::BlockedUnsupported
-    } else if dry_run == DryRunPolicy::Optional {
+    } else if spec.dry_run == DryRunPolicy::Optional {
         OutputContract::CommandResultOrDryRunEnvelope
     } else {
         OutputContract::JsonValue
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct Catalog {
-    commands: Vec<CatalogCommand>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct CatalogCommand {
-    command: String,
-    group: String,
-    #[serde(default)]
-    auth_required: bool,
-    #[serde(default)]
-    dangerous: bool,
-    #[serde(default)]
-    aliases: Vec<String>,
-    lifecycle: String,
-    risk: String,
-    dry_run: String,
-    raw_payload: String,
-    confirmation: String,
-    ows_signer: String,
-    description: String,
-    #[serde(default)]
-    one_of_required: Vec<Vec<String>>,
-    #[serde(default)]
-    args: Vec<CatalogArg>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct CatalogArg {
-    id: String,
-    #[serde(default)]
-    long: Option<String>,
-    #[serde(default)]
-    short: Option<String>,
-    #[serde(default)]
-    positional_index: Option<usize>,
-    #[serde(default = "default_string_type")]
-    arg_type: String,
-    #[serde(default)]
-    required: bool,
-    #[serde(default)]
-    multiple: bool,
-    #[serde(default)]
-    enum_values: Vec<String>,
-    #[serde(default)]
-    description: Option<String>,
-    #[serde(default)]
-    default: Option<String>,
-    #[serde(default)]
-    input_kind: Option<String>,
-}
-
-fn default_string_type() -> String {
-    "string".to_string()
-}
-
-impl CatalogCommandMetadata for CatalogCommand {
-    fn aliases(&self) -> &[String] {
-        &self.aliases
-    }
-
-    fn lifecycle(&self) -> &str {
-        &self.lifecycle
-    }
-
-    fn risk(&self) -> &str {
-        &self.risk
-    }
-
-    fn dry_run(&self) -> &str {
-        &self.dry_run
-    }
-
-    fn raw_payload(&self) -> &str {
-        &self.raw_payload
-    }
-
-    fn confirmation(&self) -> &str {
-        &self.confirmation
-    }
-
-    fn ows_signer(&self) -> &str {
-        &self.ows_signer
-    }
-}
-
-impl CatalogArgMetadata for CatalogArg {
-    fn id(&self) -> &str {
-        &self.id
-    }
-
-    fn long(&self) -> Option<&str> {
-        self.long.as_deref()
-    }
-
-    fn arg_type(&self) -> &str {
-        &self.arg_type
-    }
-
-    fn description(&self) -> Option<&str> {
-        self.description.as_deref()
-    }
-
-    fn input_kind(&self) -> Option<&str> {
-        self.input_kind.as_deref()
-    }
-
-    fn set_input_kind(&mut self, input_kind: String) {
-        self.input_kind = Some(input_kind);
     }
 }
 
@@ -580,37 +497,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registry_enumerates_current_catalog_inventory() {
-        let registry = CommandRegistry::load().unwrap();
+    fn registry_enumerates_every_registered_command() {
+        let registry = CommandRegistry::get();
         assert_eq!(registry.commands().len(), 121);
-        assert!(registry.find_path(&["asset", "decode"]).is_some());
-        assert!(registry.find_path(&["asset", "search"]).is_some());
-        assert!(registry.find_path(&["search"]).is_some());
-        assert!(registry.find_path(&["buy"]).is_some());
-        assert!(registry.find_path(&["orders", "chase"]).is_some());
-        assert!(registry.find_path(&["orders", "bracket"]).is_some());
-        assert!(registry.find_path(&["orders", "trailing-stop"]).is_some());
-        assert!(registry.find_path(&["watch", "risk"]).is_some());
-        assert!(registry.find_path(&["orders", "create"]).is_some());
-        assert!(registry.find_path(&["wallet", "create"]).is_some());
-        assert!(registry.find_path(&["feedback"]).is_some());
-        assert!(registry.find_path(&["schema"]).is_some());
-    }
-
-    #[test]
-    fn registry_normalizes_option_placeholders_out_of_command_paths() {
-        let registry = CommandRegistry::load().unwrap();
-        assert!(
-            registry
-                .find_path(&["borrowlend", "supply"])
-                .is_some_and(|command| command.command_key() == "borrowlend supply")
-        );
+        for path in [
+            &["asset", "decode"][..],
+            &["asset", "search"],
+            &["search"],
+            &["buy"],
+            &["orders", "chase"],
+            &["orders", "bracket"],
+            &["orders", "trailing-stop"],
+            &["watch", "risk"],
+            &["orders", "create"],
+            &["wallet", "create"],
+            &["feedback"],
+            &["schema"],
+        ] {
+            assert!(registry.find_path(path).is_some(), "{path:?}");
+        }
     }
 
     #[test]
     fn registry_includes_current_command_families() {
-        let registry = CommandRegistry::load().unwrap();
-        let groups = registry
+        let groups = CommandRegistry::get()
             .commands()
             .iter()
             .map(|command| command.group.as_str())
@@ -630,6 +540,15 @@ mod tests {
             "wallet",
         ] {
             assert!(groups.contains(group), "missing command group {group}");
+        }
+    }
+
+    #[test]
+    fn schema_order_names_only_registered_commands() {
+        let registry = CommandRegistry::get();
+        for key in SCHEMA_ORDER {
+            let path = key.split(' ').collect::<Vec<_>>();
+            assert!(registry.find_path(&path).is_some(), "{key}");
         }
     }
 }
