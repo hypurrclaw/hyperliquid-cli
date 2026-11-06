@@ -782,12 +782,11 @@ pub fn render_human_error(err: &CliError, rich: bool) -> String {
 
     let headline = err.to_string();
     let mut out = if rich {
-        format!("{} {headline}", colors::red("✗"))
+        format!("{} {headline}", colors::paint(colors::RED, "✗"))
     } else {
         format!("Error: {headline}")
     };
     if let Some(detail) = err.detail() {
-        let detail = if rich { colors::gray(&detail) } else { detail };
         out.push_str(&format!("\n  {detail}"));
     }
     if let Some(recovery) = err.recovery() {
