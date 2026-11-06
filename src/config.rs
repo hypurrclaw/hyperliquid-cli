@@ -11,6 +11,7 @@
 
 use std::net::IpAddr;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::errors::CliError;
 
@@ -66,7 +67,7 @@ impl<'de> serde::Deserialize<'de> for Network {
 ///
 /// Fields are optional — the config file may be empty or partial.
 /// Missing fields are filled from env vars or CLI flags via the priority chain.
-#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Config {
     /// Private key (0x-prefixed hex). Stored for convenience; encrypted storage
     /// is planned for the wallet management feature.
@@ -92,6 +93,23 @@ pub struct Config {
     /// Default referral code to apply when `referral set` is invoked without a code.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_referral_code: Option<String>,
+}
+
+/// Never prints the plaintext key held in `private_key`.
+impl std::fmt::Debug for Config {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Config")
+            .field(
+                "private_key",
+                &self.private_key.as_ref().map(|_| "[redacted]"),
+            )
+            .field("network", &self.network)
+            .field("default_wallet_id", &self.default_wallet_id)
+            .field("default_builder_address", &self.default_builder_address)
+            .field("default_builder_fee_rate", &self.default_builder_fee_rate)
+            .field("default_referral_code", &self.default_referral_code)
+            .finish()
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -132,7 +150,55 @@ pub fn load_config_from_path(path: &Path) -> Result<Config, anyhow::Error> {
     let config: Config = serde_json::from_str(&contents).map_err(|e| {
         CliError::Configuration(format!("invalid config file {}: {}", path.display(), e))
     })?;
+    warn_config_hygiene(
+        path,
+        config
+            .private_key
+            .as_deref()
+            .is_some_and(|key| !key.is_empty()),
+    );
     Ok(config)
+}
+
+static CONFIG_HYGIENE_WARNED: AtomicBool = AtomicBool::new(false);
+
+/// Warn once per process when the config file stores a plaintext key or is readable by others.
+fn warn_config_hygiene(path: &Path, has_plaintext_key: bool) {
+    let loose_mode = loose_file_mode(path);
+    if !has_plaintext_key && loose_mode.is_none() {
+        return;
+    }
+    if CONFIG_HYGIENE_WARNED.swap(true, Ordering::Relaxed) {
+        return;
+    }
+    if has_plaintext_key {
+        eprintln!(
+            "! Config file {} stores a plaintext private key.",
+            path.display()
+        );
+        eprintln!("  Import it into the vault, then remove private_key from the file:");
+        eprintln!("    hyperliquid wallet import");
+    }
+    if let Some(mode) = loose_mode {
+        eprintln!(
+            "! Config file {} is readable by other users (mode {mode:04o}).",
+            path.display()
+        );
+        eprintln!("  Restrict it:");
+        eprintln!("    chmod 600 {}", path.display());
+    }
+}
+
+#[cfg(unix)]
+fn loose_file_mode(path: &Path) -> Option<u32> {
+    use std::os::unix::fs::PermissionsExt;
+    let mode = std::fs::metadata(path).ok()?.permissions().mode() & 0o777;
+    (mode & 0o077 != 0).then_some(mode)
+}
+
+#[cfg(not(unix))]
+fn loose_file_mode(_path: &Path) -> Option<u32> {
+    None
 }
 
 /// Load config from the default path (`~/.config/hyperliquid/config.json`).
@@ -149,23 +215,142 @@ pub fn load_config() -> Result<Option<Config>, anyhow::Error> {
     Ok(Some(load_config_from_path(&path)?))
 }
 
+/// Create `dir` and any missing parents; new directories are owner-only (0700).
+pub fn create_private_dir_all(dir: &Path) -> std::io::Result<()> {
+    let mut builder = std::fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(0o700);
+    }
+    builder.create(dir)
+}
+
+/// Replace `path` with `contents` atomically and owner-only.
+///
+/// The bytes go to a temp file created with `create_new` and mode 0600 in the
+/// target directory, are fsynced, then renamed over `path`. A crash leaves
+/// either the old file or the new one, never a truncated file. Missing parent
+/// directories are created with mode 0700.
+pub fn write_private_file_atomic(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+
+    let parent = match path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent,
+        _ => Path::new("."),
+    };
+    create_private_dir_all(parent)?;
+    let file_name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "file".to_string());
+
+    let mut attempt = 0_u32;
+    let (tmp_path, mut tmp) = loop {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |elapsed| elapsed.subsec_nanos());
+        let tmp_path = parent.join(format!(
+            ".{file_name}.{}.{nanos}.{attempt}.tmp",
+            std::process::id()
+        ));
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        match options.open(&tmp_path) {
+            Ok(file) => break (tmp_path, file),
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists && attempt < 16 => {
+                attempt += 1;
+            }
+            Err(err) => return Err(err),
+        }
+    };
+
+    let written = tmp
+        .write_all(contents)
+        .and_then(|()| tmp.sync_all())
+        .and_then(|()| std::fs::rename(&tmp_path, path));
+    if let Err(err) = written {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err(err);
+    }
+    #[cfg(unix)]
+    if let Ok(dir) = std::fs::File::open(parent) {
+        let _ = dir.sync_all();
+    }
+    Ok(())
+}
+
+/// Advisory lock held across a config read-modify-write section.
+///
+/// Released when dropped.
+#[derive(Debug)]
+pub struct ConfigLock {
+    _file: std::fs::File,
+}
+
+/// Lock `<config>.lock` so concurrent CLI processes can't lose each other's keys.
+pub fn lock_config() -> Result<ConfigLock, anyhow::Error> {
+    let path =
+        config_file_path().ok_or_else(|| anyhow::anyhow!("Cannot determine config directory"))?;
+    lock_config_at(&path)
+}
+
+/// Lock the sibling `<path>.lock` file, waiting up to 10 seconds for another process.
+pub fn lock_config_at(path: &Path) -> Result<ConfigLock, anyhow::Error> {
+    let mut lock_name = path.as_os_str().to_os_string();
+    lock_name.push(".lock");
+    let lock_path = std::path::PathBuf::from(lock_name);
+    let io_error = |err: std::io::Error| {
+        CliError::Configuration(format!(
+            "failed to lock config file {}: {err}",
+            path.display()
+        ))
+    };
+    if let Some(parent) = lock_path.parent() {
+        create_private_dir_all(parent).map_err(io_error)?;
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(false);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let file = options.open(&lock_path).map_err(io_error)?;
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        match file.try_lock() {
+            Ok(()) => return Ok(ConfigLock { _file: file }),
+            Err(std::fs::TryLockError::WouldBlock) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(25));
+            }
+            Err(std::fs::TryLockError::WouldBlock) => {
+                return Err(CliError::Configuration(format!(
+                    "Couldn't lock config file {} because another hyperliquid process holds it. Try again once it finishes.",
+                    path.display()
+                ))
+                .into());
+            }
+            Err(std::fs::TryLockError::Error(err)) => return Err(io_error(err).into()),
+        }
+    }
+}
+
 /// Save config to a specific file path.
 ///
-/// Creates parent directories if they don't exist.
-/// Overwrites any existing file.
+/// Creates parent directories (0700) if they don't exist and replaces any
+/// existing file atomically with mode 0600.
 pub fn save_config_to_path(config: &Config, path: &Path) -> Result<(), anyhow::Error> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| {
-            anyhow::anyhow!(
-                "Failed to create config directory {}: {}",
-                parent.display(),
-                e
-            )
-        })?;
-    }
     let json = serde_json::to_string_pretty(config)
         .map_err(|e| anyhow::anyhow!("Failed to serialize config: {}", e))?;
-    std::fs::write(path, json)
+    write_private_file_atomic(path, json.as_bytes())
         .map_err(|e| anyhow::anyhow!("Failed to write config file {}: {}", path.display(), e))?;
     Ok(())
 }
@@ -202,7 +387,9 @@ pub fn resolve_private_key_from_file(path: Option<&Path>) -> Result<Option<Strin
     let config: PrivateKeyConfig = serde_json::from_str(&contents).map_err(|e| {
         CliError::Configuration(format!("invalid config file {}: {}", path.display(), e))
     })?;
-    Ok(config.private_key.filter(|key| !key.is_empty()))
+    let private_key = config.private_key.filter(|key| !key.is_empty());
+    warn_config_hygiene(path, private_key.is_some());
+    Ok(private_key)
 }
 
 /// Resolve private key from CLI flag and environment variable only.
@@ -870,5 +1057,73 @@ mod tests {
         let err = resolve_api_base_url_override_value(Some("https://example.com")).unwrap_err();
         assert!(err.to_string().contains(ENV_API_BASE_URL));
         assert!(err.to_string().contains("localhost/loopback"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn save_config_writes_owner_only_file_in_owner_only_dir() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = TempDir::new().unwrap();
+        let path = tmp
+            .path()
+            .join("nested")
+            .join("hyperliquid")
+            .join("config.json");
+
+        save_config_to_path(&Config::default(), &path).unwrap();
+
+        let file_mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        let dir_mode = std::fs::metadata(path.parent().unwrap())
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(file_mode, 0o600);
+        assert_eq!(dir_mode, 0o700);
+    }
+
+    #[test]
+    fn atomic_write_replaces_contents_and_leaves_no_temp_files() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("secret");
+
+        write_private_file_atomic(&path, b"first").unwrap();
+        write_private_file_atomic(&path, b"second").unwrap();
+
+        assert_eq!(std::fs::read(&path).unwrap(), b"second");
+        let leftovers: Vec<_> = std::fs::read_dir(tmp.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(leftovers, vec!["secret".to_string()]);
+    }
+
+    #[test]
+    fn config_lock_excludes_a_second_holder_until_released() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("config.json");
+
+        let first = lock_config_at(&path).unwrap();
+        let lock_file = std::fs::OpenOptions::new()
+            .write(true)
+            .open(tmp.path().join("config.json.lock"))
+            .unwrap();
+        assert!(matches!(
+            lock_file.try_lock(),
+            Err(std::fs::TryLockError::WouldBlock)
+        ));
+        drop(first);
+        assert!(lock_file.try_lock().is_ok());
+    }
+
+    #[test]
+    fn config_debug_redacts_private_key() {
+        let config = Config {
+            private_key: Some("0xsupersecret".to_string()),
+            ..Config::default()
+        };
+        let debug = format!("{config:?}");
+        assert!(!debug.contains("supersecret"));
+        assert!(debug.contains("[redacted]"));
     }
 }

@@ -1,5 +1,14 @@
 use super::*;
 
+/// Error for a rejected exchange status. The exchange text is remote data, so
+/// it is sanitized and labelled before it reaches a terminal or an agent.
+pub(super) fn status_error(action: &str, err: &str) -> CliError {
+    CliError::Unsupported(format!(
+        "Couldn't {action}. Exchange said: {}",
+        labelled_untrusted_text(err)
+    ))
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub(super) struct OrderConfirmation {
     coin: String,
@@ -15,75 +24,90 @@ pub(super) struct OrderConfirmation {
     tif: Option<String>,
     reduce_only: bool,
     warning: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
 }
 
 impl OrderConfirmation {
+    fn from_prepared(
+        prepared: &PreparedOrder,
+        status: &str,
+        order_id: Option<u64>,
+        price: Decimal,
+        size: Decimal,
+    ) -> Self {
+        Self {
+            coin: prepared.coin.clone(),
+            side: prepared.side.to_string(),
+            order_type: prepared.order_type.to_string(),
+            status: status.to_string(),
+            order_id,
+            price: price.to_string(),
+            trigger_price: prepared.trigger_price.map(|price| price.to_string()),
+            size: size.to_string(),
+            amount: prepared.amount.map(|amount| amount.to_string()),
+            amount_unit: prepared
+                .amount
+                .as_ref()
+                .map(|_| prepared.amount_unit.clone()),
+            tif: prepared.tif.map(|tif| tif.to_string()),
+            reduce_only: prepared.request.reduce_only,
+            warning: prepared.warning.clone(),
+            error: None,
+        }
+    }
+
+    /// Build the row for one leg. A rejected leg becomes a `rejected` row that
+    /// carries the sanitized exchange error, so one bad leg never hides the
+    /// legs that were placed.
+    pub(super) fn from_leg_status(prepared: &PreparedOrder, status: OrderResponseStatus) -> Self {
+        match status {
+            OrderResponseStatus::Success => {
+                Self::from_prepared(prepared, "accepted", None, prepared.price, prepared.size)
+            }
+            OrderResponseStatus::WaitingForTrigger => Self::from_prepared(
+                prepared,
+                "waiting_for_trigger",
+                None,
+                prepared.price,
+                prepared.size,
+            ),
+            OrderResponseStatus::WaitingForFill => Self::from_prepared(
+                prepared,
+                "waiting_for_fill",
+                None,
+                prepared.price,
+                prepared.size,
+            ),
+            OrderResponseStatus::Resting { oid, .. } => Self::from_prepared(
+                prepared,
+                "resting",
+                Some(oid),
+                prepared.price,
+                prepared.size,
+            ),
+            OrderResponseStatus::Filled {
+                oid,
+                total_sz,
+                avg_px,
+            } => Self::from_prepared(prepared, "filled", Some(oid), avg_px, total_sz),
+            OrderResponseStatus::Error(err) => {
+                let mut row =
+                    Self::from_prepared(prepared, "rejected", None, prepared.price, prepared.size);
+                row.error = Some(labelled_untrusted_text(&err));
+                row
+            }
+        }
+    }
+
+    /// Build the row for a single order; a rejection is an error.
     pub(super) fn from_status(
         prepared: &PreparedOrder,
         status: OrderResponseStatus,
     ) -> Result<Self, CliError> {
         match status {
-            OrderResponseStatus::Success => Ok(Self {
-                coin: prepared.coin.clone(),
-                side: prepared.side.to_string(),
-                order_type: prepared.order_type.to_string(),
-                status: "accepted".to_string(),
-                order_id: None,
-                price: prepared.price.to_string(),
-                trigger_price: prepared.trigger_price.map(|price| price.to_string()),
-                size: prepared.size.to_string(),
-                amount: prepared.amount.map(|amount| amount.to_string()),
-                amount_unit: prepared
-                    .amount
-                    .as_ref()
-                    .map(|_| prepared.amount_unit.clone()),
-                tif: prepared.tif.map(|tif| tif.to_string()),
-                reduce_only: prepared.request.reduce_only,
-                warning: prepared.warning.clone(),
-            }),
-            OrderResponseStatus::Resting { oid, .. } => Ok(Self {
-                coin: prepared.coin.clone(),
-                side: prepared.side.to_string(),
-                order_type: prepared.order_type.to_string(),
-                status: "resting".to_string(),
-                order_id: Some(oid),
-                price: prepared.price.to_string(),
-                trigger_price: prepared.trigger_price.map(|price| price.to_string()),
-                size: prepared.size.to_string(),
-                amount: prepared.amount.map(|amount| amount.to_string()),
-                amount_unit: prepared
-                    .amount
-                    .as_ref()
-                    .map(|_| prepared.amount_unit.clone()),
-                tif: prepared.tif.map(|tif| tif.to_string()),
-                reduce_only: prepared.request.reduce_only,
-                warning: prepared.warning.clone(),
-            }),
-            OrderResponseStatus::Filled {
-                oid,
-                total_sz,
-                avg_px,
-            } => Ok(Self {
-                coin: prepared.coin.clone(),
-                side: prepared.side.to_string(),
-                order_type: prepared.order_type.to_string(),
-                status: "filled".to_string(),
-                order_id: Some(oid),
-                price: avg_px.to_string(),
-                trigger_price: prepared.trigger_price.map(|price| price.to_string()),
-                size: total_sz.to_string(),
-                amount: prepared.amount.map(|amount| amount.to_string()),
-                amount_unit: prepared
-                    .amount
-                    .as_ref()
-                    .map(|_| prepared.amount_unit.clone()),
-                tif: prepared.tif.map(|tif| tif.to_string()),
-                reduce_only: prepared.request.reduce_only,
-                warning: prepared.warning.clone(),
-            }),
-            OrderResponseStatus::Error(err) => {
-                Err(CliError::Unsupported(format!("order rejected: {err}")))
-            }
+            OrderResponseStatus::Error(err) => Err(status_error("place order", &err)),
+            other => Ok(Self::from_leg_status(prepared, other)),
         }
     }
 }
@@ -92,9 +116,19 @@ pub(super) struct OrderConfirmationOutput {
     pub(super) rows: Vec<OrderConfirmation>,
 }
 
+impl OrderConfirmationOutput {
+    fn has_errors(&self) -> bool {
+        self.rows.iter().any(|row| row.error.is_some())
+    }
+
+    pub(super) fn rejection_errors(&self) -> Vec<String> {
+        rejection_errors(self.rows.iter().map(|row| row.error.as_deref()))
+    }
+}
+
 impl TableData for OrderConfirmationOutput {
     fn headers(&self) -> Vec<&str> {
-        vec![
+        let mut headers = vec![
             "Coin",
             "Side",
             "Type",
@@ -108,14 +142,19 @@ impl TableData for OrderConfirmationOutput {
             "TIF",
             "Reduce Only",
             "Warning",
-        ]
+        ];
+        if self.has_errors() {
+            headers.push("Error");
+        }
+        headers
     }
 
     fn rows(&self) -> Vec<Vec<String>> {
+        let with_errors = self.has_errors();
         self.rows
             .iter()
             .map(|row| {
-                vec![
+                let mut cells = vec![
                     row.coin.clone(),
                     row.side.clone(),
                     row.order_type.clone(),
@@ -129,7 +168,11 @@ impl TableData for OrderConfirmationOutput {
                     row.tif.clone().unwrap_or_default(),
                     row.reduce_only.to_string(),
                     row.warning.clone().unwrap_or_default(),
-                ]
+                ];
+                if with_errors {
+                    cells.push(row.error.clone().unwrap_or_default());
+                }
+                cells
             })
             .collect()
     }
@@ -168,14 +211,19 @@ pub(super) struct TpslOrderConfirmation {
     reduce_only: bool,
     tif: Option<String>,
     warning: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
 }
 
 impl TpslOrderConfirmation {
+    /// Build the row for one leg. A rejected leg becomes a `rejected` row that
+    /// carries the sanitized exchange error, so one bad leg never hides the
+    /// legs that were placed.
     pub(super) fn from_tpsl_status(
         prepared: &PreparedTpslLeg,
         grouping: TpslGroupingArg,
         status: TpslResponseStatus,
-    ) -> Result<Self, CliError> {
+    ) -> Self {
         let mut row = Self {
             grouping: grouping.to_string(),
             grouping_wire: grouping.wire_value().to_string(),
@@ -190,17 +238,16 @@ impl TpslOrderConfirmation {
             reduce_only: prepared.reduce_only,
             tif: prepared.tif.map(|tif| tif.to_string()),
             warning: prepared.warning.clone(),
+            error: None,
         };
 
         match status {
             TpslResponseStatus::Success => {
                 row.status = "accepted".to_string();
-                Ok(row)
             }
             TpslResponseStatus::Resting { oid, .. } => {
                 row.status = "resting".to_string();
                 row.order_id = Some(oid);
-                Ok(row)
             }
             TpslResponseStatus::Filled {
                 oid,
@@ -211,20 +258,19 @@ impl TpslOrderConfirmation {
                 row.order_id = Some(oid);
                 row.price = avg_px.to_string();
                 row.size = total_sz.to_string();
-                Ok(row)
             }
             TpslResponseStatus::WaitingForFill => {
                 row.status = "waiting_for_fill".to_string();
-                Ok(row)
             }
             TpslResponseStatus::WaitingForTrigger => {
                 row.status = "waiting_for_trigger".to_string();
-                Ok(row)
             }
             TpslResponseStatus::Error(err) => {
-                Err(CliError::Unsupported(format!("order rejected: {err}")))
+                row.status = "rejected".to_string();
+                row.error = Some(labelled_untrusted_text(&err));
             }
         }
+        row
     }
 }
 
@@ -251,9 +297,19 @@ pub(super) struct TpslOrderConfirmationOutput {
     pub(super) rows: Vec<TpslOrderConfirmation>,
 }
 
+impl TpslOrderConfirmationOutput {
+    fn has_errors(&self) -> bool {
+        self.rows.iter().any(|row| row.error.is_some())
+    }
+
+    pub(super) fn rejection_errors(&self) -> Vec<String> {
+        rejection_errors(self.rows.iter().map(|row| row.error.as_deref()))
+    }
+}
+
 impl TableData for TpslOrderConfirmationOutput {
     fn headers(&self) -> Vec<&str> {
-        vec![
+        let mut headers = vec![
             "Grouping",
             "Leg",
             "Coin",
@@ -266,14 +322,19 @@ impl TableData for TpslOrderConfirmationOutput {
             "Reduce Only",
             "TIF",
             "Warning",
-        ]
+        ];
+        if self.has_errors() {
+            headers.push("Error");
+        }
+        headers
     }
 
     fn rows(&self) -> Vec<Vec<String>> {
+        let with_errors = self.has_errors();
         self.rows
             .iter()
             .map(|row| {
-                vec![
+                let mut cells = vec![
                     row.grouping.clone(),
                     row.leg.clone(),
                     row.coin.clone(),
@@ -286,7 +347,11 @@ impl TableData for TpslOrderConfirmationOutput {
                     row.reduce_only.to_string(),
                     row.tif.clone().unwrap_or_default(),
                     row.warning.clone().unwrap_or_default(),
-                ]
+                ];
+                if with_errors {
+                    cells.push(row.error.clone().unwrap_or_default());
+                }
+                cells
             })
             .collect()
     }
@@ -373,6 +438,115 @@ impl TableData for CancelAllSummaryOutput {
     }
 }
 
+/// One order in a cancel-all result.
+#[derive(Debug, Clone, Serialize)]
+pub(super) struct CancelLeg {
+    pub(super) order_id: u64,
+    pub(super) status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) error: Option<String>,
+}
+
+impl CancelLeg {
+    pub(super) fn from_status(order_id: u64, status: &OrderResponseStatus) -> Self {
+        match status {
+            OrderResponseStatus::Error(err) => Self {
+                order_id,
+                status: "failed".to_string(),
+                error: Some(labelled_untrusted_text(err)),
+            },
+            _ => Self {
+                order_id,
+                status: "cancelled".to_string(),
+                error: None,
+            },
+        }
+    }
+}
+
+pub(super) struct CancelLegsOutput {
+    pub(super) rows: Vec<CancelLeg>,
+}
+
+impl TableData for CancelLegsOutput {
+    fn headers(&self) -> Vec<&str> {
+        vec!["Order ID", "Status", "Error"]
+    }
+
+    fn rows(&self) -> Vec<Vec<String>> {
+        self.rows
+            .iter()
+            .map(|row| {
+                vec![
+                    row.order_id.to_string(),
+                    row.status.clone(),
+                    row.error.clone().unwrap_or_default(),
+                ]
+            })
+            .collect()
+    }
+
+    fn to_json_value(&self) -> serde_json::Value {
+        serde_json::to_value(&self.rows).unwrap_or_else(|_| serde_json::json!([]))
+    }
+}
+
+/// Command to run after a partial result to see what is live on the exchange.
+pub(super) const CHECK_LIVE_COMMAND: &str = "hyperliquid orders open";
+
+/// Per-leg result of a batch where some legs succeeded and some failed.
+///
+/// In JSON it is one object that also carries the standard error keys
+/// (`error`, `category`, `exit_code`), so the caller prints one document and
+/// the top-level error path stays silent for `PartialResults`.
+pub(super) struct PartialBatchOutput {
+    pub(super) legs: Box<dyn TableData>,
+    pub(super) legs_key: &'static str,
+    pub(super) succeeded: usize,
+    pub(super) failed: usize,
+    pub(super) headline: String,
+}
+
+impl PartialBatchOutput {
+    /// Error returned after the result document is printed. Pretty and table
+    /// runs show it on stderr; JSON runs print nothing more.
+    pub(super) fn error(&self) -> CliError {
+        CliError::PartialResults(format!(
+            "{}\n\nCheck what is live:\n    {CHECK_LIVE_COMMAND}",
+            self.headline
+        ))
+    }
+}
+
+impl TableData for PartialBatchOutput {
+    fn headers(&self) -> Vec<&str> {
+        self.legs.headers()
+    }
+
+    fn rows(&self) -> Vec<Vec<String>> {
+        self.legs.rows()
+    }
+
+    fn pretty_rows(&self) -> Vec<Vec<String>> {
+        self.legs.pretty_rows()
+    }
+
+    fn to_json_value(&self) -> serde_json::Value {
+        serde_json::json!({
+            "status": "partial",
+            "error": self.headline,
+            "category": "partial_failure",
+            "exit_code": 15,
+            "atomic": false,
+            "succeeded": self.succeeded,
+            "failed": self.failed,
+            "total": self.succeeded + self.failed,
+            self.legs_key: self.legs.to_json_value(),
+            "next_command": CHECK_LIVE_COMMAND,
+        })
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub(super) struct ModifyConfirmation {
     pub(super) coin: String,
@@ -456,29 +630,21 @@ pub struct OrderListOutput {
 
 impl TableData for OrderListOutput {
     fn headers(&self) -> Vec<&str> {
-        if self.rows.is_empty() {
-            vec!["Message"]
-        } else {
-            vec![
-                "Coin",
-                "Side",
-                "Limit Price",
-                "Size",
-                "Original Size",
-                "OID",
-                "Type",
-                "TIF",
-                "Reduce Only",
-                "Timestamp",
-            ]
-        }
+        vec![
+            "Coin",
+            "Side",
+            "Limit Price",
+            "Size",
+            "Original Size",
+            "OID",
+            "Type",
+            "TIF",
+            "Reduce Only",
+            "Timestamp",
+        ]
     }
 
     fn rows(&self) -> Vec<Vec<String>> {
-        if self.rows.is_empty() {
-            return vec![vec![self.empty_message.to_string()]];
-        }
-
         self.rows
             .iter()
             .map(|order| {
@@ -498,15 +664,14 @@ impl TableData for OrderListOutput {
             .collect()
     }
 
+    fn empty_message(&self) -> Option<&str> {
+        Some(self.empty_message)
+    }
+
     fn pretty_rows(&self) -> Vec<Vec<String>> {
         self.rows()
             .into_iter()
             .map(|mut row| {
-                if self.rows.is_empty() {
-                    row[0] = output::colors::gray(&row[0]);
-                    return row;
-                }
-
                 if let Some(tif) = row.get_mut(7)
                     && tif == "n/a"
                 {

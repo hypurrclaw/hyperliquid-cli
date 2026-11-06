@@ -117,7 +117,7 @@ fn wallet_import_show_address_and_reset_flow() {
         .write_stdin("n\n")
         .assert()
         .success()
-        .stdout(predicate::str::contains("Reset cancelled"));
+        .stderr(predicate::str::contains("Reset cancelled"));
 
     env.account_command(TEST_ACCOUNT_PASSPHRASE)
         .args(["wallet", "address"])
@@ -130,7 +130,7 @@ fn wallet_import_show_address_and_reset_flow() {
         .write_stdin("y\n")
         .assert()
         .success()
-        .stdout(predicate::str::contains("Wallet configuration reset"));
+        .stdout(predicate::str::contains("Deleted config file"));
 
     // Reset clears config but leaves OWS vault wallets intact.
     // wallet address still auto-detects from the vault.
@@ -192,17 +192,17 @@ fn wallet_reset_json_yes_outputs_success_object_without_prompt() {
         .args(["--format", "json", "wallet", "reset", "--yes"])
         .assert()
         .success()
-        .stderr(
-            predicate::str::contains(
-                "Reset wallet configuration and remove default wallet reference?",
-            )
-            .not(),
-        );
+        .stderr(predicate::str::contains("Delete config file").not());
     let output = assert.get_output().stdout.clone();
     let json: Value = serde_json::from_slice(&output).unwrap();
 
     assert_eq!(json["status"], "reset");
-    assert_eq!(json["message"], "Wallet configuration reset");
+    assert!(
+        json["message"]
+            .as_str()
+            .unwrap()
+            .starts_with("Deleted config file")
+    );
 }
 
 #[test]
@@ -236,13 +236,8 @@ fn wallet_reset_yes_removes_configuration_without_prompt() {
         .args(["wallet", "reset", "--yes"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Wallet configuration reset"))
-        .stdout(
-            predicate::str::contains(
-                "Reset wallet configuration and remove default wallet reference?",
-            )
-            .not(),
-        );
+        .stdout(predicate::str::contains("Deleted config file"))
+        .stdout(predicate::str::contains("Delete config file").not());
 
     // Reset clears config but leaves OWS vault wallets intact.
     // wallet address still auto-detects from the vault.
@@ -275,7 +270,7 @@ fn wallet_import_without_argument_prompts_and_stores_wallet() {
         .write_stdin(format!("{IMPORT_KEY}\n"))
         .assert()
         .success()
-        .stdout(predicate::str::contains("Private key:"))
+        .stderr(predicate::str::contains("Private key:"))
         .stdout(predicate::str::contains("Imported wallet"))
         .stdout(predicate::str::contains(&address))
         .stdout(predicate::str::contains(IMPORT_KEY).not());
@@ -364,11 +359,17 @@ fn copied_data_directory_alone_cannot_decrypt_stored_wallet_key() {
         .assert()
         .success();
 
+    // Without the vault there is no signer. Where the config directory is not
+    // under HOME (XDG on Linux), the original config still names a default
+    // wallet, which is reported as missing from the vault instead.
     env.account_command_for_paths_without_passphrase(&copied_home, &copied_data_home)
         .args(["wallet", "address"])
         .assert()
         .code(10)
-        .stderr(predicate::str::contains("Authentication required"));
+        .stderr(
+            predicate::str::contains("Authentication required")
+                .or(predicate::str::contains("isn't in the vault")),
+        );
 }
 
 #[test]
@@ -387,6 +388,7 @@ fn legacy_raw_key_store_override_is_rejected() {
             env.tmp_path().join("raw-key-store"),
         )
         .env_remove(ACCOUNT_KEY_PASSPHRASE_ENV)
+        .env_remove("CI")
         .env_remove("HYPERLIQUID_PRIVATE_KEY")
         .env_remove("HYPERLIQUID_NETWORK")
         .args(["wallet", "import", IMPORT_KEY])
@@ -516,7 +518,7 @@ fn account_and_setup_help_explain_public_reads_and_secret_handling() {
         .args(["account", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Public account reads"))
+        .stdout(predicate::str::contains("Read account data"))
         .stdout(predicate::str::contains("do not require a signer"))
         .stdout(predicate::str::contains(
             "wallets can also be selected by name, id, or address",
@@ -799,7 +801,7 @@ fn account_add_ls_set_default_and_remove_flow() {
         .write_stdin("main\ny\n")
         .assert()
         .success()
-        .stdout(predicate::str::contains("Account removed"))
+        .stdout(predicate::str::contains("Deleted wallet"))
         .stdout(predicate::str::contains("main"));
 
     env.account_command(TEST_ACCOUNT_PASSPHRASE)
@@ -868,9 +870,9 @@ fn account_add_set_default_and_remove_flow_with_yes() {
         .args(["account", "remove", "main", "--yes"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Account removed"))
+        .stdout(predicate::str::contains("Deleted wallet"))
         .stdout(predicate::str::contains("main"))
-        .stdout(predicate::str::contains("Remove wallet 'main'").not());
+        .stdout(predicate::str::contains("Delete wallet main?").not());
 
     env.account_command(TEST_ACCOUNT_PASSPHRASE)
         .args(["account", "ls"])
@@ -1030,16 +1032,17 @@ fn account_set_default_and_remove_without_accounts_have_clear_error() {
         .args(["--format", "json", "account", "set-default"])
         .write_stdin("\n")
         .assert()
-        .code(13)
+        .code(2)
         .get_output()
         .stdout
         .clone();
     let set_default_json: Value = serde_json::from_slice(&set_default_output).unwrap();
+    assert_eq!(set_default_json["reason"], "missing_input");
     assert!(
         set_default_json["error"]
             .as_str()
             .unwrap()
-            .contains("account set-default requires confirmation in machine-readable contexts")
+            .contains("<WALLET>")
     );
 
     let remove_output = env
@@ -1047,17 +1050,13 @@ fn account_set_default_and_remove_without_accounts_have_clear_error() {
         .args(["--format", "json", "account", "remove"])
         .write_stdin("\n")
         .assert()
-        .code(13)
+        .code(2)
         .get_output()
         .stdout
         .clone();
     let remove_json: Value = serde_json::from_slice(&remove_output).unwrap();
-    assert!(
-        remove_json["error"]
-            .as_str()
-            .unwrap()
-            .contains("account remove requires confirmation in machine-readable contexts")
-    );
+    assert_eq!(remove_json["reason"], "missing_input");
+    assert!(remove_json["error"].as_str().unwrap().contains("<WALLET>"));
 
     let set_default_selector_output = env
         .account_command(TEST_ACCOUNT_PASSPHRASE)
@@ -1105,8 +1104,8 @@ fn account_remove_json_requires_yes_before_prompting() {
 
     let output = env
         .account_command(TEST_ACCOUNT_PASSPHRASE)
-        .args(["--format", "json", "account", "remove"])
-        .write_stdin("main\nn\n")
+        .args(["--format", "json", "account", "remove", "main"])
+        .write_stdin("n\n")
         .assert()
         .code(13)
         .stderr(predicate::str::is_empty())
@@ -1119,7 +1118,7 @@ fn account_remove_json_requires_yes_before_prompting() {
         json["error"]
             .as_str()
             .unwrap()
-            .contains("account remove requires confirmation in machine-readable contexts")
+            .contains("without confirmation in non-interactive mode")
     );
 }
 
@@ -1143,7 +1142,7 @@ fn account_remove_json_yes_outputs_removed_account_without_prompt() {
     let output = assert.get_output().stdout.clone();
     let json: Value = serde_json::from_slice(&output).unwrap();
 
-    assert_eq!(json["message"], "Account removed");
+    assert_eq!(json["message"], "Deleted wallet");
     assert_eq!(json["address"], address);
     assert_eq!(json["alias"], "main");
     assert_eq!(json["source"], "OWS wallet");
@@ -1206,7 +1205,7 @@ fn wallet_reset_recovers_from_malformed_config() {
         .write_stdin("y\n")
         .assert()
         .success()
-        .stdout(predicate::str::contains("Wallet configuration reset"));
+        .stdout(predicate::str::contains("Deleted config file"));
 }
 
 #[test]

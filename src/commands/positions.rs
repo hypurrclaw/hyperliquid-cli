@@ -103,29 +103,21 @@ pub struct PositionsOutput {
 
 impl TableData for PositionsOutput {
     fn headers(&self) -> Vec<&str> {
-        if self.rows.is_empty() {
-            vec!["Message"]
-        } else {
-            vec![
-                "Coin",
-                "Side",
-                "Size",
-                "Entry",
-                "Mark",
-                "Unrealized PnL",
-                "Position Value",
-                "Leverage",
-                "Margin Used",
-                "Liquidation",
-            ]
-        }
+        vec![
+            "Coin",
+            "Side",
+            "Size",
+            "Entry",
+            "Mark",
+            "Unrealized PnL",
+            "Position Value",
+            "Leverage",
+            "Margin Used",
+            "Liquidation",
+        ]
     }
 
     fn rows(&self) -> Vec<Vec<String>> {
-        if self.rows.is_empty() {
-            return vec![vec!["No open positions".to_string()]];
-        }
-
         self.rows
             .iter()
             .map(|row| {
@@ -153,11 +145,6 @@ impl TableData for PositionsOutput {
         self.rows()
             .into_iter()
             .map(|mut row| {
-                if self.rows.is_empty() {
-                    row[0] = output::colors::gray(&row[0]);
-                    return row;
-                }
-
                 if row.len() > 5 {
                     let pnl = self
                         .rows
@@ -179,6 +166,10 @@ impl TableData for PositionsOutput {
                 row
             })
             .collect()
+    }
+
+    fn empty_message(&self) -> Option<&str> {
+        Some("No open positions.")
     }
 
     fn to_json_value(&self) -> serde_json::Value {
@@ -252,7 +243,7 @@ pub struct PreparedUpdateMargin {
     coin: String,
     asset: usize,
     amount: Decimal,
-    ntli: u64,
+    ntli: i64,
 }
 
 impl PreparedUpdateMargin {
@@ -272,7 +263,7 @@ impl PreparedUpdateMargin {
     }
 
     #[must_use]
-    pub fn ntli(&self) -> u64 {
+    pub fn ntli(&self) -> i64 {
         self.ntli
     }
 
@@ -550,7 +541,7 @@ fn validate_positive(value: Decimal, name: &'static str) -> Result<(), CliError>
     Ok(())
 }
 
-fn usd_to_micro_units(value: Decimal, name: &'static str) -> Result<u64, CliError> {
+fn usd_to_micro_units(value: Decimal, name: &'static str) -> Result<i64, CliError> {
     validate_positive(value, name)?;
     let scaled = value * Decimal::from(1_000_000_u64);
     if scaled.fract() != Decimal::ZERO {
@@ -558,7 +549,7 @@ fn usd_to_micro_units(value: Decimal, name: &'static str) -> Result<u64, CliErro
             "{name} supports at most 6 decimal places"
         )));
     }
-    scaled.to_u64().ok_or_else(|| {
+    scaled.to_i64().ok_or_else(|| {
         CliError::Configuration(format!("{name} is too large for Hyperliquid micro-units"))
     })
 }

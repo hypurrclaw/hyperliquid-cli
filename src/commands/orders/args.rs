@@ -277,6 +277,10 @@ pub struct ModifyArgs {
     #[arg(long, allow_hyphen_values = true)]
     pub size: Option<Decimal>,
 
+    /// Place the replacement even if the cancel fails. When off, the replacement must be a non-trigger ALO order or a non-executable GTC order, so set this to modify trigger orders
+    #[arg(long)]
+    pub always_place: bool,
+
     /// Acting-account selector for vaultAddress: subaccount/vault address, stored account alias, or stored account id
     #[arg(long)]
     pub on_behalf_of: Option<String>,

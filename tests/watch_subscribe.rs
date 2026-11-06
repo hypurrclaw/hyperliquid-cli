@@ -7,8 +7,9 @@ use hyperliquid_cli::watch::{
 };
 use hypersdk::Address;
 use hypersdk::hypercore::{
-    BookLevel, Candle, Fill, Incoming, L2Book, NonUserCancel, OrderStatus, OrderUpdate, Side,
-    Trade, UserEvent, UserFunding, UserLiquidation, WsBasicOrder, ws::Event as WsEvent,
+    BookLevel, Candle, Fill, FillDirection, Incoming, L2Book, NonUserCancel, OrderStatus,
+    OrderUpdate, Side, Trade, UserEvent, UserFunding, UserLiquidation, WsBasicOrder,
+    ws::Event as WsEvent,
 };
 use predicates::prelude::*;
 use rust_decimal::Decimal;
@@ -110,6 +111,9 @@ async fn watch_mids_pretty_non_tty_with_bound_defaults_to_ndjson() {
         .assert()
         .success()
         .stdout(predicate::str::contains("EnterAlternateScreen").not())
+        .stderr(predicate::str::contains(
+            "Streaming JSON lines because stdout isn't a terminal.",
+        ))
         .get_output()
         .stdout
         .clone();
@@ -134,6 +138,9 @@ async fn watch_mids_table_non_tty_with_bound_defaults_to_ndjson() {
         .args(["mids", "--watch", "--format", "table", "--max-ticks", "1"])
         .assert()
         .success()
+        .stderr(predicate::str::contains(
+            "Streaming JSON lines because stdout isn't a terminal.",
+        ))
         .get_output()
         .stdout
         .clone();
@@ -460,6 +467,161 @@ async fn fake_subscribe_stream_max_events_counts_only_emitted_events() {
 }
 
 #[tokio::test]
+async fn fake_subscribe_stream_marks_reconnect_with_one_stream_gap_warning() {
+    let _guard = json_options_test_guard();
+    let mut events = stream::iter([
+        WsEvent::Connected,
+        WsEvent::Message(trades_message()),
+        WsEvent::Disconnected,
+        WsEvent::Disconnected,
+        WsEvent::Connected,
+        WsEvent::Message(trades_message()),
+    ]);
+    let mut output = Vec::new();
+
+    stream_subscription_events(
+        "trades(BTC)",
+        Some(2),
+        None,
+        |message| subscription_event_matches(SubscribeEventKind::Trades, message),
+        &mut events,
+        &mut output,
+    )
+    .await
+    .unwrap();
+
+    let lines = ndjson_values(output);
+    let types = lines
+        .iter()
+        .map(|line| line["type"].as_str().unwrap().to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(types, ["subscribed", "event", "warning", "event"]);
+    assert_eq!(lines[2]["reason"], "stream_gap");
+    assert_eq!(lines[2]["subscription"], "trades(BTC)");
+    assert!(lines[2]["message"].as_str().unwrap().contains("missed"));
+}
+
+#[tokio::test]
+async fn fake_subscribe_stream_gap_warning_survives_select_projection() {
+    let _guard = json_options_test_guard();
+    output::set_json_options_with_limit(Some("data"), false, None);
+    let mut events = stream::iter([
+        WsEvent::Disconnected,
+        WsEvent::Connected,
+        WsEvent::Message(trades_message()),
+    ]);
+    let mut output = Vec::new();
+
+    stream_subscription_events(
+        "trades(BTC)",
+        Some(1),
+        None,
+        |message| subscription_event_matches(SubscribeEventKind::Trades, message),
+        &mut events,
+        &mut output,
+    )
+    .await
+    .unwrap();
+
+    let lines = ndjson_values(output);
+    assert!(lines.iter().any(|line| line["reason"] == "stream_gap"));
+}
+
+fn std_command(command: &assert_cmd::Command) -> std::process::Command {
+    let mut std = std::process::Command::new(command.get_program());
+    std.args(command.get_args());
+    for (key, value) in command.get_envs() {
+        match value {
+            Some(value) => std.env(key, value),
+            None => std.env_remove(key),
+        };
+    }
+    std
+}
+
+#[tokio::test]
+async fn watch_mids_closed_stdout_exits_zero_without_panic() {
+    use std::io::{BufRead, BufReader};
+    use std::process::Stdio;
+
+    let home = IsolatedHome::new();
+    let server = mock_all_mids_server().await;
+    let mut command = home.command();
+    command.env(API_OVERRIDE_ENV, server.uri()).args([
+        "--format",
+        "json",
+        "mids",
+        "--watch",
+        "--max-ticks",
+        "50",
+    ]);
+
+    let mut child = std_command(&command)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut first_line = String::new();
+    BufReader::new(child.stdout.take().unwrap())
+        .read_line(&mut first_line)
+        .unwrap();
+    assert!(serde_json::from_str::<serde_json::Value>(first_line.trim()).is_ok());
+    // The reader is dropped here; the next tick hits a closed pipe.
+
+    let output = child.wait_with_output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(0), "stderr: {stderr}");
+    assert!(!stderr.contains("panicked"), "stderr: {stderr}");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn watch_mids_sigterm_exits_143_with_complete_json_lines() {
+    use std::io::{BufRead, BufReader, Read};
+    use std::process::Stdio;
+
+    let home = IsolatedHome::new();
+    let server = mock_all_mids_server().await;
+    let mut command = home.command();
+    command.env(API_OVERRIDE_ENV, server.uri()).args([
+        "--format",
+        "json",
+        "mids",
+        "--watch",
+        "--max-ticks",
+        "50",
+    ]);
+
+    let mut child = std_command(&command)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    let mut first_line = String::new();
+    stdout.read_line(&mut first_line).unwrap();
+    assert!(serde_json::from_str::<serde_json::Value>(first_line.trim()).is_ok());
+
+    let status = std::process::Command::new("kill")
+        .args(["-TERM", &child.id().to_string()])
+        .status()
+        .unwrap();
+    assert!(status.success());
+
+    let mut rest = String::new();
+    stdout.read_to_string(&mut rest).unwrap();
+    let status = child.wait().unwrap();
+    assert_eq!(status.code(), Some(143));
+    for line in rest.lines() {
+        assert!(
+            serde_json::from_str::<serde_json::Value>(line).is_ok(),
+            "truncated line: {line}"
+        );
+    }
+    assert!(rest.is_empty() || rest.ends_with('\n'));
+}
+
+#[tokio::test]
 async fn fake_subscribe_stream_closed_stream_behavior_is_deterministic() {
     let _guard = json_options_test_guard();
     let mut events = stream::iter([]);
@@ -766,7 +928,7 @@ fn fill() -> Fill {
         side: Side::Ask,
         time: 1,
         start_position: Decimal::ZERO,
-        dir: "Close Long".to_string(),
+        dir: FillDirection::CloseLong,
         closed_pnl: Decimal::from(5),
         hash: "0xdef".to_string(),
         oid: 9,
@@ -775,6 +937,7 @@ fn fill() -> Fill {
         tid: 43,
         cloid: None,
         fee_token: "USDC".to_string(),
+        builder_fee: None,
         liquidation: None,
     }
 }

@@ -1,10 +1,21 @@
 use super::*;
 
-pub(super) async fn run(cli: &Cli, registry_path: Option<&[String]>) -> Result<(), anyhow::Error> {
-    run_command(cli, registry_path).await
+pub(super) async fn run(
+    cli: &Cli,
+    registry_path: Option<&[String]>,
+    confirmation: Confirmation,
+) -> Result<(), anyhow::Error> {
+    run_command(cli, registry_path, confirmation).await
 }
 
-async fn run_command(cli: &Cli, registry_path: Option<&[String]>) -> Result<(), anyhow::Error> {
+async fn run_command(
+    cli: &Cli,
+    registry_path: Option<&[String]>,
+    confirmation: Confirmation,
+) -> Result<(), anyhow::Error> {
+    if cli.command.is_none() {
+        return print_help_to_stdout(&[]);
+    }
     validate_cli_inputs(cli)?;
     validate_stream_bounds(cli)?;
 
@@ -22,7 +33,7 @@ async fn run_command(cli: &Cli, registry_path: Option<&[String]>) -> Result<(), 
     if cli.payload_json.is_some() || cli.payload_file.is_some() {
         validate_raw_payload_supported(command_contract.as_ref())?;
     }
-    validate_prompt_policy(cli, command_contract.as_ref())?;
+    validate_prompt_policy(cli, command_contract.as_ref(), confirmation)?;
 
     if let Some(result) = run_local_command_without_context(cli).await {
         return result;
@@ -44,21 +55,28 @@ async fn run_command(cli: &Cli, registry_path: Option<&[String]>) -> Result<(), 
     }
 
     let context = AppContext::resolve(cli)?;
+    if cli.dry_run {
+        // Signed exchange actions name the signer in their preview. Resolution
+        // never prompts; a failure is reported inside the preview instead.
+        let signer = command_contract
+            .as_ref()
+            .is_some_and(|command| {
+                command.auth_required && command.lifecycle == Lifecycle::LiveMutating
+            })
+            .then(|| {
+                context
+                    .resolve_signer()
+                    .map(|signer| signer.address().to_string())
+                    .map_err(|err| err.to_string())
+            });
+        hyperliquid_cli::dry_run::init_run_context(context.network, signer);
+    }
     if context.has_api_base_url_override() && command_uses_api(command_contract.as_ref()) {
         context.validate_api_override().await?;
     }
 
     match &cli.command {
-        None => {
-            println!(
-                "hyperliquid-cli v{} — Hyperliquid DEX CLI",
-                env!("CARGO_PKG_VERSION")
-            );
-            println!("Network: {}", context.network);
-            println!("API: {}", context.api_base_url());
-            println!("Use --help to see available commands.");
-            Ok(())
-        }
+        None => Ok(()),
         Some(Commands::Wallet {
             subcommand: WalletCommands::Address,
         }) => hyperliquid_cli::commands::wallet::address(
@@ -303,6 +321,9 @@ async fn run_command(cli: &Cli, registry_path: Option<&[String]>) -> Result<(), 
         Some(Commands::Orders {
             subcommand: OrderCommands::Tpsl(args),
         }) => create_tpsl(&context, args, cli.format, cli.dry_run, payload.as_ref()).await,
+        Some(Commands::Orders {
+            subcommand: OrderCommands::TrailingStop(args),
+        }) => trailing_stop_order(&context, args, cli.format, cli.dry_run, payload.as_ref()).await,
         Some(Commands::Orders {
             subcommand: OrderCommands::Cancel(args),
         }) => cancel_order(&context, args, cli.format, cli.dry_run, payload.as_ref()).await,
@@ -762,6 +783,7 @@ fn validate_raw_payload_supported(
 fn validate_prompt_policy(
     cli: &Cli,
     command: Option<&CommandContract>,
+    confirmation: Confirmation,
 ) -> Result<(), errors::CliError> {
     let Some(command) = command else {
         return Ok(());
@@ -773,42 +795,108 @@ fn validate_prompt_policy(
         ));
     }
     if cli.dry_run
-        || !machine_context(cli)
+        || hyperliquid_cli::mode::can_prompt()
         || command.confirmation != ConfirmationPolicy::Prompt
         || !prompt_required_for_invocation(cli, command)
-        || confirmation_bypassed(&cli.command)
+        || confirmation.given
+        || confirmation_not_required(&cli.command)
     {
         return Ok(());
     }
 
-    Err(errors::CliError::Unsupported(format!(
-        "{} requires confirmation in machine-readable contexts; rerun with --yes when available or use --dry-run for preview",
-        command.command_key()
-    )))
+    Err(confirmation_required_error(command, confirmation))
 }
 
-fn prompt_required_for_invocation(cli: &Cli, command: &CommandContract) -> bool {
-    let command_key = command.command_key();
-    if cli.testnet
-        && matches!(
-            command_key.as_str(),
-            "orders create"
-                | "orders scale"
-                | "orders batch-create"
-                | "orders tpsl"
-                | "orders twap-create"
-                | "orders schedule-cancel"
-                | "orders chase"
-                | "orders bracket"
-                | "buy"
-                | "sell"
-                | "outcome-buy"
-                | "outcome-sell"
-        )
-    {
-        return false;
+/// Name the blocked command, then give the safe next steps: a runnable
+/// `--dry-run` preview when supported, and the `--yes` rerun only for use
+/// after a human approves.
+fn confirmation_required_error(
+    command: &CommandContract,
+    confirmation: Confirmation,
+) -> errors::CliError {
+    let args = replay_args(std::env::args().skip(1));
+    let preview = (command.dry_run == DryRunPolicy::Optional).then(|| {
+        let mut argv = vec!["--dry-run".to_string()];
+        argv.extend(args.iter().cloned());
+        replay_command(&argv)
+    });
+    let approve = confirmation.supported.then(|| {
+        let mut argv = args.clone();
+        argv.push("--yes".to_string());
+        replay_command(&argv)
+    });
+    errors::CliError::ConfirmationRequired {
+        headline: format!(
+            "Can't run `{}` without confirmation in non-interactive mode.",
+            command.command_key()
+        ),
+        preview,
+        approve,
     }
-    true
+}
+
+/// Options whose values are secrets and never appear in suggested commands.
+const SECRET_OPTIONS: &[&str] = &["--private-key", "--keystore-password"];
+
+/// Invocation arguments (without the program name) minus secret options.
+fn replay_args(args: impl IntoIterator<Item = String>) -> Vec<String> {
+    let mut args = args.into_iter();
+    let mut kept = Vec::new();
+    while let Some(arg) = args.next() {
+        if SECRET_OPTIONS.contains(&arg.as_str()) {
+            args.next();
+            continue;
+        }
+        if SECRET_OPTIONS
+            .iter()
+            .any(|option| arg.starts_with(&format!("{option}=")))
+        {
+            continue;
+        }
+        kept.push(arg);
+    }
+    kept
+}
+
+/// `hyperliquid` plus `args`, single-quoted where a POSIX shell needs it.
+fn replay_command(args: &[String]) -> String {
+    let mut command = String::from("hyperliquid");
+    for arg in args {
+        command.push(' ');
+        let plain = !arg.is_empty()
+            && arg
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || "-_./:=@%+,#".contains(ch));
+        if plain {
+            command.push_str(arg);
+        } else {
+            command.push('\'');
+            command.push_str(&arg.replace('\'', r"'\''"));
+            command.push('\'');
+        }
+    }
+    command
+}
+
+/// Commands that skip the mainnet confirmation when `--testnet` is set.
+pub(super) const TESTNET_UNPROMPTED_COMMANDS: &[&str] = &[
+    "orders create",
+    "orders scale",
+    "orders batch-create",
+    "orders tpsl",
+    "orders trailing-stop",
+    "orders twap-create",
+    "orders schedule-cancel",
+    "orders chase",
+    "orders bracket",
+    "buy",
+    "sell",
+    "outcome-buy",
+    "outcome-sell",
+];
+
+fn prompt_required_for_invocation(cli: &Cli, command: &CommandContract) -> bool {
+    !(cli.testnet && TESTNET_UNPROMPTED_COMMANDS.contains(&command.command_key().as_str()))
 }
 
 fn argv_secret_supplied(command: &Option<Commands>) -> bool {
@@ -826,63 +914,19 @@ fn argv_secret_supplied(command: &Option<Commands>) -> bool {
     }
 }
 
-fn confirmation_bypassed(command: &Option<Commands>) -> bool {
-    match command {
-        Some(Commands::Builder {
-            subcommand: BuilderCommands::Approve(args),
-        }) => args.yes,
-        Some(Commands::Subaccount {
-            subcommand: SubaccountCommands::Transfer(args),
-        }) => args.yes,
-        Some(Commands::Subaccount {
-            subcommand: SubaccountCommands::SpotTransfer(args),
-        }) => args.yes,
-        Some(Commands::Wallet {
-            subcommand: WalletCommands::Reset { yes } | WalletCommands::Delete { yes, .. },
-        }) => *yes,
+/// Commands whose confirmation prompt doesn't apply.
+///
+/// `account set-default` only switches a pointer. `account remove` without a
+/// selector has nothing to confirm yet: its handler fails on the missing
+/// selector (missing input) instead of prompting for one.
+fn confirmation_not_required(command: &Option<Commands>) -> bool {
+    matches!(
+        command,
         Some(Commands::Account {
-            subcommand: AccountCommands::SetDefault { selector },
-        }) => selector.is_some(),
-        Some(Commands::Account {
-            subcommand: AccountCommands::Remove { yes, .. },
-        }) => *yes,
-        Some(Commands::Account {
-            subcommand:
-                AccountCommands::Abstraction(hyperliquid_cli::commands::account::AbstractionArgs {
-                    command: Some(hyperliquid_cli::commands::account::AbstractionCommand::Set(args)),
-                    ..
-                }),
-        }) => args.yes,
-        Some(Commands::Orders { subcommand }) => match subcommand {
-            OrderCommands::Create(args) => args.yes,
-            OrderCommands::Scale(args) => args.yes,
-            OrderCommands::BatchCreate(args) => args.yes,
-            OrderCommands::Tpsl(args) => args.yes,
-            OrderCommands::CancelAll(args) => args.yes,
-            OrderCommands::TwapCreate(args) => args.yes,
-            OrderCommands::ScheduleCancel(args) => args.yes,
-            OrderCommands::Chase(args) => args.yes,
-            OrderCommands::Bracket(args) => args.yes,
-            _ => false,
-        },
-        Some(Commands::Buy(args) | Commands::Sell(args)) => args.yes,
-        Some(Commands::OutcomeBuy(args) | Commands::OutcomeSell(args)) => args.inner.yes,
-        Some(Commands::Transfer { subcommand }) => match subcommand {
-            TransferCommands::SpotToPerp(args) | TransferCommands::PerpToSpot(args) => args.yes,
-            TransferCommands::Send(args) => args.yes,
-            TransferCommands::SpotSend(args) => args.yes,
-            TransferCommands::SendAsset(args) => args.yes,
-            TransferCommands::Withdraw(args) => args.yes,
-        },
-        Some(Commands::Staking {
-            subcommand:
-                StakingCommands::Link {
-                    subcommand:
-                        StakingLinkCommands::Initiate(args) | StakingLinkCommands::Finalize(args),
-                },
-        }) => args.yes,
-        _ => false,
-    }
+            subcommand: AccountCommands::SetDefault { .. }
+                | AccountCommands::Remove { selector: None, .. },
+        })
+    )
 }
 
 pub(super) fn command_uses_api(command: Option<&CommandContract>) -> bool {
@@ -1107,6 +1151,15 @@ fn validate_cli_inputs(cli: &Cli) -> Result<(), errors::CliError> {
                     validate_resource_id("cloid", cloid)?;
                 }
             }
+            OrderCommands::TrailingStop(args) => {
+                validate_asset_input("coin", &args.coin)?;
+                if let Some(dex) = args.dex.as_deref() {
+                    validate_resource_id("dex", dex)?;
+                }
+                if let Some(on_behalf_of) = args.on_behalf_of.as_deref() {
+                    validate_resource_id("on-behalf-of selector", on_behalf_of)?;
+                }
+            }
             OrderCommands::Cancel(args) => {
                 if let Some(on_behalf_of) = args.on_behalf_of.as_deref() {
                     validate_resource_id("on-behalf-of selector", on_behalf_of)?;
@@ -1277,13 +1330,7 @@ fn validate_stream_bounds(cli: &Cli) -> Result<(), errors::CliError> {
 }
 
 fn machine_context(cli: &Cli) -> bool {
-    cli.format == output::OutputFormat::Json
-        || std::env::var("HYPERLIQUID_AGENT").is_ok_and(|value| {
-            matches!(
-                value.trim().to_ascii_lowercase().as_str(),
-                "1" | "true" | "yes" | "on"
-            )
-        })
+    cli.format == output::OutputFormat::Json || hyperliquid_cli::mode::agent_env()
 }
 
 fn snapshot_watch_requested_without_bound(command: &Option<Commands>) -> bool {
@@ -1626,23 +1673,20 @@ impl AppContext {
             .json(&serde_json::json!({ "type": "allMids" }))
             .send()
             .await
-            .map_err(|err| {
-                errors::CliError::Unavailable(format!("Check your network connection. {err}"))
-            })?;
+            .map_err(|err| errors::network_error(&err, Some(Duration::from_secs(5))))?;
 
         let status = response.status();
-        let body = response.text().await.map_err(|err| {
-            errors::CliError::Unavailable(format!("Failed to read API response. {err}"))
-        })?;
+        let body = response
+            .text()
+            .await
+            .map_err(|err| errors::network_error(&err, Some(Duration::from_secs(5))))?;
 
         if errors::http_response_indicates_rate_limit(status.as_u16(), &body) {
             return Err(errors::CliError::RateLimited);
         }
 
         if !status.is_success() {
-            return Err(errors::CliError::Unavailable(format!(
-                "API returned HTTP {status}. Check your network connection."
-            )));
+            return Err(errors::CliError::api_status(status, &body));
         }
 
         Ok(())
@@ -1804,6 +1848,7 @@ async fn watch_book(
             coin: subscription_coin,
             n_sig_figs: None,
             mantissa: None,
+            fast: false,
         }],
         format,
         max_ticks,
@@ -1920,7 +1965,7 @@ async fn watch_positions(
     hyperliquid_cli::watch::run_snapshot_watch(
         "Live positions",
         context.chain(),
-        vec![Subscription::WebData2 { user, dex: None }],
+        vec![Subscription::WebData3 { user }],
         format,
         max_ticks,
         move || {
@@ -1954,6 +1999,7 @@ async fn subscribe(context: &AppContext, command: &SubscribeCommands) -> Result<
                     coin,
                     n_sig_figs: None,
                     mantissa: None,
+                    fast: false,
                 },
                 stream.max_events,
                 stream.idle_timeout(),
@@ -3057,6 +3103,51 @@ async fn create_twap(
     .await
 }
 
+async fn trailing_stop_order(
+    context: &AppContext,
+    args: &hyperliquid_cli::commands::orders::TrailingStopArgs,
+    format: output::OutputFormat,
+    dry_run: bool,
+    payload: Option<&serde_json::Value>,
+) -> Result<(), anyhow::Error> {
+    hyperliquid_cli::commands::orders::validate_trailing_stop_args(args)?;
+    let client = context.http_client();
+    let resolver = load_trading_resolver(context).await?;
+    let coin_query = qualify_dex_asset(args.dex.as_deref(), &args.coin);
+    let (resolver, _) = resolver_with_loaded_hip3_perp(&client, resolver, &coin_query).await?;
+    let dry_run_plan =
+        hyperliquid_cli::commands::orders::trailing_stop_dry_run_plan(&resolver, args)?;
+    let vault_address = resolve_optional_acting_account_target(args.on_behalf_of.as_deref())?;
+    let vault_address_string = vault_address.map(|address| address.to_string());
+    if dry_run {
+        let (signer, acting_as, vault_address_string) =
+            dry_run_vault_signing_addresses(context, vault_address_string);
+        return print_dry_run(
+            dry_run_plan.command(),
+            dry_run_signed_details(
+                dry_run_plan.would_execute(),
+                dry_run_plan.into_args(),
+                payload,
+                signer,
+                acting_as,
+                vault_address_string,
+            ),
+            format,
+        );
+    }
+    let resolved = context.resolve_signer()?;
+    let signer = resolved.selected_signer();
+    let api_base_url = context.api_base_url();
+    hyperliquid_cli::commands::orders::trailing_stop(
+        order_submission_context(context, &api_base_url, &signer),
+        &resolver,
+        args,
+        vault_address,
+        format,
+    )
+    .await
+}
+
 async fn cancel_twap(
     context: &AppContext,
     args: &hyperliquid_cli::commands::orders::TwapCancelArgs,
@@ -4102,7 +4193,7 @@ async fn load_asset_resolver(context: &AppContext) -> Result<AssetResolver, erro
 
 fn unimplemented_command_error() -> anyhow::Error {
     errors::CliError::Internal(anyhow::anyhow!(
-        "Command not yet implemented. Check back soon!"
+        "This command isn't implemented in this version of hyperliquid"
     ))
     .into()
 }
@@ -4169,7 +4260,7 @@ async fn load_hip3_perp_asset(
     token: &str,
 ) -> Result<hyperliquid_cli::commands::PerpAsset, errors::CliError> {
     let dex = client
-        .perp_dexs()
+        .perp_dexes()
         .await
         .map_err(errors::from_anyhow)?
         .into_iter()
@@ -4371,4 +4462,32 @@ async fn watch_risk_command(
         context.resolve_signer()?.query_address()
     };
     hyperliquid_cli::commands::watch_risk::watch_risk(&client, user, args, format).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{replay_args, replay_command};
+
+    fn strings(items: &[&str]) -> Vec<String> {
+        items.iter().map(|item| (*item).to_string()).collect()
+    }
+
+    #[test]
+    fn replay_drops_secret_options_and_quotes_for_the_shell() {
+        let args = replay_args(strings(&[
+            "--private-key",
+            "0xsecret",
+            "--keystore-password=hunter2",
+            "orders",
+            "create",
+            "--coin",
+            "BTC",
+            "--cloid",
+            "it's here",
+        ]));
+        assert_eq!(
+            replay_command(&args),
+            r"hyperliquid orders create --coin BTC --cloid 'it'\''s here'"
+        );
+    }
 }

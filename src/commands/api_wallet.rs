@@ -69,7 +69,7 @@ pub struct RevokeArgs {
     pub name: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct PreparedAgentApproval {
     pub agent_address: Address,
     pub generated_private_key: Option<String>,
@@ -79,7 +79,7 @@ pub struct PreparedAgentApproval {
     pub generated: bool,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 struct ApiWalletActionRow {
     status: String,
     action: String,
@@ -96,6 +96,43 @@ struct ApiWalletActionRow {
     private_key: Option<String>,
     note: String,
     approval_action: serde_json::Value,
+}
+
+impl std::fmt::Debug for PreparedAgentApproval {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PreparedAgentApproval")
+            .field("agent_address", &self.agent_address)
+            .field(
+                "generated_private_key",
+                &self.generated_private_key.as_ref().map(|_| "[redacted]"),
+            )
+            .field("display_name", &self.display_name)
+            .field("action_agent_name", &self.action_agent_name)
+            .field("expires_at", &self.expires_at)
+            .field("generated", &self.generated)
+            .finish()
+    }
+}
+
+impl std::fmt::Debug for ApiWalletActionRow {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ApiWalletActionRow")
+            .field("status", &self.status)
+            .field("action", &self.action)
+            .field("master_address", &self.master_address)
+            .field("agent_address", &self.agent_address)
+            .field("name", &self.name)
+            .field("action_agent_name", &self.action_agent_name)
+            .field("expires_at", &self.expires_at)
+            .field("generated", &self.generated)
+            .field(
+                "private_key",
+                &self.private_key.as_ref().map(|_| "[redacted]"),
+            )
+            .field("note", &self.note)
+            .field("approval_action", &self.approval_action)
+            .finish()
+    }
 }
 
 struct ApiWalletActionOutput {
@@ -162,20 +199,10 @@ struct ApiAgentListOutput {
 
 impl TableData for ApiAgentListOutput {
     fn headers(&self) -> Vec<&str> {
-        if self.rows.is_empty() {
-            vec!["Master", "Message"]
-        } else {
-            vec!["Master", "Name", "Address", "Valid Until"]
-        }
+        vec!["Master", "Name", "Address", "Valid Until"]
     }
 
     fn rows(&self) -> Vec<Vec<String>> {
-        if self.rows.is_empty() {
-            return vec![vec![
-                self.master_address.clone(),
-                "no API wallets found".to_string(),
-            ]];
-        }
         self.rows
             .iter()
             .map(|row| {
@@ -189,6 +216,10 @@ impl TableData for ApiAgentListOutput {
                 ]
             })
             .collect()
+    }
+
+    fn empty_message(&self) -> Option<&str> {
+        Some("No API wallets.")
     }
 
     fn to_json_value(&self) -> serde_json::Value {

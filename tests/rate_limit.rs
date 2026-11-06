@@ -32,8 +32,10 @@ async fn cli_exits_11_for_actual_http_429_response() {
         .assert()
         .code(11)
         .stdout(predicate::str::is_empty())
-        .stderr(predicate::str::contains("Rate limited"))
-        .stderr(predicate::str::contains("Unable to reach").not());
+        .stderr(predicate::str::contains(
+            "Too many requests to the Hyperliquid API",
+        ))
+        .stderr(predicate::str::contains("Couldn't reach").not());
 }
 
 #[tokio::test]
@@ -54,8 +56,10 @@ async fn cli_exits_11_for_structured_rate_limit_error_response() {
         .assert()
         .code(11)
         .stdout(predicate::str::is_empty())
-        .stderr(predicate::str::contains("Rate limited"))
-        .stderr(predicate::str::contains("Unable to reach").not());
+        .stderr(predicate::str::contains(
+            "Too many requests to the Hyperliquid API",
+        ))
+        .stderr(predicate::str::contains("Couldn't reach").not());
 }
 
 #[test]
@@ -70,6 +74,6 @@ fn cli_exits_12_for_unreachable_override_endpoint() {
         .assert()
         .code(12)
         .stdout(predicate::str::is_empty())
-        .stderr(predicate::str::contains("Unable to reach Hyperliquid API"))
-        .stderr(predicate::str::contains("Rate limited").not());
+        .stderr(predicate::str::contains("127.0.0.1:"))
+        .stderr(predicate::str::contains("Too many requests to the Hyperliquid API").not());
 }

@@ -272,6 +272,8 @@ async fn referral_set_exchange_rate_limit_exits_11() {
         .assert()
         .code(11)
         .stdout(predicate::str::is_empty())
-        .stderr(predicate::str::contains("Rate limited"))
-        .stderr(predicate::str::contains("Unable to reach").not());
+        .stderr(predicate::str::contains(
+            "Too many requests to the Hyperliquid API",
+        ))
+        .stderr(predicate::str::contains("Couldn't reach").not());
 }

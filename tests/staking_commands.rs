@@ -1,10 +1,10 @@
 mod support;
 
 use alloy::dyn_abi::{Eip712Types, Resolver, TypedData};
+use alloy::primitives::keccak256;
+use alloy::signers::SignerSync;
 use alloy::sol;
 use alloy::sol_types::SolStruct;
-use alloy_primitives::keccak256;
-use alloy_v1::signers::SignerSync;
 use hyperliquid_cli::auth::parse_private_key;
 use hypersdk::Address;
 use hypersdk::hypercore::Chain;
@@ -251,7 +251,7 @@ fn expected_user_action_signature<T: SolStruct>(message: &impl Serialize, chain:
     serde_json::to_value(hypersdk::hypercore::types::Signature::from(signature)).unwrap()
 }
 
-fn raw_rmp_hash<T: Serialize>(value: &T, nonce: u64) -> alloy_primitives::B256 {
+fn raw_rmp_hash<T: Serialize>(value: &T, nonce: u64) -> alloy::primitives::B256 {
     let mut bytes = rmp_serde::to_vec_named(value).unwrap();
     bytes.extend(nonce.to_be_bytes());
     bytes.push(0);
@@ -302,7 +302,7 @@ async fn staking_validators_lists_validator_names_and_addresses() {
         .success()
         .stdout(predicate::str::contains("Validator One"))
         .stdout(predicate::str::contains(VALIDATOR_ADDRESS))
-        .stderr(predicate::str::contains("Completed in"));
+        .stderr(predicate::str::contains("Completed in").not());
 }
 
 #[tokio::test]
@@ -886,9 +886,7 @@ async fn staking_link_requires_confirmation_without_yes() {
         .assert()
         .code(2)
         .stdout(predicate::str::is_empty())
-        .stderr(predicate::str::contains(
-            "staking-link confirmation required",
-        ));
+        .stderr(predicate::str::contains("Can't continue without --yes"));
 
     let requests = server.received_requests().await.unwrap();
     assert!(exchange_bodies(&requests).is_empty());

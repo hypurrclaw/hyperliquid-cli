@@ -3,7 +3,7 @@
 use std::time::{Duration, Instant};
 
 use clap::Args;
-use hypersdk::hypercore::{Chain, HttpClient, UserBalance};
+use hypersdk::hypercore::{Chain, HttpClient};
 use hypersdk::{Address, Decimal};
 use rust_decimal::prelude::ToPrimitive;
 use serde::{Deserialize, Serialize};
@@ -160,25 +160,17 @@ struct BorrowLendExchangeAction {
 
 impl TableData for ReserveOutput {
     fn headers(&self) -> Vec<&str> {
-        if self.rows.is_empty() {
-            vec!["Message"]
-        } else {
-            vec![
-                "Token",
-                "Supply Rate",
-                "Borrow Rate",
-                "Total Supply",
-                "Total Borrow",
-                "Note",
-            ]
-        }
+        vec![
+            "Token",
+            "Supply Rate",
+            "Borrow Rate",
+            "Total Supply",
+            "Total Borrow",
+            "Note",
+        ]
     }
 
     fn rows(&self) -> Vec<Vec<String>> {
-        if self.rows.is_empty() {
-            return vec![vec!["No reserve states returned".to_string()]];
-        }
-
         self.rows
             .iter()
             .map(|row| {
@@ -198,14 +190,14 @@ impl TableData for ReserveOutput {
         self.rows()
             .into_iter()
             .map(|mut row| {
-                if self.rows.is_empty() {
-                    row[0] = output::colors::gray(&row[0]);
-                } else if row.len() > 5 {
-                    row[5] = output::colors::gray(&row[5]);
-                }
+                row[5] = output::colors::gray(&row[5]);
                 row
             })
             .collect()
+    }
+
+    fn empty_message(&self) -> Option<&str> {
+        Some("No reserve states.")
     }
 
     fn to_json_value(&self) -> serde_json::Value {
@@ -215,21 +207,10 @@ impl TableData for ReserveOutput {
 
 impl TableData for UserBorrowLendOutput {
     fn headers(&self) -> Vec<&str> {
-        if self.positions.is_empty() {
-            vec!["User", "Message"]
-        } else {
-            vec!["User", "Token", "Supplied", "Borrowed", "Hold"]
-        }
+        vec!["User", "Token", "Supplied", "Borrowed", "Hold"]
     }
 
     fn rows(&self) -> Vec<Vec<String>> {
-        if self.positions.is_empty() {
-            return vec![vec![
-                self.user.clone(),
-                "No borrow/lend positions".to_string(),
-            ]];
-        }
-
         self.positions
             .iter()
             .map(|row| {
@@ -244,16 +225,8 @@ impl TableData for UserBorrowLendOutput {
             .collect()
     }
 
-    fn pretty_rows(&self) -> Vec<Vec<String>> {
-        self.rows()
-            .into_iter()
-            .map(|mut row| {
-                if self.positions.is_empty() && row.len() > 1 {
-                    row[1] = output::colors::gray(&row[1]);
-                }
-                row
-            })
-            .collect()
+    fn empty_message(&self) -> Option<&str> {
+        Some("No borrow/lend positions.")
     }
 
     fn to_json_value(&self) -> serde_json::Value {
@@ -755,24 +728,6 @@ fn format_reversibility(reversibility: ActionReversibility) -> &'static str {
         ActionReversibility::Reversible => "reversible",
         ActionReversibility::PartiallyReversible => "partially_reversible",
         ActionReversibility::Irreversible => "irreversible",
-    }
-}
-
-impl From<UserBalance> for UserBorrowLendPosition {
-    fn from(balance: UserBalance) -> Self {
-        let (supplied, borrowed) = if balance.total < Decimal::ZERO {
-            (Decimal::ZERO, -balance.total)
-        } else {
-            (balance.total, Decimal::ZERO)
-        };
-
-        Self {
-            token: balance.coin,
-            token_index: balance.token,
-            supplied,
-            borrowed,
-            hold: balance.hold,
-        }
     }
 }
 

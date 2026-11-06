@@ -4,7 +4,6 @@
 //! All wallet creation, import, listing, and signing flow through the OWS vault
 //! at ~/.hyperliquid (or HYPERLIQUID_OWS_VAULT_PATH when set).
 
-use std::io::{self, Write};
 use std::path::Path;
 
 use serde::Serialize;
@@ -13,6 +12,7 @@ use crate::auth::{self, SignerSource};
 use crate::config::{self, Config};
 use crate::errors::CliError;
 use crate::output::{OutputFormat, TableData};
+use crate::prompt;
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct AccountRow {
@@ -45,28 +45,20 @@ impl AccountsOutput {
 
 impl TableData for AccountsOutput {
     fn headers(&self) -> Vec<&str> {
-        if self.accounts.is_empty() {
-            vec!["Message"]
-        } else {
-            vec![
-                "ID",
-                "Alias",
-                "Address",
-                "Master",
-                "Agent Name",
-                "Expires At",
-                "Type",
-                "Default",
-                "Created At",
-            ]
-        }
+        vec![
+            "ID",
+            "Alias",
+            "Address",
+            "Master",
+            "Agent Name",
+            "Expires At",
+            "Type",
+            "Default",
+            "Created At",
+        ]
     }
 
     fn rows(&self) -> Vec<Vec<String>> {
-        if self.accounts.is_empty() {
-            return vec![vec!["no accounts found".to_string()]];
-        }
-
         self.accounts
             .iter()
             .map(|account| {
@@ -94,6 +86,10 @@ impl TableData for AccountsOutput {
             .collect()
     }
 
+    fn empty_message(&self) -> Option<&str> {
+        Some("No accounts.")
+    }
+
     fn to_json_value(&self) -> serde_json::Value {
         serde_json::to_value(&self.accounts).unwrap_or_else(|_| serde_json::json!([]))
     }
@@ -109,6 +105,8 @@ struct WalletInfo {
     is_default: Option<bool>,
     config_path: String,
     vault_path: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    config_keys_written: Vec<String>,
 }
 
 impl TableData for WalletInfo {
@@ -117,7 +115,7 @@ impl TableData for WalletInfo {
     }
 
     fn rows(&self) -> Vec<Vec<String>> {
-        vec![
+        let mut rows = vec![
             vec!["Message".to_string(), self.message.clone()],
             vec!["Address".to_string(), self.address.clone()],
             vec![
@@ -133,7 +131,14 @@ impl TableData for WalletInfo {
             ],
             vec!["Config".to_string(), self.config_path.clone()],
             vec!["Vault".to_string(), self.vault_path.clone()],
-        ]
+        ];
+        if !self.config_keys_written.is_empty() {
+            rows.push(vec![
+                "Config keys written".to_string(),
+                self.config_keys_written.join(", "),
+            ]);
+        }
+        rows
     }
 
     fn to_json_value(&self) -> serde_json::Value {
@@ -180,49 +185,82 @@ impl TableData for StatusOutput {
     }
 }
 
-pub fn create(format: OutputFormat) -> Result<(), anyhow::Error> {
+/// A wallet just stored in the vault and made the default in config.
+struct NewWallet {
+    wallet: ows_lib::types::WalletInfo,
+    address: String,
+    config_keys_written: Vec<String>,
+}
+
+type CreateWallet<'a> = Box<
+    dyn FnOnce(Option<&str>, Option<&Path>) -> Result<ows_lib::types::WalletInfo, anyhow::Error>
+        + 'a,
+>;
+
+/// Create a vault wallet and make it the default, under the config lock.
+///
+/// The config is loaded first so a broken file fails before a wallet exists,
+/// and the wallet is removed again if the config can't be saved.
+fn store_new_wallet(create: CreateWallet<'_>) -> Result<NewWallet, anyhow::Error> {
+    crate::ows::warn_if_vault_passphrase_unset();
     let passphrase = crate::ows::ows_passphrase();
     let vault_path = crate::ows::ows_vault_path();
-    let name = next_ows_name("wallet", vault_path.as_deref())?;
 
-    // Load config before wallet creation so a corrupt config doesn't leave an orphan.
+    let _lock = config::lock_config()?;
     let mut cfg = config::load_config()?.unwrap_or_default();
-    apply_setup_defaults_to_config(&mut cfg);
+    let mut config_keys_written = apply_setup_defaults_to_config(&mut cfg);
 
-    let wallet = crate::ows::create_ows_wallet(&name, passphrase.as_deref(), vault_path.as_deref())
-        .map_err(|err| anyhow::anyhow!("{err}"))?;
-
-    let (hyperliquid_account, _) = crate::ows::hyperliquid_address_from_wallet(&wallet)
+    let wallet = create(passphrase.as_deref(), vault_path.as_deref())?;
+    let (address, _) = crate::ows::hyperliquid_address_from_wallet(&wallet)
         .map_err(|err| anyhow::anyhow!("{err}"))?;
 
     // Mark the new wallet as default in config.
-    if let Some(ref prev) = cfg.default_wallet_id
-        && prev != &wallet.id
+    if let Some(prev) = cfg.default_wallet_id.as_deref()
+        && prev != wallet.id
     {
-        eprintln!(
-            "Note: default wallet changed from '{}' to '{}'",
-            prev, wallet.id
-        );
+        eprintln!("! Default wallet changed from '{prev}' to '{}'.", wallet.id);
     }
     cfg.default_wallet_id = Some(wallet.id.clone());
+    config_keys_written.insert(0, "default_wallet_id".to_string());
     config::save_config(&cfg).map_err(|err| {
         let _ = crate::ows::delete_ows_wallet(&wallet.id, vault_path.as_deref());
         anyhow::anyhow!("failed to save config: {err}")
     })?;
 
-    print_wallet_info(
-        "Created wallet",
-        &hyperliquid_account,
-        Some(wallet.name.clone()),
+    Ok(NewWallet {
+        wallet,
+        address,
+        config_keys_written,
+    })
+}
+
+fn print_new_wallet(message: &str, new: NewWallet, format: OutputFormat) {
+    print_wallet_receipt(
+        message,
+        &new.address,
+        Some(new.wallet.name),
         "stored OWS wallet",
         Some(true),
+        new.config_keys_written,
         format,
     );
+}
+
+pub fn create(format: OutputFormat) -> Result<(), anyhow::Error> {
+    let new = store_new_wallet(Box::new(|passphrase, vault_path| {
+        let name = next_ows_name("wallet", vault_path)?;
+        crate::ows::create_ows_wallet(&name, passphrase, vault_path)
+            .map_err(|err| anyhow::anyhow!("{err}"))
+    }))?;
+    print_new_wallet("Created wallet", new, format);
     Ok(())
 }
 
 /// Apply packaged builder/referral defaults when the config does not already define them.
-fn apply_setup_defaults_to_config(cfg: &mut Config) {
+///
+/// Returns the config keys it wrote.
+fn apply_setup_defaults_to_config(cfg: &mut Config) -> Vec<String> {
+    let mut written = Vec::new();
     let has_builder_address = cfg
         .default_builder_address
         .as_deref()
@@ -239,6 +277,8 @@ fn apply_setup_defaults_to_config(cfg: &mut Config) {
     {
         cfg.default_builder_address = Some(address);
         cfg.default_builder_fee_rate = Some(fee);
+        written.push("default_builder_address".to_string());
+        written.push("default_builder_fee_rate".to_string());
     }
 
     let has_referral_code = cfg
@@ -251,7 +291,9 @@ fn apply_setup_defaults_to_config(cfg: &mut Config) {
             crate::commands::setup::setup_referral_default_suggestion(cfg.network)
     {
         cfg.default_referral_code = Some(code);
+        written.push("default_referral_code".to_string());
     }
+    written
 }
 
 /// Find the next available wallet name by appending "-2", "-3", etc.
@@ -282,51 +324,15 @@ pub fn import(private_key: Option<&str>, format: OutputFormat) -> Result<(), any
             );
             private_key.trim().to_string()
         }
-        None => prompt_private_key(format)?.trim().to_string(),
+        None => prompt_private_key()?.trim().to_string(),
     };
 
-    let passphrase = crate::ows::ows_passphrase();
-    let vault_path = crate::ows::ows_vault_path();
-    let name = next_ows_name("imported", vault_path.as_deref())?;
-
-    // Load config before wallet creation so a corrupt config doesn't leave an orphan.
-    let mut cfg = config::load_config()?.unwrap_or_default();
-    apply_setup_defaults_to_config(&mut cfg);
-
-    let wallet = crate::ows::import_ows_wallet_private_key(
-        &name,
-        &private_key,
-        passphrase.as_deref(),
-        vault_path.as_deref(),
-    )
-    .map_err(|err| anyhow::anyhow!("{err}"))?;
-
-    let (hyperliquid_account, _) = crate::ows::hyperliquid_address_from_wallet(&wallet)
-        .map_err(|err| anyhow::anyhow!("{err}"))?;
-
-    // Mark the new wallet as default in config.
-    if let Some(ref prev) = cfg.default_wallet_id
-        && prev != &wallet.id
-    {
-        eprintln!(
-            "Note: default wallet changed from '{}' to '{}'",
-            prev, wallet.id
-        );
-    }
-    cfg.default_wallet_id = Some(wallet.id.clone());
-    config::save_config(&cfg).map_err(|err| {
-        let _ = crate::ows::delete_ows_wallet(&wallet.id, vault_path.as_deref());
-        anyhow::anyhow!("failed to save config: {err}")
-    })?;
-
-    print_wallet_info(
-        "Imported wallet",
-        &hyperliquid_account,
-        Some(wallet.name.clone()),
-        "stored OWS wallet",
-        Some(true),
-        format,
-    );
+    let new = store_new_wallet(Box::new(|passphrase, vault_path| {
+        let name = next_ows_name("imported", vault_path)?;
+        crate::ows::import_ows_wallet_private_key(&name, &private_key, passphrase, vault_path)
+            .map_err(|err| anyhow::anyhow!("{err}"))
+    }))?;
+    print_new_wallet("Imported wallet", new, format);
     Ok(())
 }
 
@@ -342,61 +348,20 @@ pub fn import_mnemonic(
             );
             mnemonic.trim().to_string()
         }
-        None => {
-            use std::io::IsTerminal;
-            if io::stdin().is_terminal() {
-                rpassword::prompt_password("Mnemonic phrase: ")?
-            } else {
-                prompt("Mnemonic phrase: ", format)?
-            }
-        }
+        None => prompt::read_secret("Mnemonic phrase: ", "a mnemonic phrase on stdin")?
+            .trim()
+            .to_string(),
     };
 
-    let passphrase = crate::ows::ows_passphrase();
-    let vault_path = crate::ows::ows_vault_path();
-    let name = match alias {
-        Some(alias) => alias.trim().to_string(),
-        None => next_ows_name("imported", vault_path.as_deref())?,
-    };
-
-    // Load config before wallet creation so a corrupt config doesn't leave an orphan.
-    let mut cfg = config::load_config()?.unwrap_or_default();
-    apply_setup_defaults_to_config(&mut cfg);
-
-    let wallet = crate::ows::import_ows_wallet_mnemonic(
-        &name,
-        &mnemonic,
-        passphrase.as_deref(),
-        vault_path.as_deref(),
-    )
-    .map_err(|err| anyhow::anyhow!("{err}"))?;
-
-    let (hyperliquid_account, _) = crate::ows::hyperliquid_address_from_wallet(&wallet)
-        .map_err(|err| anyhow::anyhow!("{err}"))?;
-
-    // Mark the new wallet as default in config.
-    if let Some(ref prev) = cfg.default_wallet_id
-        && prev != &wallet.id
-    {
-        eprintln!(
-            "Note: default wallet changed from '{}' to '{}'",
-            prev, wallet.id
-        );
-    }
-    cfg.default_wallet_id = Some(wallet.id.clone());
-    config::save_config(&cfg).map_err(|err| {
-        let _ = crate::ows::delete_ows_wallet(&wallet.id, vault_path.as_deref());
-        anyhow::anyhow!("failed to save config: {err}")
-    })?;
-
-    print_wallet_info(
-        "Imported wallet",
-        &hyperliquid_account,
-        Some(wallet.name.clone()),
-        "stored OWS wallet",
-        Some(true),
-        format,
-    );
+    let new = store_new_wallet(Box::new(|passphrase, vault_path| {
+        let name = match alias {
+            Some(alias) => alias.trim().to_string(),
+            None => next_ows_name("imported", vault_path)?,
+        };
+        crate::ows::import_ows_wallet_mnemonic(&name, &mnemonic, passphrase, vault_path)
+            .map_err(|err| anyhow::anyhow!("{err}"))
+    }))?;
+    print_new_wallet("Imported wallet", new, format);
     Ok(())
 }
 
@@ -443,7 +408,7 @@ pub fn show(
             }
         } else {
             // Auto-detect: prefer configured default wallet, then first compatible wallet.
-            let cfg = config::load_config().ok().flatten();
+            let cfg = config::load_config()?;
             let default_wallet_id = cfg.as_ref().and_then(|c| c.default_wallet_id.as_deref());
             match crate::ows::resolve_default_ows_wallet(default_wallet_id, vault_path.as_deref()) {
                 Ok(wallet) => wallet,
@@ -550,7 +515,7 @@ pub fn address(
         && account_selector.is_none()
     {
         // Auto-detect: prefer configured default wallet, then first compatible wallet.
-        let cfg = config::load_config().ok().flatten();
+        let cfg = config::load_config()?;
         let default_wallet_id = cfg.as_ref().and_then(|c| c.default_wallet_id.as_deref());
         match crate::ows::resolve_default_ows_wallet(default_wallet_id, vault_path.as_deref()) {
             Ok(wallet) => crate::ows::hyperliquid_address_from_wallet(&wallet)
@@ -605,42 +570,45 @@ fn resolve_fallback_address(
 }
 
 pub fn reset(yes: bool, format: OutputFormat) -> Result<(), anyhow::Error> {
-    if !wallet_configuration_exists() {
+    let Some(path) = config::config_file_path().filter(|path| path.exists()) else {
         print_status("noop", "Nothing to reset", format);
         return Ok(());
-    }
+    };
 
     if !yes {
-        write_prompt(
-            "Reset wallet configuration and remove default wallet reference? [y/N] ",
-            format,
-        )?;
-        if !read_confirmation()? {
-            print_status("cancelled", "Reset cancelled", format);
+        require_promptable("--yes", format)?;
+        eprintln!("This deletes the config file at {}.", path.display());
+        eprintln!(
+            "It clears the default wallet, network, builder, and referral defaults. Wallets stay in the vault."
+        );
+        if config::load_config_from_path(&path).is_err() {
+            eprintln!("The file isn't valid config, so its contents are discarded.");
+        }
+        let question = format!("Delete config file {}?", path.display());
+        if !prompt::confirm(&question, "--yes")? {
+            print_declined("Reset cancelled", format);
             return Ok(());
         }
     }
 
-    // Remove the config file (no need to save first since we're deleting it).
-    if let Some(path) = crate::config::config_file_path()
-        && path.exists()
-    {
-        std::fs::remove_file(&path).map_err(|err| {
-            CliError::Configuration(format!("failed to remove config {}: {err}", path.display()))
-        })?;
+    let _lock = config::lock_config()?;
+    match std::fs::remove_file(&path) {
+        Ok(()) => {}
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+        Err(err) => {
+            return Err(CliError::Configuration(format!(
+                "failed to remove config {}: {err}",
+                path.display()
+            ))
+            .into());
+        }
     }
-    print_status("reset", "Wallet configuration reset", format);
+    print_status(
+        "reset",
+        &format!("Deleted config file {}", path.display()),
+        format,
+    );
     Ok(())
-}
-
-fn wallet_configuration_exists() -> bool {
-    // Check for config file or default wallet reference.
-    if let Ok(Some(cfg)) = config::load_config()
-        && cfg.default_wallet_id.is_some()
-    {
-        return true;
-    }
-    crate::config::config_file_path().is_some_and(|path| path.exists())
 }
 
 pub fn account_add(
@@ -658,7 +626,7 @@ pub fn account_add(
             );
             private_key.trim().to_string()
         }
-        None => prompt_private_key(format)?.trim().to_string(),
+        None => prompt_private_key()?.trim().to_string(),
     };
     let name = match alias {
         Some(alias) => alias.trim().to_string(),
@@ -666,7 +634,10 @@ pub fn account_add(
             let vp = crate::ows::ows_vault_path();
             next_ows_name("account", vp.as_deref())?
         }
-        None => prompt("Wallet name: ", format)?,
+        None => {
+            require_promptable("--alias", format)?;
+            prompt::read_line("Wallet name: ", "--alias")?
+        }
     };
     let name = if name.trim().is_empty() {
         let vp = crate::ows::ows_vault_path();
@@ -675,8 +646,20 @@ pub fn account_add(
         name.trim().to_string()
     };
 
+    crate::ows::warn_if_vault_passphrase_unset();
     let passphrase = crate::ows::ows_passphrase();
     let vault_path = crate::ows::ows_vault_path();
+    let _lock = if make_default {
+        Some(config::lock_config()?)
+    } else {
+        None
+    };
+    let mut cfg = if make_default {
+        // Load before creating the wallet so a broken config doesn't leave an orphan.
+        Some(config::load_config()?.unwrap_or_default())
+    } else {
+        None
+    };
     let wallet = crate::ows::import_ows_wallet_private_key(
         &name,
         &private_key,
@@ -685,10 +668,9 @@ pub fn account_add(
     )
     .map_err(|err| anyhow::anyhow!("{err}"))?;
 
-    if make_default {
-        let mut cfg = config::load_config()?.unwrap_or_default();
+    if let Some(cfg) = cfg.as_mut() {
         cfg.default_wallet_id = Some(wallet.id.clone());
-        config::save_config(&cfg).map_err(|err| {
+        config::save_config(cfg).map_err(|err| {
             let _ = crate::ows::delete_ows_wallet(&wallet.id, vault_path.as_deref());
             anyhow::anyhow!("failed to save config: {err}")
         })?;
@@ -705,7 +687,7 @@ pub fn account_ls(format: OutputFormat) -> Result<(), anyhow::Error> {
     let vault_path = crate::ows::ows_vault_path();
     let ows_wallets =
         crate::ows::list_ows_wallets(vault_path.as_deref()).map_err(|e| anyhow::anyhow!("{e}"))?;
-    let config = config::load_config().ok().flatten();
+    let config = config::load_config()?;
     let default_id = config.as_ref().and_then(|c| c.default_wallet_id.as_deref());
     let mut display_index = 0usize;
     for w in ows_wallets.into_iter() {
@@ -716,7 +698,7 @@ pub fn account_ls(format: OutputFormat) -> Result<(), anyhow::Error> {
             Err(CliError::OwsNoChainAccount { .. }) => continue,
             Err(e) => return Err(anyhow::anyhow!("{e}")),
         };
-        let is_default = default_id.map_or(display_index == 0, |d| d == w.id);
+        let is_default = default_id.is_some_and(|d| d == w.id || d == w.name);
         all_rows.push(AccountRow {
             id: (display_index + 1) as i64,
             alias: w.name,
@@ -730,6 +712,10 @@ pub fn account_ls(format: OutputFormat) -> Result<(), anyhow::Error> {
         });
         display_index += 1;
     }
+    // With no configured default, signing uses the only wallet in the vault.
+    if default_id.is_none() && all_rows.len() == 1 {
+        all_rows[0].is_default = true;
+    }
 
     crate::output::print_data_no_timing(&AccountsOutput::new(all_rows), format);
     Ok(())
@@ -739,6 +725,9 @@ pub fn account_set_default(
     selector: Option<&str>,
     format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
+    if selector.is_none() {
+        require_promptable("<WALLET>", format)?;
+    }
     let vault_path = crate::ows::ows_vault_path();
     let wallets = crate::ows::list_ows_wallets(vault_path.as_deref())
         .map_err(|err| anyhow::anyhow!("{err}"))?;
@@ -748,8 +737,8 @@ pub fn account_set_default(
     let selector = match selector {
         Some(selector) => selector.trim().to_string(),
         None => {
-            print_ows_wallet_choices(&wallets, format)?;
-            prompt("Select wallet by name or id: ", format)?
+            print_ows_wallet_choices(&wallets)?;
+            prompt::read_line("Select wallet by name or id: ", "<WALLET>")?
                 .trim()
                 .to_string()
         }
@@ -759,6 +748,7 @@ pub fn account_set_default(
         .find(|w| w.name == selector || w.id == selector)
         .ok_or_else(|| wallet_not_found(&selector))?;
 
+    let _lock = config::lock_config()?;
     let mut config = config::load_config()?.unwrap_or_default();
     config.default_wallet_id = Some(wallet.id.clone());
     config::save_config(&config)?;
@@ -772,6 +762,9 @@ pub fn account_remove(
     yes: bool,
     format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
+    if selector.is_none() {
+        require_promptable("<WALLET>", format)?;
+    }
     let vault_path = crate::ows::ows_vault_path();
     let wallets = crate::ows::list_ows_wallets(vault_path.as_deref())
         .map_err(|err| anyhow::anyhow!("{err}"))?;
@@ -781,8 +774,8 @@ pub fn account_remove(
     let selector = match selector {
         Some(selector) => selector.trim().to_string(),
         None => {
-            print_ows_wallet_choices(&wallets, format)?;
-            prompt("Select wallet by name or id: ", format)?
+            print_ows_wallet_choices(&wallets)?;
+            prompt::read_line("Select wallet by name or id: ", "<WALLET>")?
                 .trim()
                 .to_string()
         }
@@ -791,26 +784,57 @@ pub fn account_remove(
         .into_iter()
         .find(|w| w.name == selector || w.id == selector)
         .ok_or_else(|| wallet_not_found(&selector))?;
+    let address = crate::ows::hyperliquid_address_from_wallet(&wallet)
+        .map(|(address, _)| address)
+        .unwrap_or_else(|_| "no Hyperliquid account".to_string());
+    let is_default = config::load_config()?
+        .and_then(|config| config.default_wallet_id)
+        .is_some_and(|default| default == wallet.id || default == wallet.name);
+
     if !yes {
-        write_prompt(
-            &format!("Remove wallet '{}' ({})? [y/N] ", wallet.name, wallet.id),
-            format,
-        )?;
-        if !read_confirmation()? {
-            print_status("cancelled", "Remove cancelled", format);
+        require_promptable("--yes", format)?;
+        eprintln!("Wallet:  {}", wallet.name);
+        eprintln!("Address: {address}");
+        eprintln!("Default: {}", if is_default { "yes" } else { "no" });
+        eprintln!();
+        eprintln!("This deletes the encrypted key from the vault. This cannot be undone.");
+        eprintln!("Back up first:");
+        eprintln!("    hyperliquid wallet export {}", shell_arg(&wallet.name));
+        eprintln!();
+        let confirmed = if prompt::stdin_is_terminal() {
+            prompt::confirm_typed(
+                &format!("To confirm, type the wallet name \"{}\": ", wallet.name),
+                &wallet.name,
+                "--yes",
+            )?
+        } else {
+            prompt::confirm(&format!("Delete wallet {}?", wallet.name), "--yes")?
+        };
+        if !confirmed {
+            print_declined("Delete cancelled", format);
             return Ok(());
         }
     }
     crate::ows::delete_ows_wallet(&wallet.id, vault_path.as_deref())
         .map_err(|err| anyhow::anyhow!("{err}"))?;
-    // Clear default_wallet_id if we just deleted the default wallet.
-    if let Ok(Some(mut config)) = config::load_config()
-        && config.default_wallet_id.as_deref() == Some(&wallet.id)
-    {
-        config.default_wallet_id = None;
-        config::save_config(&config)?;
+    if is_default {
+        // The deleted wallet was the default; clear the dangling reference.
+        let _lock = config::lock_config()?;
+        if let Some(mut config) = config::load_config()? {
+            config.default_wallet_id = None;
+            config::save_config(&config)?;
+        }
+        eprintln!("! The deleted wallet was the default. Pick another:");
+        eprintln!("    hyperliquid account set-default <WALLET>");
     }
-    print_ows_wallet_change("Account removed", &wallet, format)?;
+    print_wallet_info(
+        "Deleted wallet",
+        &address,
+        Some(wallet.name.clone()),
+        "OWS wallet",
+        None,
+        format,
+    );
     Ok(())
 }
 
@@ -844,15 +868,12 @@ pub fn rename(selector: &str, new_name: &str, format: OutputFormat) -> Result<()
 /// banner. The command's sole purpose is secret recovery/export.
 pub fn export(selector: &str, yes: bool, format: OutputFormat) -> Result<(), anyhow::Error> {
     if !yes {
-        write_prompt(
-            &format!(
-                "Export secret for wallet '{}'? This will display the private key/mnemonic. [y/N] ",
-                selector
-            ),
-            format,
-        )?;
-        if !read_confirmation()? {
-            print_status("cancelled", "Export cancelled", format);
+        require_promptable("--yes", format)?;
+        let question = format!(
+            "Export secret for wallet '{selector}'? This will display the private key or mnemonic."
+        );
+        if !prompt::confirm(&question, "--yes")? {
+            print_declined("Export cancelled", format);
             return Ok(());
         }
     }
@@ -887,6 +908,26 @@ fn print_wallet_info(
     is_default: Option<bool>,
     format: OutputFormat,
 ) {
+    print_wallet_receipt(
+        message,
+        address,
+        alias,
+        source,
+        is_default,
+        Vec::new(),
+        format,
+    );
+}
+
+fn print_wallet_receipt(
+    message: &str,
+    address: &str,
+    alias: Option<String>,
+    source: &str,
+    is_default: Option<bool>,
+    config_keys_written: Vec<String>,
+    format: OutputFormat,
+) {
     let vault_path = crate::ows::ows_vault_path()
         .map(|p| p.display().to_string())
         .unwrap_or_else(|| {
@@ -904,6 +945,7 @@ fn print_wallet_info(
             .map(|path| path.display().to_string())
             .unwrap_or_else(|| "unavailable".to_string()),
         vault_path,
+        config_keys_written,
     };
     crate::output::print_data_no_timing(&info, format);
 }
@@ -947,10 +989,16 @@ fn print_status(status: &str, message: &str, format: OutputFormat) {
     }
 }
 
-fn print_ows_wallet_choices(
-    wallets: &[ows_lib::types::WalletInfo],
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
+/// Report a declined confirmation. Human runs get a stderr note; JSON keeps its status document.
+fn print_declined(message: &str, format: OutputFormat) {
+    if format == OutputFormat::Json {
+        print_status("cancelled", message, format);
+    } else {
+        eprintln!("{message}");
+    }
+}
+
+fn print_ows_wallet_choices(wallets: &[ows_lib::types::WalletInfo]) -> Result<(), anyhow::Error> {
     // Filter to wallets with a Hyperliquid/EVM account, matching account_ls behavior.
     let hl_wallets: Vec<_> = wallets
         .iter()
@@ -959,13 +1007,10 @@ fn print_ows_wallet_choices(
     if hl_wallets.is_empty() {
         return Err(no_stored_accounts_error().into());
     }
-    write_line("Stored wallets:", format)?;
+    eprintln!("Stored wallets:");
     for wallet in hl_wallets {
         let (hl_addr, _) = crate::ows::hyperliquid_address_from_wallet(wallet).unwrap();
-        write_line(
-            &format!("  {}: {} ({})", wallet.id, wallet.name, hl_addr),
-            format,
-        )?;
+        eprintln!("  {}: {} ({})", wallet.id, wallet.name, hl_addr);
     }
     Ok(())
 }
@@ -980,51 +1025,31 @@ fn wallet_not_found(selector: &str) -> CliError {
     CliError::Unsupported(format!("wallet '{selector}' not found"))
 }
 
-fn prompt(label: &str, format: OutputFormat) -> Result<String, anyhow::Error> {
-    write_prompt(label, format)?;
-    let mut input = String::new();
-    io::stdin().read_line(&mut input)?;
-    Ok(input.trim_end_matches(['\r', '\n']).to_string())
-}
-
-fn prompt_private_key(format: OutputFormat) -> Result<String, anyhow::Error> {
-    use std::io::IsTerminal;
-
-    if io::stdin().is_terminal() {
-        return Ok(rpassword::prompt_password("Private key: ")?);
-    }
-
-    prompt("Private key: ", format)
-}
-
-fn write_prompt(label: &str, format: OutputFormat) -> Result<(), anyhow::Error> {
+/// Fail with missing input naming `input` when this run can't ask a question.
+fn require_promptable(input: &str, format: OutputFormat) -> Result<(), CliError> {
     if format == OutputFormat::Json {
-        eprint!("{label}");
-        io::stderr().flush()?;
-    } else {
-        print!("{label}");
-        io::stdout().flush()?;
+        return Err(CliError::MissingInput(format!(
+            "Can't prompt for {input} because of JSON output. Pass {input} instead."
+        )));
     }
-    Ok(())
+    prompt::ensure_can_prompt(input)
 }
 
-fn write_line(line: &str, format: OutputFormat) -> Result<(), anyhow::Error> {
-    if format == OutputFormat::Json {
-        eprintln!("{line}");
+fn prompt_private_key() -> Result<String, CliError> {
+    prompt::read_secret("Private key: ", "a private key on stdin")
+}
+
+/// Quote a value for display in a copy-pasteable shell command.
+fn shell_arg(value: &str) -> String {
+    let plain = !value.is_empty()
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '/' | ':'));
+    if plain {
+        value.to_string()
     } else {
-        println!("{line}");
+        format!("'{}'", value.replace('\'', "'\\''"))
     }
-    Ok(())
-}
-
-fn read_confirmation() -> Result<bool, anyhow::Error> {
-    let mut input = String::new();
-    io::stdin().read_line(&mut input)?;
-    Ok(is_yes(input.trim()))
-}
-
-fn is_yes(input: &str) -> bool {
-    matches!(input.to_ascii_lowercase().as_str(), "y" | "yes")
 }
 
 #[cfg(test)]
@@ -1052,11 +1077,16 @@ mod tests {
     }
 
     #[test]
-    fn yes_parser_accepts_only_affirmative_answers() {
-        assert!(is_yes("y"));
-        assert!(is_yes("yes"));
-        assert!(is_yes("YES"));
-        assert!(!is_yes(""));
-        assert!(!is_yes("n"));
+    fn shell_arg_quotes_only_when_needed() {
+        assert_eq!(shell_arg("main"), "main");
+        assert_eq!(shell_arg("my wallet"), "'my wallet'");
+        assert_eq!(shell_arg("it's"), "'it'\\''s'");
+    }
+
+    #[test]
+    fn json_runs_name_the_missing_selector_without_prompting() {
+        let err = require_promptable("<WALLET>", OutputFormat::Json).unwrap_err();
+        assert_eq!(err.exit_code(), 2);
+        assert!(err.to_string().contains("<WALLET>"));
     }
 }

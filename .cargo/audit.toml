@@ -1,0 +1,13 @@
+# cargo-audit configuration. Every ignored advisory names why it can't be fixed
+# here and when to revisit it.
+
+[advisories]
+ignore = [
+    # crypto-bigint 0.5.5 timing variability. It reaches us only through
+    # elliptic-curve 0.13 -> k256, which every Alloy 2 release (and hypersdk)
+    # still depends on; the fix is in crypto-bigint 0.7, used by elliptic-curve
+    # 0.14. Signing runs locally in a one-shot CLI process, so a remote timing
+    # observer has no measurement channel. Drop this entry when Alloy moves to
+    # elliptic-curve 0.14.
+    "RUSTSEC-2026-0387",
+]

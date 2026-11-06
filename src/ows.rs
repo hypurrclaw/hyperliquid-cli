@@ -8,8 +8,8 @@ use std::env;
 use std::path::PathBuf;
 
 use alloy::dyn_abi::TypedData;
-use alloy_primitives::Address as AlloyAddress;
-use alloy_primitives::B256;
+use alloy::primitives::Address as AlloyAddress;
+use alloy::primitives::B256;
 use hypersdk::Address;
 use hypersdk::hypercore::types::Signature as HyperliquidSignature;
 
@@ -112,7 +112,7 @@ fn resolve_wallet_selector_with_vault(
     selector: &str,
     vault_path: Option<PathBuf>,
 ) -> Result<OwsSignerConfig, CliError> {
-    let wallet = ows_lib::get_wallet(selector, vault_path.as_deref()).map_err(map_ows_error)?;
+    let wallet = get_ows_wallet(selector, vault_path.as_deref())?;
     let account = select_hyperliquid_account(&wallet.accounts).ok_or_else(|| {
         CliError::OwsNoChainAccount {
             wallet: wallet.name.clone(),
@@ -225,7 +225,7 @@ pub fn sign_typed_data(
     )
     .map_err(map_ows_error)?;
     let signature = hyperliquid_signature_from_ows(result)?;
-    let alloy_signature: alloy_primitives::Signature = signature.into();
+    let alloy_signature: alloy::primitives::Signature = signature.into();
     let signing_hash = typed_data.eip712_signing_hash().map_err(|err| {
         CliError::Internal(anyhow::anyhow!("failed to hash OWS typed data: {err}"))
     })?;
@@ -244,7 +244,7 @@ pub fn sign_hash(config: &OwsSigningConfig, hash: B256) -> Result<HyperliquidSig
     )
     .map_err(map_ows_error)?;
     let signature = hyperliquid_signature_from_ows(result)?;
-    let alloy_signature: alloy_primitives::Signature = signature.into();
+    let alloy_signature: alloy::primitives::Signature = signature.into();
     verify_recovered_address(config, &alloy_signature, hash)?;
     Ok(signature)
 }
@@ -252,7 +252,7 @@ pub fn sign_hash(config: &OwsSigningConfig, hash: B256) -> Result<HyperliquidSig
 pub fn sign_message(
     config: &OwsSigningConfig,
     message: &[u8],
-) -> Result<alloy_primitives::Signature, CliError> {
+) -> Result<alloy::primitives::Signature, CliError> {
     let result = ows_lib::sign_message(
         config.wallet_id()?,
         HYPERLIQUID_CHAIN_ALIAS,
@@ -458,7 +458,7 @@ fn hyperliquid_signature_from_ows(
 
 fn alloy_signature_from_ows(
     result: ows_lib::types::SignResult,
-) -> Result<alloy_primitives::Signature, CliError> {
+) -> Result<alloy::primitives::Signature, CliError> {
     let signature = hyperliquid_signature_from_ows(result)?;
     Ok(signature.into())
 }
@@ -504,7 +504,7 @@ fn canonical_signature_hex_parts(
 
 fn verify_recovered_address(
     config: &OwsSigningConfig,
-    signature: &alloy_primitives::Signature,
+    signature: &alloy::primitives::Signature,
     signing_hash: B256,
 ) -> Result<(), CliError> {
     let recovered = signature
@@ -579,7 +579,28 @@ pub fn import_ows_wallet_mnemonic(
 pub fn list_ows_wallets(
     vault_path: Option<&std::path::Path>,
 ) -> Result<Vec<ows_lib::types::WalletInfo>, CliError> {
+    if !vault_exists(vault_path) {
+        return Ok(Vec::new());
+    }
     ows_lib::list_wallets(vault_path).map_err(map_ows_error)
+}
+
+/// Whether the vault's wallet directory exists. Reads must not create it.
+fn vault_exists(vault_path: Option<&std::path::Path>) -> bool {
+    vault_path.is_none_or(|path| path.join("wallets").is_dir())
+}
+
+fn require_vault_wallet(
+    name_or_id: &str,
+    vault_path: Option<&std::path::Path>,
+) -> Result<(), CliError> {
+    if vault_exists(vault_path) {
+        Ok(())
+    } else {
+        Err(CliError::OwsWalletNotFound {
+            wallet: name_or_id.to_string(),
+        })
+    }
 }
 
 /// Get a single OWS wallet by name or id.
@@ -587,7 +608,25 @@ pub fn get_ows_wallet(
     name_or_id: &str,
     vault_path: Option<&std::path::Path>,
 ) -> Result<ows_lib::types::WalletInfo, CliError> {
+    require_vault_wallet(name_or_id, vault_path)?;
     ows_lib::get_wallet(name_or_id, vault_path).map_err(map_ows_error)
+}
+
+/// Warn on stderr when a new vault wallet will be encrypted with an empty passphrase.
+pub fn warn_if_vault_passphrase_unset() {
+    if ows_passphrase().is_some() {
+        return;
+    }
+    let vault = ows_vault_path()
+        .map(|path| path.join("wallets").display().to_string())
+        .unwrap_or_else(|| "the vault".to_string());
+    eprintln!(
+        "! {OWS_PASSPHRASE_ENV} isn't set, so this wallet is encrypted with an empty passphrase."
+    );
+    eprintln!(
+        "  Anyone who can read {vault} can recover the key. To use a passphrase, delete the wallet and recreate it with:"
+    );
+    eprintln!("    {OWS_PASSPHRASE_ENV}=<passphrase> hyperliquid wallet create");
 }
 
 /// Delete an OWS wallet by name or id.
@@ -595,6 +634,7 @@ pub fn delete_ows_wallet(
     name_or_id: &str,
     vault_path: Option<&std::path::Path>,
 ) -> Result<(), CliError> {
+    require_vault_wallet(name_or_id, vault_path)?;
     ows_lib::delete_wallet(name_or_id, vault_path).map_err(map_ows_error)
 }
 
@@ -604,6 +644,7 @@ pub fn rename_ows_wallet(
     new_name: &str,
     vault_path: Option<&std::path::Path>,
 ) -> Result<(), CliError> {
+    require_vault_wallet(name_or_id, vault_path)?;
     ows_lib::rename_wallet(name_or_id, new_name, vault_path).map_err(map_ows_error)
 }
 
@@ -613,6 +654,7 @@ pub fn export_ows_wallet(
     passphrase: Option<&str>,
     vault_path: Option<&std::path::Path>,
 ) -> Result<String, CliError> {
+    require_vault_wallet(name_or_id, vault_path)?;
     ows_lib::export_wallet(name_or_id, passphrase, vault_path).map_err(map_ows_error)
 }
 
@@ -650,23 +692,38 @@ pub fn hyperliquid_address_from_wallet(
 
 /// Resolve the default OWS wallet.
 ///
-/// Uses the configured default_wallet_id if set, otherwise returns the first
-/// Hyperliquid-capable wallet in the vault.
+/// A configured `default_wallet_id` must resolve to a Hyperliquid-capable
+/// wallet; a stale id is an error naming it, never a silent substitution. With
+/// no configured default, the only Hyperliquid-capable wallet in the vault is
+/// used. An empty vault is `AuthRequired`; several wallets with no default is
+/// an error that asks for `account set-default`.
 pub fn resolve_default_ows_wallet(
     default_wallet_id: Option<&str>,
     vault_path: Option<&std::path::Path>,
 ) -> Result<ows_lib::types::WalletInfo, CliError> {
-    if let Some(id) = default_wallet_id
-        && let Ok(wallet) = ows_lib::get_wallet(id, vault_path)
-        && hyperliquid_address_from_wallet(&wallet).is_ok()
-    {
-        return Ok(wallet);
+    if let Some(id) = default_wallet_id {
+        return match get_ows_wallet(id, vault_path) {
+            Ok(wallet) if hyperliquid_address_from_wallet(&wallet).is_ok() => Ok(wallet),
+            Ok(_) => Err(CliError::InvalidAuth(format!(
+                "Default wallet {id} has no Hyperliquid account.\nPick another:\n    hyperliquid account set-default <WALLET>"
+            ))),
+            Err(CliError::OwsWalletNotFound { .. }) => Err(CliError::InvalidAuth(format!(
+                "Default wallet {id} isn't in the vault.\nPick another:\n    hyperliquid account set-default <WALLET>"
+            ))),
+            Err(err) => Err(err),
+        };
     }
-    let wallets = ows_lib::list_wallets(vault_path).map_err(map_ows_error)?;
-    wallets
+    let mut wallets: Vec<_> = list_ows_wallets(vault_path)?
         .into_iter()
-        .find(|w| hyperliquid_address_from_wallet(w).is_ok())
-        .ok_or_else(|| CliError::AuthRequired)
+        .filter(|w| hyperliquid_address_from_wallet(w).is_ok())
+        .collect();
+    match wallets.len() {
+        0 => Err(CliError::AuthRequired),
+        1 => Ok(wallets.remove(0)),
+        count => Err(CliError::InvalidAuth(format!(
+            "No default wallet is set and the vault holds {count} wallets.\nPick one:\n    hyperliquid account set-default <WALLET>"
+        ))),
+    }
 }
 
 /// Result of resolving an OWS wallet selector.
@@ -692,7 +749,7 @@ pub fn resolve_ows_wallet_selector(
 ) -> Result<ResolvedOwsSelector, CliError> {
     // If the selector is a valid address, first check if any OWS wallet owns it.
     if let Ok(address) = selector.parse::<Address>() {
-        if let Ok(wallets) = ows_lib::list_wallets(vault_path) {
+        if let Ok(wallets) = list_ows_wallets(vault_path) {
             for wallet in &wallets {
                 if let Ok((addr_str, _)) = hyperliquid_address_from_wallet(wallet)
                     && addr_str.eq_ignore_ascii_case(selector)
@@ -712,7 +769,7 @@ pub fn resolve_ows_wallet_selector(
             address,
         });
     }
-    let wallet = ows_lib::get_wallet(selector, vault_path).map_err(map_ows_error)?;
+    let wallet = get_ows_wallet(selector, vault_path)?;
     let (address_str, address) = hyperliquid_address_from_wallet(&wallet)?;
     Ok(ResolvedOwsSelector::Wallet {
         wallet,
@@ -911,7 +968,7 @@ mod tests {
         let hash = B256::repeat_byte(0x42);
 
         let signature = sign_hash(&config, hash).unwrap();
-        let alloy_signature: alloy_primitives::Signature = signature.into();
+        let alloy_signature: alloy::primitives::Signature = signature.into();
         let recovered = alloy_signature.recover_address_from_prehash(&hash).unwrap();
 
         assert_eq!(recovered, config.address());
@@ -953,7 +1010,7 @@ mod tests {
         let signing_hash = typed_data.eip712_signing_hash().unwrap();
 
         let signature = sign_typed_data(&config, &typed_data).unwrap();
-        let alloy_signature: alloy_primitives::Signature = signature.into();
+        let alloy_signature: alloy::primitives::Signature = signature.into();
         let recovered = alloy_signature
             .recover_address_from_prehash(&signing_hash)
             .unwrap();

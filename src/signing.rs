@@ -4,13 +4,8 @@
 //! use `PrivateKeySigner` directly, while new code can depend on `SelectedSigner`
 //! as the stable boundary that future OWS support will implement.
 
-// TypedData comes from the app-level Alloy 2 dependency, while local signing
-// still uses hypersdk's Alloy 1 signer trait. This is intentionally temporary:
-// both versions share the same alloy-dyn-abi/core typed-data representation in
-// this dependency set, and `alloy_v1` can be removed when hypersdk moves to
-// Alloy 2.
 use alloy::dyn_abi::TypedData;
-use alloy_v1::signers::SignerSync;
+use alloy::signers::SignerSync;
 use hypersdk::Address;
 use hypersdk::hypercore::signing::{agent_signing_hash, sign_l1_action};
 use hypersdk::hypercore::types::{Action, ActionRequest, Signature};
@@ -164,7 +159,7 @@ impl SelectedSigner {
     pub async fn sign_l1_connection_id(
         &self,
         chain: Chain,
-        connection_id: alloy_primitives::B256,
+        connection_id: alloy::primitives::B256,
     ) -> Result<Signature, CliError> {
         match &self.backend {
             SignerBackend::LocalPrivateKey(signer) => sign_l1_action(signer, chain, connection_id)
@@ -176,7 +171,7 @@ impl SelectedSigner {
         }
     }
 
-    pub fn sign_message(&self, message: &[u8]) -> Result<alloy_primitives::Signature, CliError> {
+    pub fn sign_message(&self, message: &[u8]) -> Result<alloy::primitives::Signature, CliError> {
         match &self.backend {
             SignerBackend::LocalPrivateKey(signer) => {
                 signer.sign_message_sync(message).map_err(|err| {

@@ -1,24 +1,26 @@
 //! Output formatting system for Hyperliquid CLI.
 //!
 //! Supports three output formats:
-//! - `Pretty` — human-readable, colorized, tabwriter-aligned (default)
-//! - `Table` — bordered tables via tabled
-//! - `Json` — stable JSON output with snake_case keys
+//! - `Pretty`: human-readable, tabwriter-aligned, styled only when stdout styling is enabled (default)
+//! - `Table`: bordered tables on a terminal, tab-separated header and rows on a pipe
+//! - `Json`: stable JSON output with snake_case keys, indented on a terminal and compact on a pipe
 //!
-//! Color theme:
+//! Color theme (see [`colors`] for when styling applies):
 //! - Cyan: headers
 //! - Green: positive values (profit, gains)
 //! - Red: negative values (loss, declines)
 //! - Gray: muted/secondary text
 //! - Yellow: warnings
 //!
-//! Error routing:
+//! Streams:
+//! - stdout carries the answer. Empty-state sentences and `--max-results`
+//!   truncation notices go to stderr in pretty and table modes.
 //! - JSON mode: errors printed to stdout as `{"error": "..."}`
-//! - Pretty mode: errors printed to stderr with a red prefix
-//! - Table mode: errors printed to stderr without ANSI color
+//! - Pretty mode: errors printed to stderr as `✗ message` (rich) or `Error: message`
+//! - Table mode: errors printed to stderr as `Error: message`
 //!
 //! Timing feedback:
-//! - "Completed in X.XXs" printed to stderr after output
+//! - "Completed in 1.2s" is printed to stderr only for human formats on a terminal
 
 #![allow(dead_code)]
 
@@ -29,64 +31,9 @@ use std::io::Write;
 use std::sync::{OnceLock, RwLock};
 use tabwriter::TabWriter;
 
-// ── Color helpers ───────────────────────────────────────────────────────
-
-/// ANSI color codes for the CLI color theme.
-pub mod colors {
-    pub const CYAN: &str = "\x1b[36m";
-    pub const GREEN: &str = "\x1b[32m";
-    pub const RED: &str = "\x1b[31m";
-    pub const GRAY: &str = "\x1b[90m";
-    pub const YELLOW: &str = "\x1b[33m";
-    pub const BOLD: &str = "\x1b[1m";
-    pub const RESET: &str = "\x1b[0m";
-
-    /// Wrap text in cyan color.
-    pub fn cyan(text: &str) -> String {
-        format!("{CYAN}{text}{RESET}")
-    }
-
-    /// Wrap text in green color.
-    pub fn green(text: &str) -> String {
-        format!("{GREEN}{text}{RESET}")
-    }
-
-    /// Wrap text in red color.
-    pub fn red(text: &str) -> String {
-        format!("{RED}{text}{RESET}")
-    }
-
-    /// Wrap text in gray color (muted).
-    pub fn gray(text: &str) -> String {
-        format!("{GRAY}{text}{RESET}")
-    }
-
-    /// Wrap text in yellow color (warning).
-    pub fn yellow(text: &str) -> String {
-        format!("{YELLOW}{text}{RESET}")
-    }
-
-    /// Wrap text in bold.
-    pub fn bold(text: &str) -> String {
-        format!("{BOLD}{text}{RESET}")
-    }
-
-    /// Color a PnL-style value: green for positive, red for negative, default for zero.
-    pub fn pnl<T: std::fmt::Display>(value: T, is_positive: bool) -> String {
-        let s = format!("{value}");
-        if is_positive {
-            format!("{GREEN}{s}{RESET}")
-        } else {
-            format!("{RED}{s}{RESET}")
-        }
-    }
-
-    /// Check if stdout is connected to a terminal (supports colors).
-    pub fn should_colorize() -> bool {
-        use std::io::IsTerminal;
-        std::io::stdout().is_terminal()
-    }
-}
+pub mod colors;
+pub mod format;
+pub mod terminal;
 
 // ── OutputFormat enum ───────────────────────────────────────────────────
 
@@ -452,6 +399,16 @@ pub trait TableData {
 
     /// Convert to a JSON-serializable value.
     fn to_json_value(&self) -> serde_json::Value;
+
+    /// Sentence for stderr when [`Self::rows`] is empty, for example `No orders.`.
+    ///
+    /// Pretty and table print only the header (on a pipe) or nothing (on a
+    /// terminal) to stdout and this message to stderr. Implementors with an
+    /// empty state should return no rows and set this instead of a placeholder
+    /// row. Defaults to `No results.`.
+    fn empty_message(&self) -> Option<&str> {
+        None
+    }
 }
 
 /// Generic output wrapper for raw JSON info endpoints.
@@ -464,17 +421,21 @@ pub struct JsonValueOutput {
     headers: Vec<String>,
     rows: Vec<Vec<String>>,
     value: Value,
+    empty_message: &'static str,
 }
 
 impl JsonValueOutput {
+    /// `empty_message` is the sentence printed to stderr in pretty and table
+    /// modes when the response has no rows, for example `No orders.`.
     #[must_use]
     pub fn new(value: Value, empty_message: &'static str) -> Self {
         let value = snake_case_json_keys(value);
-        let (headers, rows) = json_value_table_rows(&value, empty_message);
+        let (headers, rows) = json_value_table_rows(&value);
         Self {
             headers,
             rows,
             value,
+            empty_message,
         }
     }
 }
@@ -486,6 +447,10 @@ impl TableData for JsonValueOutput {
 
     fn rows(&self) -> Vec<Vec<String>> {
         self.rows.clone()
+    }
+
+    fn empty_message(&self) -> Option<&str> {
+        Some(self.empty_message)
     }
 
     fn to_json_value(&self) -> serde_json::Value {
@@ -509,20 +474,13 @@ pub fn snake_case_json_keys(value: Value) -> Value {
     }
 }
 
-fn json_value_table_rows(
-    value: &Value,
-    empty_message: &'static str,
-) -> (Vec<String>, Vec<Vec<String>>) {
+fn json_value_table_rows(value: &Value) -> (Vec<String>, Vec<Vec<String>>) {
     match value {
-        Value::Array(values) if values.is_empty() => (
-            vec!["Message".to_string()],
-            vec![vec![empty_message.to_string()]],
-        ),
+        Value::Array(values) if values.is_empty() => (vec!["Value".to_string()], Vec::new()),
         Value::Array(values) => array_table_rows(values),
-        Value::Object(object) if object.is_empty() => (
-            vec!["Message".to_string()],
-            vec![vec![empty_message.to_string()]],
-        ),
+        Value::Object(object) if object.is_empty() => {
+            (vec!["Field".to_string(), "Value".to_string()], Vec::new())
+        }
         Value::Object(object) => (
             vec!["Field".to_string(), "Value".to_string()],
             object
@@ -617,101 +575,275 @@ fn to_snake_case(input: &str) -> String {
     output.trim_matches('_').to_string()
 }
 
-// ── Rendering functions ─────────────────────────────────────────────────
+// ── Cell sanitization ───────────────────────────────────────────────────
 
-/// Render data in pretty format (tabwriter-aligned, colorized).
-///
-/// Uses tabwriter for column alignment with tab-separated input.
-/// Headers are rendered in cyan. Values use contextual coloring.
-pub fn render_pretty(data: &dyn TableData) -> String {
-    render_pretty_with_limit(data, current_json_options().max_results())
+/// Characters that render as nothing or reorder text without being C0/C1
+/// controls: soft hyphen, bidi marks and overrides, zero-width characters,
+/// line and paragraph separators, BOM, and interlinear annotation marks.
+fn is_invisible_format_char(ch: char) -> bool {
+    matches!(
+        u32::from(ch),
+        0x00AD
+            | 0x061C
+            | 0x180E
+            | 0x200B..=0x200F
+            | 0x2028..=0x202E
+            | 0x2060..=0x206F
+            | 0xFEFF
+            | 0xFFF9..=0xFFFB
+    )
 }
 
-/// Render data in pretty format with an explicit row limit.
-pub fn render_pretty_with_limit(data: &dyn TableData, max_results: Option<usize>) -> String {
-    let headers = data.headers();
-    let mut rows = data.pretty_rows();
-    if let Some(max_results) = max_results {
-        rows.truncate(max_results);
+/// Length of a style sequence this module's color helpers emit at the start of `text`.
+fn known_style_len(text: &str) -> Option<usize> {
+    [
+        colors::CYAN,
+        colors::GREEN,
+        colors::RED,
+        colors::GRAY,
+        colors::YELLOW,
+        colors::BOLD,
+        colors::RESET,
+    ]
+    .iter()
+    .find(|code| text.starts_with(**code))
+    .map(|code| code.len())
+}
+
+/// Make a table cell safe to print: control, bidi, zero-width and other
+/// invisible format characters become visible escapes (`\n`, `\t`, `\x1b`,
+/// `\u{202e}`). With `keep_styles`, the exact color sequences from [`colors`]
+/// pass through so styled cells keep their theme.
+fn sanitize_cell(cell: &str, keep_styles: bool) -> String {
+    let mut out = String::with_capacity(cell.len());
+    let mut rest = cell;
+    while let Some(ch) = rest.chars().next() {
+        if keep_styles
+            && ch == '\x1b'
+            && let Some(len) = known_style_len(rest)
+        {
+            out.push_str(&rest[..len]);
+            rest = &rest[len..];
+            continue;
+        }
+        match ch {
+            '\n' => out.push_str("\\n"),
+            '\t' => out.push_str("\\t"),
+            '\r' => out.push_str("\\r"),
+            ch if ch.is_control() => out.push_str(&format!("\\x{:02x}", u32::from(ch))),
+            ch if is_invisible_format_char(ch) => {
+                out.push_str(&format!("\\u{{{:x}}}", u32::from(ch)));
+            }
+            ch => out.push(ch),
+        }
+        rest = &rest[ch.len_utf8()..];
+    }
+    out
+}
+
+// ── Rendering functions ─────────────────────────────────────────────────
+
+/// Text for stdout plus notices that belong on stderr.
+struct Rendered {
+    text: String,
+    notices: Vec<String>,
+}
+
+/// Notices for human formats: the empty-state sentence, or how many rows
+/// `--max-results` clipped.
+fn row_notices(data: &dyn TableData, total: usize, shown: usize) -> Vec<String> {
+    if total == 0 {
+        return vec![data.empty_message().unwrap_or("No results.").to_string()];
+    }
+    if shown < total {
+        return vec![format!(
+            "Showing {} of {}. Remove --max-results to see all.",
+            format::thousands(shown as u64),
+            format::thousands(total as u64)
+        )];
+    }
+    Vec::new()
+}
+
+fn limit_rows(rows: Vec<Vec<String>>, max_results: Option<usize>) -> (usize, Vec<Vec<String>>) {
+    let total = rows.len();
+    let rows = match max_results {
+        Some(max) => rows.into_iter().take(max).collect(),
+        None => rows,
+    };
+    (total, rows)
+}
+
+fn render_pretty_inner(data: &dyn TableData, max_results: Option<usize>, tty: bool) -> Rendered {
+    let keep_styles = colors::stdout_enabled();
+    let headers = data
+        .headers()
+        .into_iter()
+        .map(|header| sanitize_cell(header, false))
+        .collect::<Vec<_>>();
+    let (total, rows) = limit_rows(data.pretty_rows(), max_results);
+    let notices = row_notices(data, total, rows.len());
+
+    // An empty result prints nothing on a terminal and only the real header on a pipe.
+    if rows.is_empty() && tty {
+        return Rendered {
+            text: String::new(),
+            notices,
+        };
     }
 
     let mut tw = TabWriter::new(Vec::new());
-
-    // Write header line
     let header_line = headers
         .iter()
-        .map(|h| colors::cyan(h))
+        .map(|header| colors::cyan(header))
         .collect::<Vec<_>>()
         .join("\t");
     writeln!(tw, "{header_line}").unwrap();
 
-    // Write separator
-    let sep_line = headers
-        .iter()
-        .map(|_| "─".repeat(12))
-        .collect::<Vec<_>>()
-        .join("\t");
-    writeln!(tw, "{sep_line}").unwrap();
+    if !rows.is_empty() {
+        let sep_line = headers
+            .iter()
+            .map(|_| "─".repeat(12))
+            .collect::<Vec<_>>()
+            .join("\t");
+        writeln!(tw, "{sep_line}").unwrap();
+    }
 
-    // Write data rows
     for row in &rows {
-        let line = row.join("\t");
+        let line = row
+            .iter()
+            .map(|cell| sanitize_cell(cell, keep_styles))
+            .collect::<Vec<_>>()
+            .join("\t");
         writeln!(tw, "{line}").unwrap();
     }
 
     tw.flush().unwrap();
     let output = String::from_utf8_lossy(&tw.into_inner().unwrap()).to_string();
 
-    // Remove trailing newline for consistency
-    output.trim_end().to_string()
+    Rendered {
+        text: output.trim_end().to_string(),
+        notices,
+    }
 }
 
-/// Render data in table format (bordered tables via tabled).
+fn render_table_inner(data: &dyn TableData, max_results: Option<usize>, tty: bool) -> Rendered {
+    let headers = data
+        .headers()
+        .into_iter()
+        .map(|header| sanitize_cell(header, false))
+        .collect::<Vec<_>>();
+    let (total, rows) = limit_rows(data.rows(), max_results);
+    let notices = row_notices(data, total, rows.len());
+    let rows = rows
+        .iter()
+        .map(|row| {
+            row.iter()
+                .map(|cell| sanitize_cell(cell, false))
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+
+    if !tty {
+        let mut lines = Vec::with_capacity(rows.len() + 1);
+        lines.push(headers.join("\t"));
+        lines.extend(rows.iter().map(|row| row.join("\t")));
+        return Rendered {
+            text: lines.join("\n"),
+            notices,
+        };
+    }
+
+    if rows.is_empty() {
+        return Rendered {
+            text: String::new(),
+            notices,
+        };
+    }
+
+    use tabled::builder::Builder;
+    use tabled::settings::Style;
+
+    let mut builder = Builder::default();
+    builder.push_record(headers);
+    for row in rows {
+        builder.push_record(row);
+    }
+    let table = builder.build().with(Style::rounded()).to_string();
+
+    Rendered {
+        text: table.trim_end().to_string(),
+        notices,
+    }
+}
+
+/// Serialize JSON for stdout: indented with 2 spaces on a terminal, compact
+/// single-line otherwise.
+fn json_string(value: &Value, tty: bool) -> String {
+    let rendered = if tty {
+        serde_json::to_string_pretty(value)
+    } else {
+        serde_json::to_string(value)
+    };
+    rendered.unwrap_or_else(|_| "[]".to_string())
+}
+
+/// Serialize JSON for stdout: indented on a terminal, compact single-line on a pipe.
+#[must_use]
+pub fn json_to_string(value: &Value) -> String {
+    json_string(value, terminal::stdout_is_terminal())
+}
+
+fn render_outcome(
+    data: &dyn TableData,
+    format: OutputFormat,
+    options: &JsonRenderOptions,
+    tty: bool,
+) -> Rendered {
+    match format {
+        OutputFormat::Pretty => render_pretty_inner(data, options.max_results(), tty),
+        OutputFormat::Table => render_table_inner(data, options.max_results(), tty),
+        OutputFormat::Json => Rendered {
+            text: json_string(&json_value_with_options(data, options), tty),
+            notices: Vec::new(),
+        },
+    }
+}
+
+/// Render data in pretty format (tabwriter-aligned, colorized when enabled).
 ///
-/// Creates a clean bordered table using the tabled Builder for dynamic data.
+/// Uses tabwriter for column alignment with tab-separated input. Headers are
+/// cyan and values use contextual coloring when stdout styling is enabled.
+pub fn render_pretty(data: &dyn TableData) -> String {
+    render_pretty_with_limit(data, current_json_options().max_results())
+}
+
+/// Render data in pretty format with an explicit row limit.
+pub fn render_pretty_with_limit(data: &dyn TableData, max_results: Option<usize>) -> String {
+    render_pretty_inner(data, max_results, terminal::stdout_is_terminal()).text
+}
+
+/// Render data in table format: a bordered table on a terminal, a header line
+/// plus tab-separated rows on a pipe.
 pub fn render_table(data: &dyn TableData) -> String {
     render_table_with_limit(data, current_json_options().max_results())
 }
 
 /// Render data in table format with an explicit row limit.
 pub fn render_table_with_limit(data: &dyn TableData, max_results: Option<usize>) -> String {
-    use tabled::builder::Builder;
-    use tabled::settings::Style;
-
-    let headers = data.headers();
-    let mut rows = data.rows();
-    if let Some(max_results) = max_results {
-        rows.truncate(max_results);
-    }
-
-    let mut builder = Builder::default();
-
-    // Add header row
-    builder.push_record(headers.iter().map(|s| s.to_string()));
-
-    // Add data rows
-    for row in &rows {
-        builder.push_record(row.iter().cloned());
-    }
-
-    let table = builder.build().with(Style::rounded()).to_string();
-
-    table.trim_end().to_string()
+    render_table_inner(data, max_results, terminal::stdout_is_terminal()).text
 }
 
 /// Render data as JSON (stable output with snake_case keys).
 ///
-/// Produces a JSON array of objects where each object represents a row.
-/// Keys come from the headers (converted to snake_case).
+/// Indented on a terminal, compact single-line otherwise.
 pub fn render_json(data: &dyn TableData) -> String {
-    let value = json_value(data);
-    serde_json::to_string_pretty(&value).unwrap_or_else(|_| "[]".to_string())
+    json_to_string(&json_value(data))
 }
 
 /// Render data as JSON using explicit per-call projection options.
 pub fn render_json_with_options(data: &dyn TableData, options: &JsonRenderOptions) -> String {
-    let value = json_value_with_options(data, options);
-    serde_json::to_string_pretty(&value).unwrap_or_else(|_| "[]".to_string())
+    json_to_string(&json_value_with_options(data, options))
 }
 
 /// Return the JSON value after applying global projection/result options.
@@ -734,11 +866,7 @@ pub fn render_json_compact(data: &dyn TableData) -> Result<String, serde_json::E
 
 /// Render data using the specified format.
 pub fn render(data: &dyn TableData, format: OutputFormat) -> String {
-    match format {
-        OutputFormat::Pretty => render_pretty(data),
-        OutputFormat::Table => render_table(data),
-        OutputFormat::Json => render_json(data),
-    }
+    render_with_json_options(data, format, &current_json_options())
 }
 
 /// Render data using explicit per-call projection options.
@@ -747,40 +875,102 @@ pub fn render_with_json_options(
     format: OutputFormat,
     options: &JsonRenderOptions,
 ) -> String {
-    match format {
-        OutputFormat::Pretty => render_pretty_with_limit(data, options.max_results()),
-        OutputFormat::Table => render_table_with_limit(data, options.max_results()),
-        OutputFormat::Json => render_json_with_options(data, options),
-    }
+    render_outcome(data, format, options, terminal::stdout_is_terminal()).text
 }
 
 // ── Print functions ─────────────────────────────────────────────────────
+
+/// Write rendered output: the answer to stdout, notices to stderr.
+fn print_rendered(rendered: &Rendered) {
+    if !rendered.text.is_empty() {
+        println!("{}", rendered.text);
+    }
+    for notice in &rendered.notices {
+        eprintln!("{notice}");
+    }
+}
+
+/// Print data to stdout using explicit projection options. Empty-state and
+/// `--max-results` truncation notices go to stderr for pretty and table.
+pub fn emit(data: &dyn TableData, format: OutputFormat, options: &JsonRenderOptions) {
+    print_rendered(&render_outcome(
+        data,
+        format,
+        options,
+        terminal::stdout_is_terminal(),
+    ));
+}
 
 /// Print data to stdout using the specified format, with timing feedback on stderr.
 ///
 /// This is the main entry point for printing command output.
 /// - Prints formatted data to stdout
-/// - Prints timing feedback ("Completed in X.XXs") to stderr
+/// - Prints timing feedback ("Completed in 1.2s") to stderr only when the
+///   format is human and stderr is a terminal
 pub fn print_data(data: &dyn TableData, format: OutputFormat, duration: std::time::Duration) {
-    let output = render(data, format);
-    println!("{output}");
-    print_timing(duration);
+    print_data_no_timing(data, format);
+    print_timing(duration, format);
 }
 
 /// Print data to stdout using the specified format, without timing feedback.
 pub fn print_data_no_timing(data: &dyn TableData, format: OutputFormat) {
-    let output = render(data, format);
-    println!("{output}");
+    emit(data, format, &current_json_options());
 }
 
-/// Print timing feedback to stderr.
-pub fn print_timing(duration: std::time::Duration) {
-    eprintln!("{}", format_timing(duration));
+/// The timing footer for a finished command, or `None` when it must stay silent:
+/// JSON output, agent or CI runs, and any stderr that is not a terminal.
+fn timing_footer(
+    duration: std::time::Duration,
+    format: OutputFormat,
+    stderr_is_terminal: bool,
+) -> Option<String> {
+    if format == OutputFormat::Json
+        || !stderr_is_terminal
+        || crate::mode::agent_env()
+        || crate::mode::ci_env()
+    {
+        return None;
+    }
+    Some(colors::stderr::gray(&format_timing(duration)))
+}
+
+/// Print timing feedback to stderr when the format is human and stderr is a terminal.
+pub fn print_timing(duration: std::time::Duration, format: OutputFormat) {
+    if let Some(line) = timing_footer(duration, format, terminal::stderr_is_terminal()) {
+        eprintln!("{line}");
+    }
 }
 
 /// Format timing feedback string.
 pub fn format_timing(duration: std::time::Duration) -> String {
-    format!("Completed in {:.2}s", duration.as_secs_f64())
+    format!("Completed in {}", format::duration(duration))
+}
+
+/// A warning line for stderr: `! message` with a yellow `!` in rich output,
+/// `Warning: message` otherwise.
+#[must_use]
+pub fn format_warning_line(message: &str) -> String {
+    if colors::stderr_enabled() {
+        format!("{} {message}", colors::stderr::yellow("!"))
+    } else {
+        format!("Warning: {message}")
+    }
+}
+
+/// An error line for stderr: `✗ message` with a red `✗` in rich output,
+/// `Error: message` otherwise.
+#[must_use]
+pub fn format_error_line(message: &str) -> String {
+    if colors::stderr_enabled() {
+        format!("{} {message}", colors::stderr::red("✗"))
+    } else {
+        format!("Error: {message}")
+    }
+}
+
+/// Print a warning to stderr (all formats).
+pub fn warn(message: &str) {
+    eprintln!("{}", format_warning_line(message));
 }
 
 /// Print a plain error message with proper routing based on output format.
@@ -789,8 +979,8 @@ pub fn format_timing(duration: std::time::Duration) -> String {
 /// [`crate::errors::print_error`] instead.
 ///
 /// - JSON mode: prints `{"error": "..."}` to **stdout**
-/// - Pretty mode: prints a red `Error` prefix to **stderr**
-/// - Table mode: prints a plain `Error` prefix to **stderr**
+/// - Pretty mode: prints `✗ message` (red glyph) or `Error: message` to **stderr**
+/// - Table mode: prints a plain `Error: message` to **stderr**
 pub fn print_error(message: &str, format: OutputFormat) {
     match format {
         OutputFormat::Json => {
@@ -800,7 +990,7 @@ pub fn print_error(message: &str, format: OutputFormat) {
             );
         }
         OutputFormat::Pretty => {
-            eprintln!("{}: {message}", colors::red("Error"));
+            eprintln!("{}", format_error_line(message));
         }
         OutputFormat::Table => {
             eprintln!("Error: {message}");
@@ -810,7 +1000,7 @@ pub fn print_error(message: &str, format: OutputFormat) {
 
 /// Print a warning message to stderr (always stderr, all formats).
 pub fn print_warning(message: &str) {
-    eprintln!("{}: {message}", colors::yellow("Warning"));
+    warn(message);
 }
 
 /// Print a separator line to stderr for visual feedback.
@@ -940,12 +1130,13 @@ mod tests {
     }
 
     #[test]
-    fn test_render_pretty_has_ansi_colors() {
-        let data = sample_data();
-        let output = render_pretty(&data);
-        // Should contain cyan ANSI code for headers
-        assert!(output.contains(colors::CYAN));
-        assert!(output.contains(colors::RESET));
+    fn test_render_pretty_has_ansi_colors_when_enabled() {
+        colors::with_streams_for_test(true, false, || {
+            let output = render_pretty(&sample_data());
+            // Should contain cyan ANSI code for headers
+            assert!(output.contains(colors::CYAN));
+            assert!(output.contains(colors::RESET));
+        });
     }
 
     #[test]
@@ -975,22 +1166,14 @@ mod tests {
     }
 
     #[test]
-    fn test_render_table_has_borders() {
-        let data = sample_data();
-        let output = render_table(&data);
-        // Rounded table style uses these border characters
-        assert!(
-            output.contains('│')
-                || output.contains('┌')
-                || output.contains('┐')
-                || output.contains('└')
-                || output.contains('┘')
-                || output.contains('─')
-                || output.contains('╭')
-                || output.contains('╮')
-                || output.contains('╰')
-                || output.contains('╯')
-        );
+    fn test_render_table_has_borders_on_terminal() {
+        terminal::with_tty_for_test(true, false, || {
+            let output = render_table(&sample_data());
+            // Rounded table style uses these border characters
+            assert!(output.contains('│'));
+            assert!(output.contains('╭'));
+            assert!(output.contains('╯'));
+        });
     }
 
     #[test]
@@ -1255,109 +1438,234 @@ mod tests {
     fn test_render_dispatches_correctly() {
         let data = sample_data();
 
-        let pretty = render(&data, OutputFormat::Pretty);
-        let table = render(&data, OutputFormat::Table);
-        let json = render(&data, OutputFormat::Json);
+        colors::with_streams_for_test(true, false, || {
+            terminal::with_tty_for_test(true, false, || {
+                let pretty = render(&data, OutputFormat::Pretty);
+                let table = render(&data, OutputFormat::Table);
+                let json = render(&data, OutputFormat::Json);
 
-        // Pretty should have ANSI colors
-        assert!(pretty.contains(colors::CYAN));
-        // Table should have border chars
-        assert!(table.contains('│') || table.contains('─'));
-        // JSON should be valid
-        serde_json::from_str::<serde_json::Value>(&json).unwrap();
+                assert!(pretty.contains(colors::CYAN));
+                assert!(table.contains('│') || table.contains('─'));
+                assert!(json.contains('\n'));
+                serde_json::from_str::<serde_json::Value>(&json).unwrap();
+            });
+        });
+    }
+
+    #[test]
+    fn test_pretty_is_plain_when_colors_are_off() {
+        let output = render_pretty(&sample_data());
+        assert!(!output.contains('\x1b'));
+        assert!(output.contains("Name"));
+    }
+
+    #[test]
+    fn test_table_on_pipe_is_tab_separated() {
+        let output = render_table(&sample_data());
+        assert_eq!(
+            output,
+            "Name\tPrice\tChange\nBTC\t50000.00\t+2.5%\nETH\t3000.00\t-1.2%"
+        );
+    }
+
+    #[test]
+    fn test_table_on_terminal_is_bordered() {
+        terminal::with_tty_for_test(true, false, || {
+            let output = render_table(&sample_data());
+            assert!(output.contains('╭'));
+            assert!(output.contains("BTC"));
+        });
+    }
+
+    #[test]
+    fn test_json_is_compact_on_pipe_and_indented_on_terminal() {
+        let data = sample_data();
+        let compact = render_json(&data);
+        assert!(!compact.contains('\n'));
+        let value: serde_json::Value = serde_json::from_str(&compact).unwrap();
+
+        terminal::with_tty_for_test(true, false, || {
+            let pretty = render_json(&data);
+            assert!(pretty.contains("\n  "));
+            assert_eq!(
+                serde_json::from_str::<serde_json::Value>(&pretty).unwrap(),
+                value
+            );
+        });
     }
 
     #[test]
     fn test_format_timing() {
         let duration = std::time::Duration::from_millis(1234);
-        let timing = format_timing(duration);
-        assert!(timing.contains("Completed in"));
-        assert!(timing.contains("1.23s"));
+        assert_eq!(format_timing(duration), "Completed in 1.2s");
+        assert_eq!(
+            format_timing(std::time::Duration::from_millis(42)),
+            "Completed in 42ms"
+        );
     }
 
     #[test]
-    fn test_format_timing_zero() {
-        let duration = std::time::Duration::from_millis(0);
-        let timing = format_timing(duration);
-        assert!(timing.contains("0.00s"));
+    fn test_timing_footer_only_for_human_formats_on_terminal() {
+        let duration = std::time::Duration::from_millis(1234);
+        assert!(timing_footer(duration, OutputFormat::Json, true).is_none());
+        assert!(timing_footer(duration, OutputFormat::Pretty, false).is_none());
+        assert!(timing_footer(duration, OutputFormat::Table, false).is_none());
+        // The agent/CI gates read the process environment, so assert only the
+        // terminal case when neither is set.
+        if !crate::mode::agent_env() && !crate::mode::ci_env() {
+            assert_eq!(
+                timing_footer(duration, OutputFormat::Pretty, true).as_deref(),
+                Some("Completed in 1.2s")
+            );
+        }
     }
 
     #[test]
-    fn test_format_timing_sub_second() {
-        let duration = std::time::Duration::from_micros(500_000);
-        let timing = format_timing(duration);
-        assert!(timing.contains("0.50s"));
+    fn test_colors_helpers_style_when_enabled() {
+        colors::with_streams_for_test(true, true, || {
+            assert_eq!(colors::cyan("test"), colors::paint(colors::CYAN, "test"));
+            assert_eq!(colors::green("test"), colors::paint(colors::GREEN, "test"));
+            assert_eq!(colors::red("test"), colors::paint(colors::RED, "test"));
+            assert_eq!(colors::gray("test"), colors::paint(colors::GRAY, "test"));
+            assert_eq!(
+                colors::yellow("test"),
+                colors::paint(colors::YELLOW, "test")
+            );
+            assert_eq!(colors::bold("test"), colors::paint(colors::BOLD, "test"));
+            assert_eq!(
+                colors::pnl("+100.50", true),
+                colors::paint(colors::GREEN, "+100.50")
+            );
+            assert_eq!(
+                colors::pnl("-50.25", false),
+                colors::paint(colors::RED, "-50.25")
+            );
+        });
     }
 
     #[test]
-    fn test_colors_cyan() {
-        let colored = colors::cyan("test");
-        assert!(colored.contains(colors::CYAN));
-        assert!(colored.contains("test"));
-        assert!(colored.contains(colors::RESET));
+    fn test_warning_and_error_lines_use_glyphs_when_rich() {
+        assert_eq!(format_warning_line("careful"), "Warning: careful");
+        assert_eq!(format_error_line("broke"), "Error: broke");
+        colors::with_streams_for_test(false, true, || {
+            assert_eq!(
+                format_warning_line("careful"),
+                format!("{} careful", colors::paint(colors::YELLOW, "!"))
+            );
+            assert_eq!(
+                format_error_line("broke"),
+                format!("{} broke", colors::paint(colors::RED, "✗"))
+            );
+        });
     }
 
-    #[test]
-    fn test_colors_green() {
-        let colored = colors::green("test");
-        assert!(colored.contains(colors::GREEN));
-    }
-
-    #[test]
-    fn test_colors_red() {
-        let colored = colors::red("test");
-        assert!(colored.contains(colors::RED));
-    }
-
-    #[test]
-    fn test_colors_gray() {
-        let colored = colors::gray("test");
-        assert!(colored.contains(colors::GRAY));
-    }
-
-    #[test]
-    fn test_colors_yellow() {
-        let colored = colors::yellow("test");
-        assert!(colored.contains(colors::YELLOW));
-    }
-
-    #[test]
-    fn test_colors_bold() {
-        let colored = colors::bold("test");
-        assert!(colored.contains(colors::BOLD));
-    }
-
-    #[test]
-    fn test_colors_pnl_positive() {
-        let colored = colors::pnl("+100.50", true);
-        assert!(colored.contains(colors::GREEN));
-        assert!(colored.contains("+100.50"));
-    }
-
-    #[test]
-    fn test_colors_pnl_negative() {
-        let colored = colors::pnl("-50.25", false);
-        assert!(colored.contains(colors::RED));
-        assert!(colored.contains("-50.25"));
-    }
-
-    #[test]
-    fn test_empty_data() {
-        let data = TestData {
-            headers: vec!["Name".to_string()],
+    fn empty_data() -> TestData {
+        TestData {
+            headers: vec!["Name".to_string(), "Price".to_string()],
             rows: vec![],
             json: serde_json::json!([]),
-        };
+        }
+    }
 
+    #[test]
+    fn test_empty_data_prints_only_header_on_pipe() {
+        let data = empty_data();
+        assert_eq!(render_table(&data), "Name\tPrice");
         let pretty = render_pretty(&data);
-        assert!(pretty.contains("Name")); // header exists
-
-        let table = render_table(&data);
-        assert!(table.contains("Name")); // header exists
+        assert!(pretty.contains("Name"));
+        assert!(!pretty.contains('─'));
 
         let json = render_json(&data);
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_empty_data_prints_nothing_on_terminal() {
+        terminal::with_tty_for_test(true, false, || {
+            let data = empty_data();
+            assert_eq!(render_table(&data), "");
+            assert_eq!(render_pretty(&data), "");
+        });
+    }
+
+    #[test]
+    fn test_empty_data_notice_goes_to_stderr_stream() {
+        let options = JsonRenderOptions::default();
+        let outcome = render_outcome(&empty_data(), OutputFormat::Table, &options, false);
+        assert_eq!(outcome.notices, vec!["No results.".to_string()]);
+
+        let output = JsonValueOutput::new(serde_json::json!([]), "No orders.");
+        let outcome = render_outcome(&output, OutputFormat::Table, &options, false);
+        assert_eq!(outcome.text, "Value");
+        assert_eq!(outcome.notices, vec!["No orders.".to_string()]);
+
+        let outcome = render_outcome(&output, OutputFormat::Json, &options, false);
+        assert_eq!(outcome.text, "[]");
+        assert!(outcome.notices.is_empty());
+    }
+
+    #[test]
+    fn test_max_results_truncation_notice_for_human_formats_only() {
+        let options = JsonRenderOptions::from_cli(None, false, Some(1));
+        let data = sample_data();
+
+        let table = render_outcome(&data, OutputFormat::Table, &options, false);
+        assert_eq!(table.text, "Name\tPrice\tChange\nBTC\t50000.00\t+2.5%");
+        assert_eq!(
+            table.notices,
+            vec!["Showing 1 of 2. Remove --max-results to see all.".to_string()]
+        );
+        let pretty = render_outcome(&data, OutputFormat::Pretty, &options, false);
+        assert_eq!(pretty.notices, table.notices);
+        let json = render_outcome(&data, OutputFormat::Json, &options, false);
+        assert!(json.notices.is_empty());
+
+        let unclipped = JsonRenderOptions::from_cli(None, false, Some(2));
+        assert!(
+            render_outcome(&data, OutputFormat::Table, &unclipped, false)
+                .notices
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn test_cells_escape_control_and_format_characters() {
+        let data = TestData {
+            headers: vec!["Name".to_string()],
+            rows: vec![vec![
+                "evil\x1b[31m\nFORGED\tROW\u{202e}REV\u{200b}".to_string(),
+            ]],
+            json: serde_json::json!([{"name": "x"}]),
+        };
+        let expected = "evil\\x1b[31m\\nFORGED\\tROW\\u{202e}REV\\u{200b}";
+
+        let table = render_table(&data);
+        assert_eq!(table.lines().count(), 2);
+        assert!(table.contains(expected));
+
+        let pretty = render_pretty(&data);
+        assert!(pretty.contains(expected));
+        assert_eq!(pretty.lines().count(), 3);
+
+        terminal::with_tty_for_test(true, false, || {
+            assert!(render_table(&data).contains(expected));
+        });
+    }
+
+    #[test]
+    fn test_pretty_keeps_theme_styles_but_escapes_other_escapes() {
+        colors::with_streams_for_test(true, false, || {
+            let cell = format!("{}\x1b[2J", colors::green("10"));
+            assert_eq!(
+                sanitize_cell(&cell, true),
+                format!("{}\\x1b[2J", colors::paint(colors::GREEN, "10"))
+            );
+            assert_eq!(
+                sanitize_cell(&colors::green("10"), false),
+                "\\x1b[32m10\\x1b[0m"
+            );
+        });
     }
 
     #[test]

@@ -147,12 +147,13 @@ pub async fn status_query(client: &HttpClient) -> Result<PriorityStatusResult, a
             slot,
             start_time_seconds: item.start_time_seconds,
             duration_seconds: item.duration_seconds,
-            start_gas: item.start_gas.clone(),
+            start_gas: item.start_gas.to_string(),
             current_gas: item
                 .current_gas
-                .clone()
-                .unwrap_or_else(|| "(no bid)".to_string()),
-            end_gas: item.end_gas.clone().unwrap_or_else(|| "-".to_string()),
+                .map_or_else(|| "(no bid)".to_string(), |gas| gas.to_string()),
+            end_gas: item
+                .end_gas
+                .map_or_else(|| "-".to_string(), |gas| gas.to_string()),
             previous_winner: status
                 .prev_winners
                 .get(slot)
@@ -214,15 +215,8 @@ pub async fn bid(
         .slots
         .get(args.slot as usize)
         .ok_or_else(|| CliError::Configuration(format!("invalid priority slot {}", args.slot)))?;
-    let current = match slot.current_gas.as_deref() {
-        Some(gas) => {
-            let parsed = gas.parse::<Decimal>().map_err(|err| {
-                CliError::Internal(anyhow::anyhow!(
-                    "invalid current gas value {gas:?} from priority auction status: {err}"
-                ))
-            })?;
-            hype_to_wei_u64(parsed, decimals, "current gas")?
-        }
+    let current = match slot.current_gas {
+        Some(gas) => hype_to_wei_u64(gas, decimals, "current gas")?,
         None => 0,
     };
 

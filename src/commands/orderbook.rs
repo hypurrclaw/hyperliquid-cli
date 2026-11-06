@@ -199,7 +199,7 @@ impl TableData for CandlesOutput {
             .iter()
             .map(|candle| {
                 vec![
-                    candle.timestamp.to_string(),
+                    crate::output::format::epoch_ms_to_iso(candle.timestamp),
                     candle.coin.clone(),
                     candle.interval.clone(),
                     candle.open.to_string(),
@@ -211,6 +211,10 @@ impl TableData for CandlesOutput {
                 ]
             })
             .collect()
+    }
+
+    fn empty_message(&self) -> Option<&str> {
+        Some("No candles.")
     }
 
     fn to_json_value(&self) -> serde_json::Value {
@@ -258,8 +262,8 @@ pub struct FundingRow {
     pub current_funding_rate: Option<Decimal>,
     #[serde(with = "rust_decimal::serde::str")]
     pub predicted_funding_rate: Decimal,
-    #[serde(with = "rust_decimal::serde::str")]
-    pub premium: Decimal,
+    #[serde(with = "rust_decimal::serde::str_option")]
+    pub premium: Option<Decimal>,
     #[serde(with = "rust_decimal::serde::str_option")]
     pub mark_price: Option<Decimal>,
     #[serde(with = "rust_decimal::serde::str_option")]
@@ -285,11 +289,11 @@ impl TableData for FundingRow {
             self.coin.clone(),
             format_optional_decimal(self.current_funding_rate),
             self.predicted_funding_rate.to_string(),
-            self.premium.to_string(),
+            format_optional_decimal(self.premium),
             format_optional_decimal(self.mark_price),
             format_optional_decimal(self.oracle_price),
             self.last_funding_time
-                .map(|time| time.to_string())
+                .map(crate::output::format::epoch_ms_to_iso)
                 .unwrap_or_else(|| "n/a".to_string()),
         ]]
     }
@@ -802,6 +806,7 @@ async fn fetch_l2_book(chain: Chain, coin: &str) -> Result<L2Book, CliError> {
         coin: coin.to_string(),
         n_sig_figs: None,
         mantissa: None,
+        fast: false,
     });
 
     tokio::time::timeout(WEBSOCKET_TIMEOUT, async {
@@ -1062,7 +1067,7 @@ mod tests {
             coin: "BTC".to_string(),
             current_funding_rate: Some(dec("0.0001")),
             predicted_funding_rate: dec("0.0002"),
-            premium: dec("0.00005"),
+            premium: Some(dec("0.00005")),
             mark_price: Some(dec("100")),
             oracle_price: Some(dec("99")),
             last_funding_time: Some(123),
@@ -1072,6 +1077,8 @@ mod tests {
         assert_eq!(json["current_funding_rate"], "0.0001");
         assert_eq!(json["predicted_funding_rate"], "0.0002");
         assert_eq!(json["premium"], "0.00005");
+        assert_eq!(json["last_funding_time"], 123);
+        assert_eq!(output.rows()[0][6], "1970-01-01T00:00:00.123Z");
     }
 
     #[test]

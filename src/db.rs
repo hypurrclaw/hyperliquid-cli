@@ -119,9 +119,6 @@ impl EncryptionKeyStore for FileEncryptionKeyStore {
     }
 
     fn store_key_material(&self, material: &[u8]) -> Result<(), anyhow::Error> {
-        if let Some(parent) = self.path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
         write_secret_file(&self.path, BASE64.encode(material))
     }
 
@@ -284,7 +281,7 @@ impl AccountStore {
     ) -> Result<Self, anyhow::Error> {
         let db_path = db_path.as_ref();
         if let Some(parent) = db_path.parent() {
-            std::fs::create_dir_all(parent).map_err(|err| {
+            crate::config::create_private_dir_all(parent).map_err(|err| {
                 CliError::Configuration(format!(
                     "failed to create data directory {}: {err}",
                     parent.display()
@@ -317,6 +314,7 @@ impl AccountStore {
             "#,
         )?;
         ensure_account_metadata_columns(&conn)?;
+        restrict_database_permissions(db_path);
 
         Ok(Self {
             conn,
@@ -759,14 +757,11 @@ fn load_encryption_key(
     let mut material = [0_u8; 32];
     rand::rngs::SysRng.try_fill_bytes(&mut material)?;
     if let Err(err) = key_store.store_key_material(&material) {
-        if std::io::stdin().is_terminal() {
-            let passphrase_store = prompt_passphrase_key_store_after_keychain_error(err)?;
-            let material = passphrase_store
-                .load_key_material()?
-                .ok_or_else(secure_key_store_unavailable_error)?;
-            return Ok(derive_key(&material));
-        }
-        return Err(err);
+        let passphrase_store = prompt_passphrase_key_store_after_keychain_error(err)?;
+        let material = passphrase_store
+            .load_key_material()?
+            .ok_or_else(secure_key_store_unavailable_error)?;
+        return Ok(derive_key(&material));
     }
     Ok(derive_key(&material))
 }
@@ -795,8 +790,11 @@ fn load_encryption_key_read_only(
 fn prompt_passphrase_key_store_after_keychain_error(
     keychain_error: anyhow::Error,
 ) -> Result<PassphraseEncryptionKeyStore, anyhow::Error> {
-    if !std::io::stdin().is_terminal() {
-        return Err(secure_key_store_unavailable_error_with_cause(&keychain_error).into());
+    if !crate::mode::can_prompt() || !std::io::stdin().is_terminal() {
+        return Err(CliError::MissingInput(format!(
+            "Can't unlock account encryption keys because the OS keychain is unavailable ({keychain_error}). Set {ACCOUNT_KEY_PASSPHRASE_ENV} to use a passphrase instead."
+        ))
+        .into());
     }
 
     eprintln!(
@@ -809,12 +807,6 @@ fn prompt_passphrase_key_store_after_keychain_error(
 fn secure_key_store_unavailable_error() -> CliError {
     CliError::Configuration(format!(
         "OS keychain is unavailable for account encryption keys. No raw fallback key file will be written. Set {ACCOUNT_KEY_PASSPHRASE_ENV} for secure passphrase-derived automation or run interactively to enter an account encryption passphrase."
-    ))
-}
-
-fn secure_key_store_unavailable_error_with_cause(cause: &anyhow::Error) -> CliError {
-    CliError::Configuration(format!(
-        "OS keychain is unavailable for account encryption keys ({cause}). No raw fallback key file will be written. Set {ACCOUNT_KEY_PASSPHRASE_ENV} for secure passphrase-derived automation or run interactively to enter an account encryption passphrase."
     ))
 }
 
@@ -835,25 +827,26 @@ fn read_key_material_file(path: &Path) -> Result<Vec<u8>, anyhow::Error> {
 }
 
 fn write_secret_file(path: &Path, contents: String) -> Result<(), anyhow::Error> {
+    crate::config::write_private_file_atomic(path, contents.as_bytes())?;
+    Ok(())
+}
+
+/// Restrict the SQLite database and its WAL/SHM sidecars to the owner (0600).
+fn restrict_database_permissions(db_path: &Path) {
     #[cfg(unix)]
     {
-        use std::io::Write;
-        use std::os::unix::fs::OpenOptionsExt;
-        let mut file = std::fs::OpenOptions::new()
-            .create(true)
-            .truncate(true)
-            .write(true)
-            .mode(0o600)
-            .open(path)?;
-        file.write_all(contents.as_bytes())?;
-        Ok(())
+        use std::os::unix::fs::PermissionsExt;
+        for suffix in ["", "-wal", "-shm"] {
+            let mut name = db_path.as_os_str().to_os_string();
+            name.push(suffix);
+            let path = PathBuf::from(name);
+            if path.exists() {
+                let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+            }
+        }
     }
-
     #[cfg(not(unix))]
-    {
-        std::fs::write(path, contents)?;
-        Ok(())
-    }
+    let _ = db_path;
 }
 
 fn derive_key(material: &[u8]) -> [u8; 32] {
@@ -865,9 +858,9 @@ pub fn encrypt_private_key(private_key: &str, key: &[u8; 32]) -> Result<String, 
         .map_err(|err| anyhow::anyhow!("failed to initialize encryption: {err}"))?;
     let mut nonce_bytes = [0_u8; 12];
     rand::rngs::SysRng.try_fill_bytes(&mut nonce_bytes)?;
-    let nonce = Nonce::from_slice(&nonce_bytes);
+    let nonce = Nonce::from(nonce_bytes);
     let ciphertext = cipher
-        .encrypt(nonce, private_key.as_bytes())
+        .encrypt(&nonce, private_key.as_bytes())
         .map_err(|err| anyhow::anyhow!("failed to encrypt private key: {err}"))?;
     Ok(format!(
         "{ENCRYPTION_VERSION}:{}:{}",
@@ -899,8 +892,10 @@ pub fn decrypt_private_key(encrypted: &str, key: &[u8; 32]) -> Result<String, an
     })?;
     let cipher = Aes256Gcm::new_from_slice(key)
         .map_err(|err| anyhow::anyhow!("failed to initialize decryption: {err}"))?;
+    let nonce = Nonce::try_from(nonce.as_slice())
+        .map_err(|_| CliError::InvalidAuth("stored account key has invalid nonce length".into()))?;
     let plaintext = cipher
-        .decrypt(Nonce::from_slice(&nonce), ciphertext.as_ref())
+        .decrypt(&nonce, ciphertext.as_ref())
         .map_err(|_| CliError::InvalidAuth("stored account key could not be decrypted".into()))?;
     String::from_utf8(plaintext)
         .map_err(|_| CliError::InvalidAuth("stored account key is not valid UTF-8".into()).into())

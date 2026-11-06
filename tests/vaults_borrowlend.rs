@@ -464,7 +464,7 @@ async fn vault_positions_show_open_positions() {
         .success()
         .stdout(predicate::str::contains("BTC"))
         .stdout(predicate::str::contains("0.25"))
-        .stderr(predicate::str::contains("Completed in"));
+        .stderr(predicate::str::contains("Completed in").not());
 }
 
 #[tokio::test]

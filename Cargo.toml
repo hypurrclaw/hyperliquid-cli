@@ -4,7 +4,7 @@ version = "0.11.1"
 edition = "2024"
 description = "Production-grade CLI for Hyperliquid DEX"
 license = "MIT"
-rust-version = "1.93"
+rust-version = "1.94.1"
 readme = "README.md"
 repository = "https://github.com/hypurrclaw/hyperliquid-cli"
 homepage = "https://github.com/hypurrclaw/hyperliquid-cli"
@@ -18,21 +18,18 @@ path = "src/main.rs"
 
 [dependencies]
 # Primary SDK for Hyperliquid API
-hypersdk = "0.2"
+hypersdk = "0.3"
 reqwest = { version = "0.13", features = ["json"] }
+# `PrivateKeySigner::decrypt_keystore` (used for --keystore) needs the `keystore`
+# feature of alloy-signer-local; hypersdk re-exports the signer type.
 alloy-signer-local = { version = "2.0.4", features = ["keystore"] }
-# hypersdk 0.2 still re-exports Alloy 1.x signer types. Keep the v1 crates
-# feature-enabled until hypersdk moves to Alloy 2 so local keystores and
-# synchronous signing continue to compile.
-alloy-signer-local-v1 = { package = "alloy-signer-local", version = "1.8", features = ["keystore"] }
-alloy-v1 = { package = "alloy", version = "1.8", features = ["signers"], default-features = false }
 alloy = { version = "2.0.4", features = ["dyn-abi", "eip712", "sol-types", "signers"], default-features = false }
 
 # CLI framework
 clap = { version = "4", features = ["derive"] }
 
 # Async runtime
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "time", "io-util"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "time", "io-util", "signal"] }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
@@ -44,7 +41,7 @@ rust_decimal = { version = "1", features = ["serde", "serde-str"] }
 
 # Output formatting
 tabwriter = { version = "1", features = ["ansi_formatting"] }
-tabled = "0.20"
+tabled = "0.22"
 crossterm = { version = "0.29", features = ["event-stream"] }
 
 # Fuzzy asset matching
@@ -62,10 +59,9 @@ chrono = { version = "0.4", features = ["serde"] }
 futures = "0.3"
 either = "1"
 rmp-serde = "1"
-alloy-primitives = "1"
-rusqlite = { version = "0.38", features = ["bundled"] }
-aes-gcm = "0.10"
-base64 = "0.22"
+rusqlite = { version = "0.41", features = ["bundled"] }
+aes-gcm = "0.11"
+base64 = "0.23"
 hex = "0.4"
 rand = "0.10"
 sha2 = "0.11"

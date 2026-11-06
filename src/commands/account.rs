@@ -6,7 +6,6 @@
 //! - `hyperliquid account portfolio <ADDRESS>` — public portfolio summary
 //! - `hyperliquid account subaccounts <ADDRESS>` — public subaccount list
 
-use std::io::{self, Write};
 use std::time::{Duration, Instant};
 
 use alloy::sol;
@@ -452,7 +451,7 @@ pub async fn fees_query(
     api_base_url: &str,
     address: &str,
 ) -> Result<AccountQueryResult<JsonValueOutput>, anyhow::Error> {
-    user_info_value_query(api_base_url, address, "userFees", "no fee data found").await
+    user_info_value_query(api_base_url, address, "userFees", "No fee data.").await
 }
 
 pub async fn fees_with_context(
@@ -482,7 +481,7 @@ pub async fn rate_limit_query(
         api_base_url,
         address,
         "userRateLimit",
-        "no rate-limit data found",
+        "No rate-limit data.",
     )
     .await
 }
@@ -510,13 +509,7 @@ pub async fn portfolio_history_query(
     api_base_url: &str,
     address: &str,
 ) -> Result<AccountQueryResult<JsonValueOutput>, anyhow::Error> {
-    user_info_value_query(
-        api_base_url,
-        address,
-        "portfolio",
-        "no portfolio history found",
-    )
-    .await
+    user_info_value_query(api_base_url, address, "portfolio", "No portfolio history.").await
 }
 
 pub async fn portfolio_history_with_context(
@@ -550,7 +543,7 @@ pub async fn ledger_query(
         "userNonFundingLedgerUpdates",
         args.start,
         args.end,
-        "no ledger updates found",
+        "No ledger updates.",
     )
     .await
 }
@@ -587,7 +580,7 @@ pub async fn funding_query(
         "userFunding",
         args.start,
         args.end,
-        "no funding history found",
+        "No funding history.",
     )
     .await
 }
@@ -616,13 +609,7 @@ pub async fn twap_history_query(
     api_base_url: &str,
     address: &str,
 ) -> Result<AccountQueryResult<JsonValueOutput>, anyhow::Error> {
-    user_info_value_query(
-        api_base_url,
-        address,
-        "twapHistory",
-        "no TWAP history found",
-    )
-    .await
+    user_info_value_query(api_base_url, address, "twapHistory", "No TWAP history.").await
 }
 
 pub async fn twap_history_with_context(
@@ -665,7 +652,7 @@ pub async fn twap_fills_query(
             .await?
     };
 
-    let output = JsonValueOutput::new(value, "no TWAP slice fills found");
+    let output = JsonValueOutput::new(value, "No TWAP slice fills.");
     Ok(AccountQueryResult {
         output,
         elapsed: start.elapsed(),
@@ -842,25 +829,17 @@ fn confirm_account_mode_change(
     user: Address,
     format: OutputFormat,
 ) -> Result<(), CliError> {
-    let prompt = format!(
-        "Set account abstraction for {user} to {}? [y/N] ",
+    crate::prompt::ensure_can_prompt("--yes")?;
+    let question = format!(
+        "Set account abstraction for {user} to {}?",
         mode_cli_value(mode)
     );
-    let prompt = if format == OutputFormat::Pretty {
-        colors::yellow(&prompt)
+    let question = if format == OutputFormat::Pretty {
+        colors::yellow(&question)
     } else {
-        prompt
+        question
     };
-    let mut stderr = io::stderr();
-    write!(stderr, "{prompt}").map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
-    stderr
-        .flush()
-        .map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
-    let mut input = String::new();
-    io::stdin()
-        .read_line(&mut input)
-        .map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
-    if matches!(input.trim().to_ascii_lowercase().as_str(), "y" | "yes") {
+    if crate::prompt::confirm(&question, "--yes")? {
         Ok(())
     } else {
         Err(CliError::Configuration(
@@ -1057,7 +1036,7 @@ impl From<Fill> for FillRow {
             side: fill.side.to_string(),
             price: fill.px,
             size: fill.sz,
-            direction: fill.dir,
+            direction: fill.dir.to_string(),
             closed_pnl: fill.closed_pnl,
             fee: fill.fee,
             fee_token: fill.fee_token,
@@ -1084,30 +1063,22 @@ impl FillsOutput {
 
 impl TableData for FillsOutput {
     fn headers(&self) -> Vec<&str> {
-        if self.fills.is_empty() {
-            vec!["Message"]
-        } else {
-            vec![
-                "Coin",
-                "Side",
-                "Price",
-                "Size",
-                "Direction",
-                "Closed PnL",
-                "Fee",
-                "Fee Token",
-                "OID",
-                "Time",
-                "Liquidity",
-            ]
-        }
+        vec![
+            "Coin",
+            "Side",
+            "Price",
+            "Size",
+            "Direction",
+            "Closed PnL",
+            "Fee",
+            "Fee Token",
+            "OID",
+            "Time",
+            "Liquidity",
+        ]
     }
 
     fn rows(&self) -> Vec<Vec<String>> {
-        if self.fills.is_empty() {
-            return vec![vec!["no fills found".to_string()]];
-        }
-
         self.fills
             .iter()
             .map(|fill| {
@@ -1129,10 +1100,6 @@ impl TableData for FillsOutput {
     }
 
     fn pretty_rows(&self) -> Vec<Vec<String>> {
-        if self.fills.is_empty() {
-            return self.rows();
-        }
-
         self.fills
             .iter()
             .map(|fill| {
@@ -1151,6 +1118,10 @@ impl TableData for FillsOutput {
                 ]
             })
             .collect()
+    }
+
+    fn empty_message(&self) -> Option<&str> {
+        Some("No fills.")
     }
 
     fn to_json_value(&self) -> serde_json::Value {
@@ -1208,29 +1179,21 @@ impl OrdersOutput {
 
 impl TableData for OrdersOutput {
     fn headers(&self) -> Vec<&str> {
-        if self.orders.is_empty() {
-            vec!["Message"]
-        } else {
-            vec![
-                "Coin",
-                "Side",
-                "Limit Price",
-                "Size",
-                "Original Size",
-                "OID",
-                "Type",
-                "TIF",
-                "Reduce Only",
-                "Timestamp",
-            ]
-        }
+        vec![
+            "Coin",
+            "Side",
+            "Limit Price",
+            "Size",
+            "Original Size",
+            "OID",
+            "Type",
+            "TIF",
+            "Reduce Only",
+            "Timestamp",
+        ]
     }
 
     fn rows(&self) -> Vec<Vec<String>> {
-        if self.orders.is_empty() {
-            return vec![vec!["no orders found".to_string()]];
-        }
-
         self.orders
             .iter()
             .map(|order| {
@@ -1248,6 +1211,10 @@ impl TableData for OrdersOutput {
                 ]
             })
             .collect()
+    }
+
+    fn empty_message(&self) -> Option<&str> {
+        Some("No orders.")
     }
 
     fn to_json_value(&self) -> serde_json::Value {
@@ -1446,8 +1413,8 @@ impl TableData for PortfolioOutput {
             rows.push(vec![
                 "Portfolio".to_string(),
                 "Holdings".to_string(),
-                "no data found".to_string(),
-                "No positions, spot balances, or vault equities returned".to_string(),
+                "No data.".to_string(),
+                "No positions, spot balances, or vault equities.".to_string(),
             ]);
         }
 
@@ -1521,8 +1488,8 @@ impl TableData for PortfolioOutput {
             rows.push(vec![
                 "Portfolio".to_string(),
                 "Holdings".to_string(),
-                "no data found".to_string(),
-                "No positions, spot balances, or vault equities returned".to_string(),
+                "No data.".to_string(),
+                "No positions, spot balances, or vault equities.".to_string(),
             ]);
         }
 
@@ -1620,26 +1587,18 @@ impl SubaccountsOutput {
 
 impl TableData for SubaccountsOutput {
     fn headers(&self) -> Vec<&str> {
-        if self.subaccounts.is_empty() {
-            vec!["Message"]
-        } else {
-            vec![
-                "Name",
-                "Address",
-                "Master",
-                "Account Value",
-                "Withdrawable",
-                "Positions",
-                "Spot Balances",
-            ]
-        }
+        vec![
+            "Name",
+            "Address",
+            "Master",
+            "Account Value",
+            "Withdrawable",
+            "Positions",
+            "Spot Balances",
+        ]
     }
 
     fn rows(&self) -> Vec<Vec<String>> {
-        if self.subaccounts.is_empty() {
-            return vec![vec!["no subaccounts found".to_string()]];
-        }
-
         self.subaccounts
             .iter()
             .map(|subaccount| {
@@ -1654,6 +1613,10 @@ impl TableData for SubaccountsOutput {
                 ]
             })
             .collect()
+    }
+
+    fn empty_message(&self) -> Option<&str> {
+        Some("No subaccounts.")
     }
 
     fn to_json_value(&self) -> serde_json::Value {
@@ -1675,7 +1638,8 @@ mod tests {
     fn empty_fills_show_no_data_message_but_json_is_empty_array() {
         let output = FillsOutput::new(vec![]);
 
-        assert_eq!(output.rows()[0][0], "no fills found");
+        assert!(output.rows().is_empty());
+        assert_eq!(output.empty_message(), Some("No fills."));
         assert!(output.to_json_value().as_array().unwrap().is_empty());
     }
 
@@ -1683,7 +1647,8 @@ mod tests {
     fn empty_orders_show_no_data_message_but_json_is_empty_array() {
         let output = OrdersOutput::new(vec![]);
 
-        assert_eq!(output.rows()[0][0], "no orders found");
+        assert!(output.rows().is_empty());
+        assert_eq!(output.empty_message(), Some("No orders."));
         assert!(output.to_json_value().as_array().unwrap().is_empty());
     }
 
@@ -1691,7 +1656,8 @@ mod tests {
     fn empty_subaccounts_show_no_data_message_but_json_is_empty_array() {
         let output = SubaccountsOutput::new(vec![]);
 
-        assert_eq!(output.rows()[0][0], "no subaccounts found");
+        assert!(output.rows().is_empty());
+        assert_eq!(output.empty_message(), Some("No subaccounts."));
         assert!(output.to_json_value().as_array().unwrap().is_empty());
     }
 
@@ -1785,7 +1751,8 @@ mod tests {
         assert!(table.contains("12.34"));
         assert!(!table.contains(crate::output::colors::GREEN));
         assert!(!table.contains(crate::output::colors::RED));
-        assert!(json.contains("\"closed_pnl\": \"12.34\""));
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed[0]["closed_pnl"], "12.34");
         assert!(!json.contains(crate::output::colors::GREEN));
         assert!(!json.contains(crate::output::colors::RED));
     }
@@ -1811,8 +1778,8 @@ mod tests {
         let pretty = crate::output::render(&output, OutputFormat::Pretty);
 
         assert!(pretty.contains("\t0\t") || pretty.contains(" 0 "));
-        assert!(!pretty.contains(&crate::output::colors::green("0")));
-        assert!(!pretty.contains(&crate::output::colors::red("0")));
+        assert!(!pretty.contains(&format!("{}0", crate::output::colors::GREEN)));
+        assert!(!pretty.contains(&format!("{}0", crate::output::colors::RED)));
     }
 
     #[test]
@@ -1868,7 +1835,7 @@ mod tests {
 
         assert!(pretty.contains(&format!("pnl={}", crate::output::colors::green("10"))));
         assert!(pretty.contains(&format!("pnl={}", crate::output::colors::red("-5"))));
-        assert!(!pretty.contains(&crate::output::colors::green("100")));
+        assert!(!pretty.contains(&format!("{}100", crate::output::colors::GREEN)));
         assert!(table.contains("pnl=10"));
         assert!(table.contains("pnl=-5"));
         assert!(!table.contains(crate::output::colors::GREEN));

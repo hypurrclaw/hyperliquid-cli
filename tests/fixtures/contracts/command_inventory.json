@@ -310,9 +310,13 @@
       "group": "trade",
       "input_kinds": {
         "amount": "amount",
+        "builder": "protocol_object_address",
+        "cloid": "identifier",
         "coin": "market_symbol",
         "dex": "venue_selector",
+        "on_behalf_of": "acting_account_selector",
         "price": "price",
+        "reduce_only": "boolean",
         "size": "amount",
         "yes": "boolean"
       },
@@ -336,9 +340,13 @@
       "group": "trade",
       "input_kinds": {
         "amount": "amount",
+        "builder": "protocol_object_address",
+        "cloid": "identifier",
         "coin": "market_symbol",
         "dex": "venue_selector",
+        "on_behalf_of": "acting_account_selector",
         "price": "price",
+        "reduce_only": "boolean",
         "size": "amount",
         "yes": "boolean"
       },
@@ -361,8 +369,14 @@
       "dry_run": "optional",
       "group": "trade",
       "input_kinds": {
+        "amount": "amount",
+        "builder": "protocol_object_address",
+        "cloid": "identifier",
         "coin": "market_symbol",
+        "dex": "venue_selector",
+        "on_behalf_of": "acting_account_selector",
         "price": "price",
+        "reduce_only": "boolean",
         "size": "amount",
         "yes": "boolean"
       },
@@ -385,8 +399,14 @@
       "dry_run": "optional",
       "group": "trade",
       "input_kinds": {
+        "amount": "amount",
+        "builder": "protocol_object_address",
+        "cloid": "identifier",
         "coin": "market_symbol",
+        "dex": "venue_selector",
+        "on_behalf_of": "acting_account_selector",
         "price": "price",
+        "reduce_only": "boolean",
         "size": "amount",
         "yes": "boolean"
       },
@@ -410,6 +430,7 @@
       "dry_run": "not_supported",
       "group": "watch",
       "input_kinds": {
+        "interval": "duration",
         "user": "identifier"
       },
       "mutability": "read_only",
@@ -1792,12 +1813,42 @@
       "dry_run": "optional",
       "group": "trade",
       "input_kinds": {
+        "cloid": "identifier",
         "coin": "market_symbol",
         "dex": "venue_selector",
         "on_behalf_of": "acting_account_selector",
         "size": "amount",
         "stop_loss": "price",
         "take_profit": "price",
+        "yes": "boolean"
+      },
+      "mutability": "live_mutating",
+      "output_contract": "command_result_or_dry_run_envelope",
+      "raw_payload": "dry_run_only",
+      "risk": "funds_movement",
+      "transport": [
+        "cli_process"
+      ]
+    },
+    {
+      "auth_required": true,
+      "command": "hyperliquid orders trailing-stop",
+      "command_path": [
+        "orders",
+        "trailing-stop"
+      ],
+      "confirmation": "prompt",
+      "dangerous": true,
+      "dry_run": "optional",
+      "group": "trade",
+      "input_kinds": {
+        "activation_price": "price",
+        "coin": "market_symbol",
+        "dex": "venue_selector",
+        "on_behalf_of": "acting_account_selector",
+        "reduce_only": "boolean",
+        "retracement_px": "price",
+        "size": "amount",
         "yes": "boolean"
       },
       "mutability": "live_mutating",
@@ -1869,6 +1920,7 @@
       "dry_run": "optional",
       "group": "trade",
       "input_kinds": {
+        "always_place": "boolean",
         "cloid": "identifier",
         "on_behalf_of": "acting_account_selector",
         "order_id": "identifier",
@@ -2022,6 +2074,8 @@
         "coin": "market_symbol",
         "dex": "venue_selector",
         "interval": "duration",
+        "on_behalf_of": "acting_account_selector",
+        "reduce_only": "boolean",
         "size": "amount",
         "timeout": "duration",
         "yes": "boolean"
@@ -2048,7 +2102,9 @@
       "input_kinds": {
         "amount": "amount",
         "coin": "market_symbol",
+        "dex": "venue_selector",
         "entry_timeout": "duration",
+        "on_behalf_of": "acting_account_selector",
         "price": "price",
         "size": "amount",
         "stop_loss": "price",

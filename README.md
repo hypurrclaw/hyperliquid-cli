@@ -205,7 +205,7 @@ Canonical top-level aliases accepted by the CLI:
 | `-f, --format pretty\|table\|json` | Output format. Effective default is `pretty` on a TTY and JSON for non-TTY stdout or `HYPERLIQUID_AGENT=1`; explicit `--format` wins over `HYPERLIQUID_FORMAT`. |
 | `--private-key <PRIVATE_KEY>` | Sign with a raw private key. Overrides environment and config. |
 | `--keystore <PATH>` | Sign with a Foundry-compatible keystore file. |
-| `--keystore-password <PASSWORD>` | Keystore password. Prefer safer secret sources for humans. |
+| `--keystore-password <PASSWORD>` | Keystore password. Prefer `HYPERLIQUID_KEYSTORE_PASSWORD`: command-line options appear in process lists. |
 | `--account <SELECTOR>` | Stored wallet alias, id, or address to use as the signer. Conflicts with other signer flags. |
 | `--ows-signer <SELECTOR>` | OWS wallet selector (name or id). Accepts `0x` addresses for identity/dry-run plumbing. Alias: `--wallet`. Conflicts with local signer flags. |
 | `--testnet` | Route API calls and signed actions to Hyperliquid testnet. |
@@ -215,7 +215,9 @@ Canonical top-level aliases accepted by the CLI:
 | `--dry-run` | Validate and preview mutating commands without side effects. |
 | `--payload-json <JSON>` / `--payload-file <PATH\|->` | Provide raw JSON payload context for mutating dry-runs. |
 | `--no-update-check` | Disable release update checks for this invocation. |
-| `-h, --help` / `-V, --version` | Print help or version information. |
+| `--non-interactive` | Never prompt. Commands fail with the missing input named. `CI`, `HYPERLIQUID_AGENT`, JSON output, and `--payload-file -` also disable prompts. |
+| `--no-color` | Disable color. `NO_COLOR` does the same; `FORCE_COLOR` forces color on. |
+| `-h, --help` / `-v, --version` | Print help or version at any depth. With JSON output, `--version` prints `{"version":"X"}`. |
 
 ### Market data
 
@@ -248,9 +250,9 @@ Canonical top-level aliases accepted by the CLI:
 | `wallet import-mnemonic [MNEMONIC] [--alias <ALIAS>]` | Import a wallet from a BIP-39 mnemonic phrase. |
 | `wallet list` | List all wallets in the OWS vault. |
 | `wallet rename <SELECTOR> <NEW_NAME>` | Rename a wallet. |
-| `wallet delete <SELECTOR>` | Delete a wallet. Prompts unless `-y`. |
+| `wallet delete <SELECTOR>` | Delete a wallet's encrypted key from the vault; this cannot be undone. Terminals must type the wallet name; piped runs answer y/N; machine runs need `-y`. |
 | `wallet export <SELECTOR> [-y]` | Export wallet secret (mnemonic or private key). |
-| `wallet reset [-y]` | Remove wallet configuration after confirmation. |
+| `wallet reset [-y]` | Delete the config file, clearing the default wallet, network, builder, and referral defaults. Wallets stay in the vault. |
 | `account fees [ADDRESS_OR_WALLET]` | Query fee schedule and volume context. |
 | `account fills [ADDRESS_OR_WALLET] [--start <TIME>] [--end <TIME>] [--aggregate-by-time]` | Query public fill history, optionally by time. |
 | `account ledger [ADDRESS_OR_WALLET] --start <TIME> [--end <TIME>]` | Query deposits, withdrawals, transfers, and other non-funding ledger updates. |
@@ -292,11 +294,12 @@ Signer and acting-account flags intentionally share the same selector grammar wh
 | `outcome-buy --coin <#N\|+N> --price <PX> --size <SIZE>` | Buy a HIP-4 outcome token. |
 | `outcome-sell --coin <#N\|+N> --price <PX> --size <SIZE>` | Sell a HIP-4 outcome token. |
 | `orders tpsl --coin <COIN> (--take-profit <PX\|+N%\|entry>\|--stop-loss <PX\|-N%\|entry>) [--grouping position-tpsl] [--side buy\|sell] [--size <SIZE>] [--margin-mode cross\|isolated] [--on-behalf-of <ACCOUNT_SELECTOR>]` | Create TP/SL orders attached to the current position. Percent and `entry` resolve against the position entry; `+N%` always moves in the position's favor (below entry for shorts). `--on-behalf-of` targets the acting subaccount/vault position. |
+| `orders trailing-stop --coin <COIN> --side buy\|sell --size <SIZE> (--retracement-pct <PERCENT>\|--retracement-px <PRICE>) [--activation-price <PRICE>] [--reduce-only] [--dex <DEX>] [--on-behalf-of <ACCOUNT_SELECTOR>] [-y]` | Place a native trailing stop on a perp market. It tracks the mark price and fires a market order once the mark retraces from its best level. |
 | `orders chase --coin <COIN> --side buy\|sell --size <SIZE> [--offset <BPS>] [--timeout <DURATION>] [--max-chase <BPS>] [-y]` | Bounded ALO requote loop that chases mid. Agent mode requires `--timeout`. |
 | `orders bracket --coin <COIN> --side buy\|sell --take-profit <PX\|+N%> --stop-loss <PX\|-N%> [--size <SIZE>\|--amount <USDC>] [--entry market\|limit] [-y]` | Place entry then arm TP/SL. Percent triggers resolve in the position's favor (`+N%` toward profit for both longs and shorts). Limit entries that do not fill in time are cancelled; any filled portion is protected (`entry_cancelled_protected` / `entry_cancelled`, exit 15). |
 | `orders cancel (ORDER_ID\|--cloid <CLOID>) [--on-behalf-of <ACCOUNT_SELECTOR>]` | Cancel by order ID or client order ID. `--on-behalf-of` manages an order for the acting subaccount/vault. |
 | `orders cancel-all [--coin <COIN>] [--dex <DEX>] [--on-behalf-of <ACCOUNT_SELECTOR>] [-y]` | Cancel all open orders, optionally filtered by coin or DEX. |
-| `orders modify (ORDER_ID\|--cloid <CLOID>) [--price <PRICE>] [--trigger-price <PRICE>] [--size <SIZE>] [--on-behalf-of <ACCOUNT_SELECTOR>]` | Modify an existing order. |
+| `orders modify (ORDER_ID\|--cloid <CLOID>) [--price <PRICE>] [--trigger-price <PRICE>] [--size <SIZE>] [--always-place] [--on-behalf-of <ACCOUNT_SELECTOR>]` | Modify an existing order. Without `--always-place` the replacement must be a non-trigger ALO order or a non-executable GTC order; add it to modify trigger orders or to place the replacement even if the cancel fails. |
 | `orders twap-create --coin <COIN> --side buy\|sell --size <SIZE> --duration <SECONDS> [--dex <DEX>] [--margin-mode cross\|isolated] [--on-behalf-of <ACCOUNT_SELECTOR>] [-y]` | Create a TWAP order. |
 | `orders twap-cancel <TWAP_ID> --coin <COIN> [--dex <DEX>] [--on-behalf-of <ACCOUNT_SELECTOR>]` | Cancel a TWAP order. |
 | `orders schedule-cancel (--in <DURATION>\|--clear) [--on-behalf-of <ACCOUNT_SELECTOR>] [-y]` | Configure or clear a dead man's switch. Mainnet set and clear flows prompt unless `--yes` is supplied. |
@@ -315,6 +318,22 @@ Signer and acting-account flags intentionally share the same selector grammar wh
 `api-wallets` is accepted as an alias for `api-wallet`.
 `subaccounts` is accepted as an alias for `subaccount`.
 `transfers` is accepted as an alias for `transfer`.
+
+#### Trailing stops
+
+`orders trailing-stop` places Hyperliquid's native trailing stop on perp and HIP-3 perp markets (spot and outcome markets are rejected). The exchange tracks the **mark price**: a sell closes a long and follows the highest mark, a buy closes a short and follows the lowest. When the mark retraces from that best level by `--retracement-pct` (above 0, below 100) or `--retracement-px` (a price distance), the exchange fires a **market order**. The trigger never moves back. Pass exactly one retracement option. `--activation-price` delays tracking until the mark reaches it; without it the stop starts tracking immediately. Use `--reduce-only` when the stop should only close a position.
+
+```bash
+# Preview, then place a 5% trailing stop that closes a long
+hyperliquid --format json --dry-run orders trailing-stop --coin BTC --side sell --size 0.01 --retracement-pct 5 --reduce-only
+hyperliquid orders trailing-stop --coin BTC --side sell --size 0.01 --retracement-pct 5 --reduce-only
+# Start tracking only once the mark reaches 3500
+hyperliquid orders trailing-stop --coin ETH --side sell --size 0.5 --retracement-px 50 --activation-price 3500
+# Remove it with the order ID from the receipt
+hyperliquid orders cancel <OID>
+```
+
+Mainnet prompts show the network, signer, acting account, coin, side, size, retracement, activation, and reduce-only before asking; `--testnet` places without a prompt, and JSON, CI, and agent runs need `--yes`. The receipt includes the `oid`, and `orders open` lists the stop as `TrailingStopMarket`. The CLI never retries a placement: if the result is unknown it exits `12`, so check `orders open` before placing another.
 
 Time-bounded account history commands accept RFC3339 timestamps and epoch milliseconds. The CLI sends milliseconds to Hyperliquid, for example:
 
@@ -419,12 +438,19 @@ Resolution order: CLI flags → environment variables → `~/.config/hyperliquid
 | `HYPERLIQUID_WATCH_MAX_TICKS` | Default tick limit for snapshot watch mode. |
 | `HYPERLIQUID_SUBSCRIBE_MAX_EVENTS` | Default event limit for WebSocket subscribe commands in agent contexts. |
 | `OWS_PASSPHRASE` | Passphrase to unlock an encrypted OWS wallet. |
+| `HYPERLIQUID_KEYSTORE_PASSWORD` | Password for `--keystore`, read from the environment instead of argv. |
 | `HYPERLIQUID_OWS_VAULT_PATH` | Override the OWS vault path (default `~/.hyperliquid`). |
 | `HYPERLIQUID_API_BASE_URL` / `HYPERLIQUID_MAINNET_API_BASE_URL` / `HYPERLIQUID_TESTNET_API_BASE_URL` | Override API base URLs; all overrides are restricted to loopback/local test endpoints. |
 | `HYPERLIQUID_DEFAULT_BUILDER_ADDRESS` / `HYPERLIQUID_DEFAULT_BUILDER_FEE_RATE` | Runtime defaults for per-order builder fee parameters and setup suggestions. |
 | `HYPERLIQUID_DEFAULT_REFERRAL_CODE` | Runtime default referral code for setup and `referral set`. |
 | `HYPERLIQUID_FEEDBACK_URL` | Runtime or build-time default endpoint for `hyperliquid feedback`. |
 | `HYPERLIQUID_NO_UPDATE_CHECK` | Disable release update checks when truthy. |
+| `NO_UPDATE_NOTIFIER` | Suppress the update notice and background release check when set to any non-empty value. Updates are also never announced in CI, agent, JSON, or non-TTY runs, and at most once every 24 hours. |
+| `HYPERLIQUID_KEYSTORE_PASSWORD` | Password for `--keystore`. |
+| `CI` | Treat the run as non-interactive: no prompts. |
+| `NO_COLOR` / `FORCE_COLOR` | Disable color with a non-empty `NO_COLOR`; force it on (or off with `0`/`false`) with `FORCE_COLOR`. |
+
+Boolean variables such as `HYPERLIQUID_AGENT` accept `1`, `true`, `yes`, `on`, `0`, `false`, `no`, and `off`. Any other value is a usage error (exit `2`). `hyperliquid --help` lists every variable.
 
 ## Develop
 

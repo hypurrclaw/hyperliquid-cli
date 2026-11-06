@@ -547,8 +547,11 @@ run_case 0 "orders cancel cloid dry run" "${BASE[@]}" --dry-run orders cancel --
 run_case 0 "orders cancel all dry run" "${BASE[@]}" --dry-run orders cancel-all --coin "$HL_QA_COIN" -y
 run_case 0 "orders modify dry run" "${BASE[@]}" --dry-run orders modify "$HL_QA_ORDER_ID" --price "$HL_QA_PRICE"
 run_case 0 "orders modify cloid dry run" "${BASE[@]}" --dry-run orders modify --cloid 0x1234567890abcdef1234567890abcdef --price "$HL_QA_PRICE"
+run_case 0 "orders modify always place dry run" "${BASE[@]}" --dry-run orders modify "$HL_QA_ORDER_ID" --trigger-price "$HL_QA_PRICE" --always-place
 run_case 0 "orders twap create dry run" "${BASE[@]}" --dry-run orders twap-create --coin "$HL_QA_COIN" --side buy --size "$HL_QA_SIZE" --duration 300
 run_case 0 "orders twap cancel dry run" "${BASE[@]}" --dry-run orders twap-cancel "$HL_QA_TWAP_ID" --coin "$HL_QA_COIN"
+run_case 0 "orders trailing stop dry run" "${BASE[@]}" --dry-run orders trailing-stop --coin "$HL_QA_COIN" --side sell --size "$HL_QA_SIZE" --retracement-pct 5 --reduce-only
+run_case 0 "orders trailing stop activation dry run" "${BASE[@]}" --dry-run orders trailing-stop --coin "$HL_QA_COIN" --side sell --size "$HL_QA_SIZE" --retracement-px "$HL_QA_PRICE" --activation-price "$HL_QA_PRICE"
 run_case 0 "orders schedule cancel dry run" "${BASE[@]}" --dry-run orders schedule-cancel --in 30s
 run_case 0 "orders payload dry run" "${BASE[@]}" --dry-run --payload-json '{"coin":"BTC","side":"buy","price":"50000","size":"0.001","type":"limit","tif":"alo"}' orders create --coin "$HL_QA_COIN" --side buy --price "$HL_QA_PRICE" --size "$HL_QA_SIZE"
 

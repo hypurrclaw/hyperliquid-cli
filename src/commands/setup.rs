@@ -1,6 +1,8 @@
 //! Guided first-time setup wizard.
-
-use std::io::{self, Write};
+//!
+//! Questions and narration go to stderr; only the final result goes to stdout.
+//! Every answer is collected, and a summary printed, before the first change to
+//! the vault or config.
 
 use clap::Args;
 use hypersdk::Address;
@@ -9,7 +11,9 @@ use serde::Serialize;
 
 use crate::commands::map_api_error;
 use crate::config::{self, Config, Network};
+use crate::errors::CliError;
 use crate::output::{OutputFormat, TableData};
+use crate::prompt;
 
 #[derive(Args, Debug, Clone)]
 pub struct SetupArgs {
@@ -38,6 +42,7 @@ struct SetupSummary {
     default_builder: String,
     builder_approval: String,
     default_referral_code: String,
+    config_keys_written: Vec<String>,
 }
 
 impl TableData for SetupSummary {
@@ -63,11 +68,40 @@ impl TableData for SetupSummary {
                 "Default referral".to_string(),
                 self.default_referral_code.clone(),
             ],
+            vec![
+                "Config keys written".to_string(),
+                self.config_keys_written.join(", "),
+            ],
         ]
     }
 
     fn to_json_value(&self) -> serde_json::Value {
         serde_json::to_value(self).unwrap_or_else(|_| serde_json::json!({}))
+    }
+}
+
+/// How the wallet is obtained.
+enum WalletSource {
+    Create,
+    /// A private key read at the masked prompt or from stdin. Never printed.
+    Import(String),
+}
+
+/// Fail before asking anything when this run can't answer prompts and `--yes` wasn't given.
+fn ensure_setup_can_run(args: &SetupArgs, format: OutputFormat) -> Result<(), CliError> {
+    if args.yes {
+        return Ok(());
+    }
+    let blocker = if format == OutputFormat::Json {
+        Some("JSON output")
+    } else {
+        crate::mode::prompt_blocker()
+    };
+    match blocker {
+        None => Ok(()),
+        Some(reason) => Err(CliError::MissingInput(format!(
+            "Can't run setup with prompts because of {reason}. Accept the defaults instead:\n    hyperliquid setup --yes"
+        ))),
     }
 }
 
@@ -77,102 +111,71 @@ pub async fn run(
     args: &SetupArgs,
     format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
-    write_line("Welcome to Hyperliquid CLI setup", format)?;
-    write_line(
-        "This wizard will create or import a wallet, save your local config, and test the API connection.",
-        format,
-    )?;
-    write_line("", format)?;
-    write_line("Wallet setup:", format)?;
-    write_line("  1) Create new wallet", format)?;
-    write_line("  2) Import existing wallet (private key)", format)?;
+    ensure_setup_can_run(args, format)?;
+    // A broken config is an error before any question is asked.
+    config::load_config()?;
+
+    eprintln!("Welcome to Hyperliquid CLI setup");
+    eprintln!(
+        "This wizard will create or import a wallet, save your local config, and test the API connection."
+    );
+    eprintln!();
+    eprintln!("Wallet setup:");
+    eprintln!("  1) Create new wallet");
+    eprintln!("  2) Import existing wallet (private key)");
 
     let wallet_choice = if args.yes {
         "1".to_string()
     } else {
-        prompt("Choose an option [1/2]: ", format)?
+        prompt::read_line("Choose an option [1/2]: ", "--yes")?
     };
-    let network = if args.yes {
-        default_network
-    } else {
-        prompt_network(default_network, format)?
-    };
-
-    // Verify connection and collect fallible defaults before creating any local
-    // wallet state so failures do not leave orphaned wallets behind.
-    let connection = verify_connection(network).await?;
-    write_line(&connection, format)?;
-    let builder_defaults = if args.yes {
-        setup_builder_default_suggestion()?
-    } else {
-        prompt_builder_defaults(format)?
-    };
-    let referral_code = if args.yes {
-        setup_referral_default_suggestion(network)?
-    } else {
-        prompt_referral_default(network, format)?
-    };
-
-    let passphrase = crate::ows::ows_passphrase();
-    let vault_path = crate::ows::ows_vault_path();
-
-    let (wallet_name, wallet_id, address, signer_address) = match wallet_choice
-        .trim()
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "" | "1" | "create" | "c" => {
-            let name = next_setup_name("setup", vault_path.as_deref())?;
-            let wallet =
-                crate::ows::create_ows_wallet(&name, passphrase.as_deref(), vault_path.as_deref())
-                    .map_err(|err| anyhow::anyhow!("{err}"))?;
-            let (hl, hl_address) = crate::ows::hyperliquid_address_from_wallet(&wallet)
-                .map_err(|err| anyhow::anyhow!("{err}"))?;
-            (wallet.name, wallet.id, hl, hl_address)
-        }
-        "2" | "import" | "i" => {
-            let private_key = prompt_private_key(format)?;
-            let name = next_setup_name("setup-imported", vault_path.as_deref())?;
-            let wallet = crate::ows::import_ows_wallet_private_key(
-                &name,
-                private_key.trim(),
-                passphrase.as_deref(),
-                vault_path.as_deref(),
-            )
-            .map_err(|err| anyhow::anyhow!("{err}"))?;
-            let (hl, hl_address) = crate::ows::hyperliquid_address_from_wallet(&wallet)
-                .map_err(|err| anyhow::anyhow!("{err}"))?;
-            (wallet.name, wallet.id, hl, hl_address)
-        }
+    let import_wallet = match wallet_choice.trim().to_ascii_lowercase().as_str() {
+        "" | "1" | "create" | "c" => false,
+        "2" | "import" | "i" => true,
         other => {
-            return Err(crate::errors::CliError::Unsupported(format!(
+            return Err(CliError::Unsupported(format!(
                 "setup option '{other}' is not supported; choose 1 to create or 2 to import"
             ))
             .into());
         }
     };
-
-    let config = Config {
-        private_key: None,
-        network,
-        default_wallet_id: Some(wallet_id.clone()),
-        default_builder_address: builder_defaults
-            .as_ref()
-            .map(|(address, _)| address.clone()),
-        default_builder_fee_rate: builder_defaults.as_ref().map(|(_, fee)| fee.clone()),
-        default_referral_code: referral_code.clone(),
+    let network = if args.yes {
+        default_network
+    } else {
+        prompt_network(default_network)?
     };
-    config::save_config(&config).map_err(|err| {
-        // Clean up the wallet we just created so the vault isn't left with
-        // an orphaned wallet that no config references.
-        let _ = crate::ows::delete_ows_wallet(&wallet_id, vault_path.as_deref());
-        anyhow::anyhow!("failed to save config: {err}")
-    })?;
+
+    // Verify connection and collect fallible defaults before creating any local
+    // wallet state so failures do not leave orphaned wallets behind.
+    let connection = verify_connection(network).await?;
+    eprintln!("{connection}");
+    let builder_suggestion = setup_builder_default_suggestion()?;
+    let builder_defaults = if args.yes {
+        builder_suggestion.clone()
+    } else {
+        prompt_builder_defaults()?
+    };
+    let referral_suggestion = setup_referral_default_suggestion(network)?;
+    let referral_code = if args.yes {
+        referral_suggestion.clone()
+    } else {
+        prompt_referral_default(network)?
+    };
+    let wallet_source = if import_wallet {
+        WalletSource::Import(prompt_private_key()?.trim().to_string())
+    } else {
+        WalletSource::Create
+    };
+    let approve_builder = resolve_builder_approval(args, builder_defaults.as_ref())?;
+
+    let vault_path = crate::ows::ows_vault_path();
+    let wallet_name = match wallet_source {
+        WalletSource::Create => next_setup_name("setup", vault_path.as_deref())?,
+        WalletSource::Import(_) => next_setup_name("setup-imported", vault_path.as_deref())?,
+    };
     let config_path = config::config_file_path()
         .map(|path| path.display().to_string())
         .unwrap_or_else(|| "unavailable".to_string());
-    write_line(&format!("Config saved to {config_path}"), format)?;
-
     let vault_path_str = vault_path
         .as_deref()
         .map(|p| p.display().to_string())
@@ -186,18 +189,88 @@ pub async fn run(
         .as_ref()
         .map(|(address, fee)| format!("{address} at {fee}"))
         .unwrap_or_else(|| "not configured".to_string());
+    print_answers_summary(&AnswersSummary {
+        wallet: match wallet_source {
+            WalletSource::Create => format!("create a new wallet named {wallet_name}"),
+            WalletSource::Import(_) => format!("import a private key as wallet {wallet_name}"),
+        },
+        network,
+        config_path: &config_path,
+        vault_path: &vault_path_str,
+        default_builder: &default_builder,
+        builder_approval: if builder_defaults.is_none() {
+            "not configured"
+        } else if approve_builder {
+            "submit a signed approval to Hyperliquid"
+        } else {
+            "skip"
+        },
+        referral: referral_code.as_deref().unwrap_or("not configured"),
+    });
+
+    crate::ows::warn_if_vault_passphrase_unset();
+    let passphrase = crate::ows::ows_passphrase();
+
+    let lock = config::lock_config()?;
+    let mut config = config::load_config()?.unwrap_or_default();
+    let (wallet_name, wallet_id, address, signer_address) = match &wallet_source {
+        WalletSource::Create => {
+            let wallet = crate::ows::create_ows_wallet(
+                &wallet_name,
+                passphrase.as_deref(),
+                vault_path.as_deref(),
+            )
+            .map_err(|err| anyhow::anyhow!("{err}"))?;
+            let (hl, hl_address) = crate::ows::hyperliquid_address_from_wallet(&wallet)
+                .map_err(|err| anyhow::anyhow!("{err}"))?;
+            (wallet.name, wallet.id, hl, hl_address)
+        }
+        WalletSource::Import(private_key) => {
+            let wallet = crate::ows::import_ows_wallet_private_key(
+                &wallet_name,
+                private_key,
+                passphrase.as_deref(),
+                vault_path.as_deref(),
+            )
+            .map_err(|err| anyhow::anyhow!("{err}"))?;
+            let (hl, hl_address) = crate::ows::hyperliquid_address_from_wallet(&wallet)
+                .map_err(|err| anyhow::anyhow!("{err}"))?;
+            (wallet.name, wallet.id, hl, hl_address)
+        }
+    };
+
+    let mut config_keys_written = vec!["network".to_string(), "default_wallet_id".to_string()];
+    config.network = network;
+    config.default_wallet_id = Some(wallet_id.clone());
+    config.default_builder_address = builder_defaults
+        .as_ref()
+        .map(|(address, _)| address.clone());
+    config.default_builder_fee_rate = builder_defaults.as_ref().map(|(_, fee)| fee.clone());
+    config.default_referral_code = referral_code.clone();
+    if builder_defaults.is_some() {
+        config_keys_written.push("default_builder_address".to_string());
+        config_keys_written.push("default_builder_fee_rate".to_string());
+    }
+    if referral_code.is_some() {
+        config_keys_written.push("default_referral_code".to_string());
+    }
+    save_setup_config(&config, &wallet_id, vault_path.as_deref())?;
+    drop(lock);
+    eprintln!("Saved config to {config_path}");
+
     let builder_approval = maybe_approve_default_builder(
         network,
-        args,
+        approve_builder,
         builder_defaults.as_ref(),
         &wallet_id,
         signer_address,
         vault_path.clone(),
-        format,
     )
     .await?;
 
-    let default_referral_code = referral_code.unwrap_or_else(|| "not configured".to_string());
+    let default_referral_code = referral_code
+        .clone()
+        .unwrap_or_else(|| "not configured".to_string());
 
     let output = SetupSummary {
         message: "Setup complete".to_string(),
@@ -210,9 +283,89 @@ pub async fn run(
         default_builder,
         builder_approval,
         default_referral_code,
+        config_keys_written,
     };
     crate::output::print_data_no_timing(&output, format);
+
+    let replayable = matches!(wallet_source, WalletSource::Create)
+        && builder_defaults == builder_suggestion
+        && referral_code == referral_suggestion;
+    if !args.yes {
+        print_replay_command(
+            replayable,
+            default_network,
+            network,
+            builder_defaults.is_some() && !approve_builder,
+        );
+    }
     Ok(())
+}
+
+/// Save the setup config, removing the wallet again when the save fails so the
+/// vault isn't left with a wallet that no config references.
+fn save_setup_config(
+    config: &Config,
+    wallet_id: &str,
+    vault_path: Option<&std::path::Path>,
+) -> Result<(), anyhow::Error> {
+    config::save_config(config).map_err(|err| {
+        let _ = crate::ows::delete_ows_wallet(wallet_id, vault_path);
+        anyhow::anyhow!("failed to save config: {err}")
+    })
+}
+
+struct AnswersSummary<'a> {
+    wallet: String,
+    network: Network,
+    config_path: &'a str,
+    vault_path: &'a str,
+    default_builder: &'a str,
+    builder_approval: &'a str,
+    referral: &'a str,
+}
+
+/// Print what setup is about to do, before anything changes.
+fn print_answers_summary(summary: &AnswersSummary<'_>) {
+    eprintln!();
+    eprintln!("Setup will:");
+    eprintln!("  Wallet:           {}", summary.wallet);
+    eprintln!("  Network:          {}", summary.network);
+    eprintln!("  Config file:      {}", summary.config_path);
+    eprintln!("  Vault:            {}", summary.vault_path);
+    eprintln!("  Default builder:  {}", summary.default_builder);
+    eprintln!("  Builder approval: {}", summary.builder_approval);
+    eprintln!("  Default referral: {}", summary.referral);
+    eprintln!();
+}
+
+/// Print the non-interactive command that repeats this run, when the flags can express it.
+fn print_replay_command(
+    replayable: bool,
+    default_network: Network,
+    network: Network,
+    skip_builder_approval: bool,
+) {
+    eprintln!();
+    if !replayable {
+        eprintln!(
+            "Importing a wallet or choosing custom builder or referral values can't be repeated without prompts."
+        );
+        return;
+    }
+    let mut command = String::new();
+    if network == Network::Mainnet && default_network == Network::Testnet {
+        command.push_str("HYPERLIQUID_NETWORK=mainnet ");
+    }
+    command.push_str("hyperliquid ");
+    if network == Network::Testnet {
+        command.push_str("--testnet ");
+    }
+    command.push_str("setup --yes");
+    if skip_builder_approval {
+        command.push_str(" --no-approve-builder");
+    }
+    eprintln!("Run this again without prompts:");
+    eprintln!("    {command}");
 }
 
 async fn verify_connection(network: Network) -> Result<String, anyhow::Error> {
@@ -237,46 +390,37 @@ fn http_client_for_network(network: Network) -> Result<HttpClient, anyhow::Error
     }
 }
 
-fn prompt_network(
-    default_network: Network,
-    format: OutputFormat,
-) -> Result<Network, anyhow::Error> {
+fn prompt_network(default_network: Network) -> Result<Network, anyhow::Error> {
     let default_is_testnet = default_network == Network::Testnet;
     let default_hint = if default_is_testnet { "Y/n" } else { "y/N" };
-    let answer = prompt(&format!("Use testnet? [{default_hint}]: "), format)?;
+    let answer = prompt::read_line(&format!("Use testnet? [{default_hint}]: "), "--yes")?;
     match answer.trim().to_ascii_lowercase().as_str() {
         "" => Ok(default_network),
         "y" | "yes" => Ok(Network::Testnet),
         "n" | "no" => Ok(Network::Mainnet),
-        other => Err(crate::errors::CliError::Unsupported(format!(
+        other => Err(CliError::Unsupported(format!(
             "network answer '{other}' is not supported; answer yes or no"
         ))
         .into()),
     }
 }
 
-fn prompt_builder_defaults(
-    format: OutputFormat,
-) -> Result<Option<(String, String)>, anyhow::Error> {
+fn prompt_builder_defaults() -> Result<Option<(String, String)>, anyhow::Error> {
     let suggestion = setup_builder_default_suggestion()?;
     if let Some((address, fee)) = suggestion.as_ref() {
-        write_line(
-            "Default builder fee setup (optional; press Enter to use the suggested default, or type 'none' to skip):",
-            format,
-        )?;
-        write_line(&format!("Suggested builder: {address} at {fee}"), format)?;
+        eprintln!(
+            "Default builder fee setup (optional; press Enter to use the suggested default, or type 'none' to skip):"
+        );
+        eprintln!("Suggested builder: {address} at {fee}");
     } else {
-        write_line(
-            "Default builder fee setup (optional; press Enter to skip):",
-            format,
-        )?;
+        eprintln!("Default builder fee setup (optional; press Enter to skip):");
     }
 
     let address_prompt = suggestion
         .as_ref()
         .map(|(address, _)| format!("Default builder address [{address}]: "))
         .unwrap_or_else(|| "Default builder address: ".to_string());
-    let address = prompt(&address_prompt, format)?;
+    let address = prompt::read_line(&address_prompt, "--yes")?;
     let address = address.trim();
     if address.eq_ignore_ascii_case("none") || address.eq_ignore_ascii_case("skip") {
         return Ok(None);
@@ -294,11 +438,11 @@ fn prompt_builder_defaults(
         .as_ref()
         .map(|(_, fee)| format!("Default builder fee rate [{fee}]: "))
         .unwrap_or_else(|| "Default builder fee rate (for example 0.001%): ".to_string());
-    let fee = prompt(&fee_prompt, format)?;
+    let fee = prompt::read_line(&fee_prompt, "--yes")?;
     let fee = fee.trim();
     let fee = if fee.is_empty() {
         let Some((_, fee)) = suggestion.as_ref() else {
-            return Err(crate::errors::CliError::Configuration(
+            return Err(CliError::Configuration(
                 "default builder fee rate is required when a builder address is configured"
                     .to_string(),
             )
@@ -326,27 +470,35 @@ pub(crate) fn setup_builder_default_suggestion() -> Result<Option<(String, Strin
         .map_err(Into::into)
 }
 
-async fn maybe_approve_default_builder(
-    network: Network,
+/// Decide, before anything changes, whether setup submits the builder approval.
+fn resolve_builder_approval(
     args: &SetupArgs,
     builder_defaults: Option<&(String, String)>,
-    wallet_id: &str,
-    signer_address: Address,
-    vault_path: Option<std::path::PathBuf>,
-    format: OutputFormat,
-) -> Result<String, anyhow::Error> {
+) -> Result<bool, anyhow::Error> {
     let Some((builder, fee)) = builder_defaults else {
         if args.approve_builder {
-            return Err(crate::errors::CliError::Configuration(
+            return Err(CliError::Configuration(
                 "--approve-builder requires a configured default builder address and fee rate"
                     .to_string(),
             )
             .into());
         }
+        return Ok(false);
+    };
+    should_approve_default_builder(args, builder, fee)
+}
+
+async fn maybe_approve_default_builder(
+    network: Network,
+    approve: bool,
+    builder_defaults: Option<&(String, String)>,
+    wallet_id: &str,
+    signer_address: Address,
+    vault_path: Option<std::path::PathBuf>,
+) -> Result<String, anyhow::Error> {
+    let Some((builder, fee)) = builder_defaults else {
         return Ok("not configured".to_string());
     };
-
-    let approve = should_approve_default_builder(args, builder, fee, format)?;
     if !approve {
         return Ok("not approved".to_string());
     }
@@ -374,12 +526,12 @@ async fn maybe_approve_default_builder(
         Ok(max_fee_tenths_bps) => {
             let message =
                 format!("approved {builder_address} at {fee} ({max_fee_tenths_bps} tenths bps)");
-            write_line(&format!("Builder approval submitted: {message}"), format)?;
+            eprintln!("Builder approval submitted: {message}");
             Ok(message)
         }
         Err(err) => {
             let message = format!("approval failed: {err}");
-            write_line(&format!("Builder approval failed: {err}"), format)?;
+            eprintln!("Builder approval failed: {err}");
             Ok(message)
         }
     }
@@ -389,7 +541,6 @@ fn should_approve_default_builder(
     args: &SetupArgs,
     builder: &str,
     fee: &str,
-    format: OutputFormat,
 ) -> Result<bool, anyhow::Error> {
     if args.no_approve_builder {
         return Ok(false);
@@ -398,14 +549,14 @@ fn should_approve_default_builder(
         return Ok(true);
     }
 
-    let answer = prompt(
+    let answer = prompt::read_line(
         &format!("Approve default builder {builder} for max fee {fee}? [Y/n]: "),
-        format,
+        "--approve-builder",
     )?;
     match answer.trim().to_ascii_lowercase().as_str() {
         "" | "y" | "yes" => Ok(true),
         "n" | "no" => Ok(false),
-        other => Err(crate::errors::CliError::Unsupported(format!(
+        other => Err(CliError::Unsupported(format!(
             "builder approval answer '{other}' is not supported; answer yes or no"
         ))
         .into()),
@@ -425,29 +576,22 @@ fn chain_for_network(network: Network) -> Chain {
     }
 }
 
-fn prompt_referral_default(
-    network: Network,
-    format: OutputFormat,
-) -> Result<Option<String>, anyhow::Error> {
+fn prompt_referral_default(network: Network) -> Result<Option<String>, anyhow::Error> {
     let suggestion = setup_referral_default_suggestion(network)?;
     if let Some(code) = suggestion.as_ref() {
-        write_line(
-            "Default referral setup (optional; press Enter to use the suggested default, or type 'none' to skip):",
-            format,
-        )?;
-        write_line(&format!("Suggested referral code: {code}"), format)?;
+        eprintln!(
+            "Default referral setup (optional; press Enter to use the suggested default, or type 'none' to skip):"
+        );
+        eprintln!("Suggested referral code: {code}");
     } else {
-        write_line(
-            "Default referral setup (optional; press Enter to skip):",
-            format,
-        )?;
+        eprintln!("Default referral setup (optional; press Enter to skip):");
     }
 
     let prompt_label = suggestion
         .as_ref()
         .map(|code| format!("Default referral code [{code}]: "))
         .unwrap_or_else(|| "Default referral code: ".to_string());
-    let code = prompt(&prompt_label, format)?;
+    let code = prompt::read_line(&prompt_label, "--yes")?;
     let code = code.trim();
     if code.eq_ignore_ascii_case("none") || code.eq_ignore_ascii_case("skip") {
         return Ok(None);
@@ -496,41 +640,8 @@ fn next_setup_name(
     unreachable!("unbounded name search should always return")
 }
 
-fn prompt_private_key(format: OutputFormat) -> Result<String, anyhow::Error> {
-    use std::io::IsTerminal;
-
-    if io::stdin().is_terminal() {
-        return Ok(rpassword::prompt_password("Private key: ")?);
-    }
-
-    prompt("Private key: ", format)
-}
-
-fn prompt(label: &str, format: OutputFormat) -> Result<String, anyhow::Error> {
-    write_prompt(label, format)?;
-    let mut input = String::new();
-    io::stdin().read_line(&mut input)?;
-    Ok(input.trim_end_matches(['\r', '\n']).to_string())
-}
-
-fn write_prompt(label: &str, format: OutputFormat) -> Result<(), anyhow::Error> {
-    if format == OutputFormat::Json {
-        eprint!("{label}");
-        io::stderr().flush()?;
-    } else {
-        print!("{label}");
-        io::stdout().flush()?;
-    }
-    Ok(())
-}
-
-fn write_line(line: &str, format: OutputFormat) -> Result<(), anyhow::Error> {
-    if format == OutputFormat::Json {
-        eprintln!("{line}");
-    } else {
-        println!("{line}");
-    }
-    Ok(())
+fn prompt_private_key() -> Result<String, CliError> {
+    prompt::read_secret("Private key: ", "a private key on stdin")
 }
 
 #[cfg(test)]
@@ -550,10 +661,26 @@ mod tests {
             default_builder: "not configured".to_string(),
             builder_approval: "not configured".to_string(),
             default_referral_code: "not configured".to_string(),
+            config_keys_written: vec!["network".to_string()],
         };
 
         let json = summary.to_json_value();
         assert!(json.get("private_key").is_none());
         assert!(crate::output::render(&summary, OutputFormat::Pretty).contains("Setup complete"));
+    }
+
+    #[test]
+    fn setup_without_yes_fails_before_prompting_in_json_runs() {
+        let args = SetupArgs {
+            yes: false,
+            approve_builder: false,
+            no_approve_builder: false,
+        };
+        let err = ensure_setup_can_run(&args, OutputFormat::Json).unwrap_err();
+        assert_eq!(err.exit_code(), 2);
+        assert!(err.to_string().contains("hyperliquid setup --yes"));
+
+        let yes = SetupArgs { yes: true, ..args };
+        assert!(ensure_setup_can_run(&yes, OutputFormat::Json).is_ok());
     }
 }

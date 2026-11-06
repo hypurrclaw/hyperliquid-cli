@@ -40,7 +40,7 @@ pub async fn open_snapshot(
 
     Ok(OrderListOutput {
         rows,
-        empty_message: "No open orders",
+        empty_message: "No open orders.",
     })
 }
 
@@ -83,7 +83,7 @@ pub async fn status_query(
     };
     let value =
         post_info_json::<serde_json::Value>(api_base_url, &request, "loading order status").await?;
-    let output = JsonValueOutput::new(value, "no order status found");
+    let output = JsonValueOutput::new(value, "No order status.");
     Ok(OrderStatusResult {
         output,
         elapsed: start.elapsed(),
@@ -116,7 +116,7 @@ pub async fn history(
     output::print_data(
         &OrderListOutput {
             rows,
-            empty_message: "No historical orders",
+            empty_message: "No historical orders.",
         },
         format,
         start.elapsed(),
@@ -152,7 +152,7 @@ async fn historical_orders(
     user: Address,
 ) -> Result<Vec<BasicOrder>, CliError> {
     match client.historical_orders(user).await {
-        Ok(orders) => Ok(orders),
+        Ok(orders) => Ok(orders.into_iter().map(|update| update.order).collect()),
         Err(err) if should_fallback_to_raw_historical_orders(&err) => {
             historical_orders_raw(client, user).await
         }
@@ -165,9 +165,11 @@ fn normalize_order_display_coin(resolver: &AssetResolver, mut order: BasicOrder)
     order
 }
 
+/// hypersdk decodes `historicalOrders` as `OrderUpdate<BasicOrder>`; when the
+/// payload is a bare order list the decode fails with a serde error, and the raw
+/// path accepts both shapes.
 fn should_fallback_to_raw_historical_orders(err: &anyhow::Error) -> bool {
-    let message = err.to_string();
-    message.contains("decode failed") && message.contains("missing field `timestamp`")
+    err.chain().any(|cause| cause.is::<serde_json::Error>())
 }
 
 async fn historical_orders_raw(
@@ -179,12 +181,7 @@ async fn historical_orders_raw(
         request_type: "historicalOrders",
         user,
     };
-    let response = post_info_raw(api_url.as_str(), &request)
-        .await
-        .map_err(|err| match err {
-            CliError::Unavailable(message) => map_api_error(anyhow::anyhow!(message)),
-            other => other,
-        })?;
+    let response = post_info_raw(api_url.as_str(), &request).await?;
     let status = response.status;
     let body = response.body;
 

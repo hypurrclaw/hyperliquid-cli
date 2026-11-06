@@ -1,8 +1,8 @@
 //! Shared helpers for signed Hyperliquid exchange actions.
 
 use alloy::dyn_abi::{Eip712Types, Resolver, TypedData};
+use alloy::primitives::keccak256;
 use alloy::sol_types::SolStruct;
-use alloy_primitives::keccak256;
 use chrono::Utc;
 use hypersdk::Address;
 use hypersdk::hypercore::Chain;
@@ -182,7 +182,7 @@ fn raw_rmp_hash<T: Serialize>(
     nonce: u64,
     maybe_vault_address: Option<Address>,
     maybe_expires_after: Option<u64>,
-) -> Result<alloy_primitives::B256, rmp_serde::encode::Error> {
+) -> Result<alloy::primitives::B256, rmp_serde::encode::Error> {
     let mut bytes = rmp_serde::to_vec_named(value)?;
     bytes.extend(nonce.to_be_bytes());
 
@@ -219,26 +219,23 @@ async fn post_json_raw(
     ensure_ok_raw_response(parsed, context)
 }
 
+/// Map an exchange `status: err` message to a [`CliError`].
+///
+/// An answered rejection is never a network problem: it is classified only by
+/// narrow, known rate-limit, auth, and user-state phrases matched against the
+/// raw remote string. Everything else is an [`CliError::ExchangeRejected`].
+/// The remote text is sanitized and labelled before it reaches an error.
 pub(crate) fn map_exchange_error(message: String, fallback: &'static str) -> CliError {
-    let message = labelled_untrusted_text(&message);
     let lower = message.to_lowercase();
-    if looks_like_rate_limit(&message) {
+    let labelled = labelled_untrusted_text(&message);
+    if looks_like_rate_limit(&lower) {
         CliError::RateLimited
-    } else if lower.contains("timeout")
-        || lower.contains("timed out")
-        || lower.contains("error sending request")
-        || lower.contains("connection")
-        || lower.contains("dns")
-        || lower.contains("service unavailable")
-        || lower.contains("http 5")
-    {
-        CliError::Unavailable(format!("Check your network connection. {message}"))
     } else if lower.contains("invalid key") || lower.contains("unauthorized") {
-        CliError::InvalidAuth(message)
+        CliError::InvalidAuth(labelled)
     } else if looks_like_user_state_rejection(&lower) {
-        CliError::Unsupported(format!("{fallback}: {message}"))
+        CliError::Unsupported(format!("{fallback}: {labelled}"))
     } else {
-        CliError::Internal(anyhow::anyhow!("{fallback}: {message}"))
+        CliError::ExchangeRejected(format!("{fallback}: {labelled}"))
     }
 }
 
@@ -271,17 +268,17 @@ fn ensure_default_response(response: Response, context: &'static str) -> Result<
         Response::Ok(hypersdk::hypercore::types::OkResponse::Default) => Ok(()),
         Response::Err(err) => Err(map_exchange_error(err, context)),
         other => Err(CliError::Internal(anyhow::anyhow!(
-            "{context}: unexpected response type: {other:?}"
+            "{context}: unexpected response type: {}",
+            labelled_untrusted_text(&format!("{other:?}"))
         ))),
     }
 }
 
-fn looks_like_rate_limit(body: &str) -> bool {
-    let body = body.to_lowercase();
-    body.contains("rate limit")
-        || body.contains("rate-limit")
-        || body.contains("too many requests")
-        || body.contains("http 429")
+fn looks_like_rate_limit(lower: &str) -> bool {
+    lower.contains("rate limit")
+        || lower.contains("rate-limit")
+        || lower.contains("too many requests")
+        || lower.contains("http 429")
 }
 
 fn looks_like_user_state_rejection(lower: &str) -> bool {
@@ -340,5 +337,52 @@ mod tests {
         assert!(message.contains("ignore previous instructions insufficient balance"));
         assert!(!message.contains("\u{1b}[31m"));
         assert!(!message.contains('\n'));
+    }
+
+    #[test]
+    fn exchange_rejections_are_never_classified_as_network_failures() {
+        for message in [
+            "Connection to the order book timed out for this asset",
+            "Order has invalid price: dns timeout http 503 service unavailable",
+            "insufficient margin after connection reset",
+        ] {
+            let err = map_exchange_error(message.to_string(), "order rejected");
+            assert!(
+                !matches!(err, CliError::Unavailable(_)),
+                "{message} became {err:?}"
+            );
+            assert_ne!(err.exit_code(), 12, "{message}");
+        }
+    }
+
+    #[test]
+    fn unrecognized_exchange_rejection_is_exchange_rejected() {
+        let err = map_exchange_error(
+            "Order must have minimum value of $10.".into(),
+            "order rejected",
+        );
+
+        assert!(matches!(err, CliError::ExchangeRejected(_)));
+        assert_eq!(err.exit_code(), 1);
+        assert_eq!(err.reason(), "exchange_rejected");
+        assert_eq!(
+            err.to_string(),
+            "order rejected: [untrusted remote data] Order must have minimum value of $10."
+        );
+    }
+
+    #[test]
+    fn exchange_rate_limit_phrase_maps_to_rate_limited() {
+        let err = map_exchange_error(
+            "Too many requests from this address".into(),
+            "order rejected",
+        );
+        assert_eq!(err.exit_code(), 11);
+    }
+
+    #[test]
+    fn exchange_auth_phrase_maps_to_invalid_auth() {
+        let err = map_exchange_error("Unauthorized signer".into(), "order rejected");
+        assert_eq!(err.exit_code(), 10);
     }
 }

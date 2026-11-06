@@ -52,7 +52,7 @@ graph TD
 | Account | `account fills/fees/rate-limit/orders/portfolio/subaccounts/portfolio-history/ledger/funding/twap-history/twap-fills/abstraction`, `account add/ls/set-default/remove` | [features/account-and-portfolio](../features/account-and-portfolio.md) |
 | API wallets | `api-wallet create/approve/list/revoke` | [features/api-wallets](../features/api-wallets.md) |
 | Subaccounts | `subaccount list/create/transfer/spot-transfer` | [features/subaccounts](../features/subaccounts.md) |
-| Orders | `orders create/scale/batch-create/tpsl/cancel/cancel-all/modify/twap-create/twap-cancel/schedule-cancel/open/status/history` | [features/orders](../features/orders.md) |
+| Orders | `orders create/scale/batch-create/tpsl/trailing-stop/cancel/cancel-all/modify/twap-create/twap-cancel/schedule-cancel/open/status/history` | [features/orders](../features/orders.md) |
 | Positions | `positions list/leverage/isolated-margin` | (under [features/orders](../features/orders.md)) |
 | Transfers | `transfer *` | [features/transfers](../features/transfers.md) |
 | Wallets | `wallet create/import/import-mnemonic/list/show/address/rename/export/delete` | [systems/signing-and-wallets](../systems/signing-and-wallets.md) |

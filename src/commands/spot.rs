@@ -120,6 +120,10 @@ impl TableData for SpotMarketsOutput {
     fn to_json_value(&self) -> serde_json::Value {
         serde_json::to_value(&self.markets).unwrap_or_else(|_| serde_json::json!([]))
     }
+
+    fn empty_message(&self) -> Option<&str> {
+        Some("No spot markets.")
+    }
 }
 
 /// Output wrapper for a single spot market.
