@@ -10,6 +10,9 @@ use crate::errors::CliError;
 use crate::signing::SelectedSigner;
 pub use crate::signing::SignerSource;
 
+/// Environment variable that supplies the `--keystore` password without argv exposure.
+pub const KEYSTORE_PASSWORD_ENV: &str = "HYPERLIQUID_KEYSTORE_PASSWORD";
+
 #[derive(Debug, Clone)]
 pub struct ResolvedSigner {
     selected_signer: SelectedSigner,
@@ -108,9 +111,16 @@ pub fn resolve_signer_with_account_and_ows(
     }
 
     if let Some(path) = keystore_path {
-        let password = keystore_password.ok_or_else(|| {
-            CliError::InvalidAuth("keystore password is required with --keystore".to_string())
-        })?;
+        let env_password = std::env::var(KEYSTORE_PASSWORD_ENV)
+            .ok()
+            .filter(|value| !value.is_empty());
+        let password = keystore_password
+            .or(env_password.as_deref())
+            .ok_or_else(|| {
+                CliError::InvalidAuth(format!(
+                    "keystore password is required with --keystore; set {KEYSTORE_PASSWORD_ENV} or pass --keystore-password"
+                ))
+            })?;
         return Ok(resolve_keystore_signer(path, password)?);
     }
 
@@ -170,7 +180,7 @@ pub fn resolve_stored_account_signer(selector: &str) -> Result<ResolvedSigner, a
 pub fn resolve_stored_default_signer() -> Result<ResolvedSigner, anyhow::Error> {
     // Try OWS default wallet first.
     let vault_path = crate::ows::ows_vault_path();
-    let config = crate::config::load_config().ok().flatten();
+    let config = crate::config::load_config()?;
     let default_wallet_id = config.as_ref().and_then(|c| c.default_wallet_id.as_deref());
     match crate::ows::resolve_default_ows_wallet(default_wallet_id, vault_path.as_deref()) {
         Ok(wallet) => {
