@@ -12,14 +12,13 @@ use serde::Serialize;
 use serde_json::{Map, Number, Value};
 use strsim::levenshtein;
 
+use crate::assets::asset_id::{
+    self, AssetIdLayout, MAX_OUTCOME_SIDE, outcome_coin, outcome_token, split_outcome_encoding,
+};
+use crate::assets::{AssetResolver, Market};
 use crate::command_context::CommandContext;
-use crate::commands::{AssetResolver, ResolvedAsset};
+use crate::commands::outcomes::parse_positive_usize;
 use crate::output::TableData;
-
-const SPOT_ASSET_ID_OFFSET: u64 = 10_000;
-const HIP3_ASSET_ID_OFFSET: u64 = 100_000;
-const OUTCOME_ASSET_ID_OFFSET: u64 = 100_000_000;
-const HIP3_DEX_SLOT_SIZE: u64 = 10_000;
 
 #[derive(Args, Debug, Clone)]
 pub struct AssetDecodeArgs {
@@ -412,66 +411,46 @@ pub async fn search_query(
 
 #[must_use]
 pub fn decode_asset_id(asset_id: u64, network: &str) -> DecodedAssetId {
-    if asset_id >= OUTCOME_ASSET_ID_OFFSET {
-        decode_outcome_asset_id(asset_id, network)
-    } else if asset_id >= HIP3_ASSET_ID_OFFSET {
-        decode_hip3_asset_id(asset_id, network)
-    } else if asset_id >= SPOT_ASSET_ID_OFFSET {
-        decode_spot_asset_id(asset_id, network)
-    } else {
-        decode_default_perp_asset_id(asset_id, network)
+    match asset_id::classify(asset_id) {
+        AssetIdLayout::Outcome { encoding } => decode_outcome_asset_id(asset_id, encoding, network),
+        AssetIdLayout::Hip3Perp { dex_slot, index } => {
+            let mut decoded = DecodedAssetId::new(asset_id, AssetIdKind::Hip3Perp, network);
+            decoded.dex_slot = Some(dex_slot);
+            decoded.perp_index = Some(index);
+            decoded.market_index = Some(index);
+            decoded
+        }
+        AssetIdLayout::Spot { spot_index } => {
+            let mut decoded = DecodedAssetId::new(asset_id, AssetIdKind::Spot, network);
+            decoded.spot_index = Some(spot_index);
+            decoded.market_index = Some(spot_index);
+            decoded
+        }
+        AssetIdLayout::Perp { index } => {
+            let mut decoded = DecodedAssetId::new(asset_id, AssetIdKind::Perp, network);
+            decoded.perp_index = Some(index);
+            decoded.market_index = Some(index);
+            decoded
+        }
     }
 }
 
-fn decode_default_perp_asset_id(asset_id: u64, network: &str) -> DecodedAssetId {
-    let mut decoded = DecodedAssetId::new(asset_id, AssetIdKind::Perp, network);
-    decoded.perp_index = Some(asset_id);
-    decoded.market_index = Some(asset_id);
-    decoded
-}
-
-fn decode_spot_asset_id(asset_id: u64, network: &str) -> DecodedAssetId {
-    let mut decoded = DecodedAssetId::new(asset_id, AssetIdKind::Spot, network);
-    let spot_index = asset_id - SPOT_ASSET_ID_OFFSET;
-    decoded.spot_index = Some(spot_index);
-    decoded.market_index = Some(spot_index);
-    decoded
-}
-
-fn decode_hip3_asset_id(asset_id: u64, network: &str) -> DecodedAssetId {
-    let mut decoded = DecodedAssetId::new(asset_id, AssetIdKind::Hip3Perp, network);
-    let encoded = asset_id - HIP3_ASSET_ID_OFFSET;
-    decoded.dex_slot = Some(encoded / HIP3_DEX_SLOT_SIZE);
-    decoded.perp_index = Some(encoded % HIP3_DEX_SLOT_SIZE);
-    decoded.market_index = decoded.perp_index;
-    decoded
-}
-
-fn decode_outcome_asset_id(asset_id: u64, network: &str) -> DecodedAssetId {
+fn decode_outcome_asset_id(asset_id: u64, encoding: u64, network: &str) -> DecodedAssetId {
     let mut decoded = DecodedAssetId::new(asset_id, AssetIdKind::Outcome, network);
-    let encoding = asset_id - OUTCOME_ASSET_ID_OFFSET;
-    let outcome = encoding / 10;
-    let side = encoding % 10;
+    let (outcome, side) = split_outcome_encoding(encoding);
     decoded.encoding = Some(encoding);
     decoded.outcome = Some(outcome);
     decoded.side = Some(side);
-    decoded.coin = Some(format!("#{encoding}"));
-    decoded.token = Some(format!("+{encoding}"));
+    decoded.coin = Some(outcome_coin(encoding));
+    decoded.token = Some(outcome_token(encoding));
 
-    if side > 1 {
+    if side > MAX_OUTCOME_SIDE {
         decoded.lookup_status = LookupStatus::InvalidId;
         decoded.cli_input = None;
         decoded.reason = Some("only binary outcome sides 0 and 1 are supported".to_string());
     } else {
         decoded.cli_input = decoded.coin.clone();
-        decoded.side_name = Some(
-            match side {
-                0 => "Yes",
-                1 => "No",
-                _ => unreachable!("side was already checked"),
-            }
-            .to_string(),
-        );
+        decoded.side_name = Some(if side == 0 { "Yes" } else { "No" }.to_string());
     }
 
     decoded
@@ -486,9 +465,7 @@ async fn search_assets(
 ) -> Vec<DecodedAssetId> {
     let mut candidates = Vec::new();
 
-    let resolver = crate::commands::orders::load_perp_resolver_from_api_base(api_base_url)
-        .await
-        .ok();
+    let resolver = AssetResolver::load_raw(api_base_url).await.ok();
     if let Some(resolver) = resolver.as_ref() {
         candidates.extend(search_resolver_assets(resolver, network));
     }
@@ -629,9 +606,7 @@ fn normalize_search_text(raw: &str) -> String {
 }
 
 async fn enrich_from_resolver(api_base_url: &str, decoded: &mut DecodedAssetId) {
-    let Ok(resolver) =
-        crate::commands::orders::load_perp_resolver_from_api_base(api_base_url).await
-    else {
+    let Ok(resolver) = AssetResolver::load_raw(api_base_url).await else {
         return;
     };
     enrich_from_loaded_resolver(&resolver, decoded);
@@ -643,41 +618,30 @@ pub fn enrich_from_loaded_resolver(resolver: &AssetResolver, decoded: &mut Decod
     };
 
     let resolved = match decoded.kind {
-        AssetIdKind::Perp | AssetIdKind::Hip3Perp => resolver.perp_by_protocol_asset_id(asset_id),
-        AssetIdKind::Spot => resolver.spot_by_protocol_asset_id(asset_id),
+        AssetIdKind::Perp | AssetIdKind::Hip3Perp => resolver
+            .perp_by_protocol_asset_id(asset_id)
+            .map(Market::Perp),
+        AssetIdKind::Spot => resolver
+            .spot_by_protocol_asset_id(asset_id)
+            .map(Market::Spot),
         AssetIdKind::Outcome => None,
     };
 
     match resolved {
-        Some(ResolvedAsset::Perp {
-            name,
-            index: _,
-            dex,
-            sz_decimals: _,
-            collateral: _,
-        }) => {
+        Some(Market::Perp(perp)) => {
             decoded.lookup_status = LookupStatus::MetadataFound;
-            decoded.symbol = Some(name.clone());
-            decoded.dex = dex.clone();
-            decoded.cli_input = Some(match dex {
-                Some(dex) => format!("{dex}:{name}"),
-                None => name,
-            });
+            decoded.cli_input = Some(perp.display_name());
+            decoded.symbol = Some(perp.name);
+            decoded.dex = perp.dex;
         }
-        Some(ResolvedAsset::Spot {
-            symbol,
-            index: _,
-            base,
-            quote,
-            base_sz_decimals: _,
-        }) => {
+        Some(Market::Spot(spot)) => {
             decoded.lookup_status = LookupStatus::MetadataFound;
-            decoded.cli_input = Some(symbol.clone());
-            decoded.symbol = Some(symbol);
-            decoded.base = Some(base);
-            decoded.quote = Some(quote);
+            decoded.cli_input = Some(spot.symbol.clone());
+            decoded.symbol = Some(spot.symbol);
+            decoded.base = Some(spot.base);
+            decoded.quote = Some(spot.quote);
         }
-        None => {}
+        Some(Market::Outcome(_)) | None => {}
     }
 }
 
@@ -732,6 +696,20 @@ struct OutcomeDescriptionParts {
     period: Option<String>,
 }
 
+impl OutcomeDescriptionParts {
+    /// `(underlying, target_price, expiry)` of a fully described price-binary market.
+    fn price_binary(&self) -> Option<(&str, &str, &str)> {
+        self.condition_class
+            .as_deref()
+            .filter(|class| class.eq_ignore_ascii_case("priceBinary"))?;
+        Some((
+            self.underlying.as_deref()?,
+            self.target_price.as_deref()?,
+            self.expiry.as_deref()?,
+        ))
+    }
+}
+
 fn parse_outcome_description(description: &str) -> OutcomeDescriptionParts {
     let mut parts = OutcomeDescriptionParts::default();
 
@@ -759,13 +737,7 @@ fn parse_outcome_description(description: &str) -> OutcomeDescriptionParts {
 }
 
 fn outcome_condition_summary(parts: &OutcomeDescriptionParts) -> Option<String> {
-    if is_price_binary(parts)
-        && let (Some(underlying), Some(target_price), Some(expiry)) = (
-            parts.underlying.as_deref(),
-            parts.target_price.as_deref(),
-            parts.expiry.as_deref(),
-        )
-    {
+    if let Some((underlying, target_price, expiry)) = parts.price_binary() {
         let expiry = format_expiry_display(expiry).unwrap_or_else(|| expiry.to_string());
         return Some(format!("{underlying} above {target_price} at {expiry}"));
     }
@@ -795,13 +767,7 @@ fn outcome_market_title(
     side_name: &str,
     fallback_name: &str,
 ) -> Option<String> {
-    if is_price_binary(parts)
-        && let (Some(underlying), Some(target_price), Some(expiry)) = (
-            parts.underlying.as_deref(),
-            parts.target_price.as_deref(),
-            parts.expiry.as_deref(),
-        )
-    {
+    if let Some((underlying, target_price, expiry)) = parts.price_binary() {
         let expiry = format_expiry_display(expiry).unwrap_or_else(|| expiry.to_string());
         return Some(format!(
             "{underlying} above {target_price} {side_name} {expiry}"
@@ -812,30 +778,14 @@ fn outcome_market_title(
 }
 
 fn outcome_slug(parts: &OutcomeDescriptionParts, side_name: &str) -> Option<String> {
-    if is_price_binary(parts)
-        && let (Some(underlying), Some(target_price), Some(expiry)) = (
-            parts.underlying.as_deref(),
-            parts.target_price.as_deref(),
-            parts.expiry.as_deref(),
-        )
-        && let Some(expiry_slug) = format_expiry_slug(expiry)
-    {
-        return Some(format!(
-            "{}-above-{}-{}-{expiry_slug}",
-            slug_token(underlying),
-            slug_token(target_price),
-            slug_token(side_name)
-        ));
-    }
-
-    None
-}
-
-fn is_price_binary(parts: &OutcomeDescriptionParts) -> bool {
-    parts
-        .condition_class
-        .as_deref()
-        .is_some_and(|condition_class| condition_class.eq_ignore_ascii_case("priceBinary"))
+    let (underlying, target_price, expiry) = parts.price_binary()?;
+    let expiry_slug = format_expiry_slug(expiry)?;
+    Some(format!(
+        "{}-above-{}-{}-{expiry_slug}",
+        slug_token(underlying),
+        slug_token(target_price),
+        slug_token(side_name)
+    ))
 }
 
 fn format_expiry_display(raw: &str) -> Option<String> {
@@ -909,16 +859,6 @@ pub fn parse_asset_id(raw: &str) -> Result<u64, String> {
         .map_err(|err| format!("invalid asset id: {err}"))
 }
 
-fn parse_positive_usize(raw: &str) -> Result<usize, String> {
-    let value = raw
-        .parse::<usize>()
-        .map_err(|err| format!("invalid positive integer: {err}"))?;
-    if value == 0 {
-        return Err("value must be greater than zero".to_string());
-    }
-    Ok(value)
-}
-
 fn insert_str(object: &mut Map<String, Value>, key: &str, value: &str) {
     object.insert(key.to_string(), Value::String(value.to_string()));
 }
@@ -973,7 +913,8 @@ fn humanize_field(field: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::commands::{AssetMetadata, PerpAsset, SpotAsset};
+    use crate::assets::AssetMetadata;
+    use crate::assets::test_support::{hip3_perp, perp, spot};
 
     #[test]
     fn decodes_protocol_asset_id_ranges() {
@@ -1045,11 +986,8 @@ mod tests {
     #[test]
     fn enriches_assets_from_loaded_metadata() {
         let resolver = AssetResolver::new(AssetMetadata::from_assets(
-            vec![
-                PerpAsset::default_dex("BTC", 0),
-                PerpAsset::hip3("dex", "TOKEN", 110_000),
-            ],
-            vec![SpotAsset::new("PURR/USDC", 10_000, "PURR", "USDC")],
+            vec![perp("BTC", 0), hip3_perp("dex", "TOKEN", 110_000)],
+            vec![spot("PURR/USDC", 10_000, "PURR", "USDC")],
         ));
 
         let mut perp = decode_asset_id(0, "mainnet");

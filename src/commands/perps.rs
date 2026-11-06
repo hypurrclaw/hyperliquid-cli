@@ -9,8 +9,12 @@ use hypersdk::hypercore::{HttpClient, PerpMarket};
 use serde::Serialize;
 use std::time::{Duration, Instant};
 
+use crate::assets::{
+    AssetQuery, AssetResolver, find_perp_dex, load_hip3_market, parse_asset_query,
+    qualify_dex_asset,
+};
 use crate::command_context::CommandContext;
-use crate::commands::{AssetQuery, AssetResolver, ResolvedAsset, map_api_error, parse_asset_query};
+use crate::commands::map_api_error;
 use crate::errors::CliError;
 use crate::output::{OutputFormat, TableData};
 
@@ -169,7 +173,7 @@ pub async fn list_query(
 ) -> Result<PerpMarketsResult, anyhow::Error> {
     let start = Instant::now();
     let markets = if let Some(dex_name) = args.dex.as_deref() {
-        let dex = find_dex(client, dex_name).await?;
+        let dex = find_perp_dex(client, dex_name).await?;
         client.perps_from(dex).await.map_err(map_api_error)?
     } else {
         client.perps().await.map_err(map_api_error)?
@@ -234,47 +238,21 @@ pub async fn get_query(
         token,
     } = parse_asset_query(&query)
     {
-        let dex = find_dex(client, &dex_name).await?;
-        let prefixed = format!("{dex_name}:");
-        client
-            .perps_from(dex)
-            .await
-            .map_err(map_api_error)?
-            .into_iter()
-            .find(|market| {
-                let display_token = market.name.strip_prefix(&prefixed).unwrap_or(&market.name);
-                display_token.eq_ignore_ascii_case(&token)
-                    || market.name.eq_ignore_ascii_case(&token)
-            })
-            .map(PerpMarketRow::from)
+        load_hip3_market(client, &dex_name, &token)
+            .await?
+            .map(|(_, market)| PerpMarketRow::from(market))
             .ok_or_else(|| CliError::AssetNotFoundNoSuggestion {
                 asset: query.clone(),
             })?
     } else {
-        let resolved = resolver.resolve_perp(&query)?;
-        let (resolved_name, resolved_index, resolved_dex) = match resolved {
-            ResolvedAsset::Perp {
-                name, index, dex, ..
-            } => (name, index, dex),
-            ResolvedAsset::Spot { .. } => {
-                return Err(CliError::AssetNotFoundNoSuggestion {
-                    asset: coin.to_string(),
-                }
-                .into());
-            }
-        };
-
-        let markets = if let Some(dex_name) = resolved_dex.as_deref() {
-            let dex = find_dex(client, dex_name).await?;
-            client.perps_from(dex).await.map_err(map_api_error)?
-        } else {
-            client.perps().await.map_err(map_api_error)?
-        };
-
-        markets
+        let resolved = resolver.resolve_perp(&query).map_err(CliError::from)?;
+        client
+            .perps()
+            .await
+            .map_err(map_api_error)?
             .into_iter()
             .find(|market| {
-                market.index == resolved_index || market.name.eq_ignore_ascii_case(&resolved_name)
+                market.index == resolved.index || market.name.eq_ignore_ascii_case(&resolved.name)
             })
             .map(PerpMarketRow::from)
             .ok_or_else(|| CliError::AssetNotFoundNoSuggestion {
@@ -286,26 +264,6 @@ pub async fn get_query(
         output: PerpMarketDetailsOutput::new(market),
         elapsed: start.elapsed(),
     })
-}
-
-async fn find_dex(
-    client: &HttpClient,
-    dex_name: &str,
-) -> Result<hypersdk::hypercore::Dex, CliError> {
-    client
-        .perp_dexes()
-        .await
-        .map_err(map_api_error)?
-        .into_iter()
-        .find(|dex| dex.name().eq_ignore_ascii_case(dex_name))
-        .ok_or_else(|| CliError::Unsupported(format!("Unknown DEX: {dex_name}")))
-}
-
-fn qualify_dex_asset(dex: Option<&str>, coin: &str) -> String {
-    match dex {
-        Some(dex) if !coin.contains(':') => format!("{dex}:{coin}"),
-        _ => coin.to_string(),
-    }
 }
 
 #[cfg(test)]

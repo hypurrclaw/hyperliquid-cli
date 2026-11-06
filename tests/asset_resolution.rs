@@ -1,21 +1,41 @@
 use std::time::{Duration, Instant};
 
-use hyperliquid_cli::commands::{
-    AssetMetadata, AssetQuery, AssetResolver, CachedMetadata, PerpAsset, ResolvedAsset, SpotAsset,
+use hyperliquid_cli::assets::{
+    AssetMetadata, AssetQuery, AssetResolver, CachedMetadata, PerpAsset, SpotAsset,
     parse_asset_query, suggestions,
 };
 use hyperliquid_cli::errors::CliError;
 
+fn perp(name: &str, index: usize, dex: Option<&str>) -> PerpAsset {
+    PerpAsset {
+        name: name.to_string(),
+        index,
+        dex: dex.map(ToString::to_string),
+        sz_decimals: 8,
+        collateral: "USDC".to_string(),
+    }
+}
+
+fn purr_usdc() -> SpotAsset {
+    SpotAsset {
+        symbol: "PURR/USDC".to_string(),
+        index: 10_000,
+        base: "PURR".to_string(),
+        quote: "USDC".to_string(),
+        base_sz_decimals: 8,
+    }
+}
+
 fn fixture_metadata() -> AssetMetadata {
     AssetMetadata::from_assets(
         vec![
-            PerpAsset::default_dex("BTC", 0),
-            PerpAsset::default_dex("ETH", 1),
-            PerpAsset::default_dex("BLUR", 2),
-            PerpAsset::default_dex("BONK", 3),
-            PerpAsset::hip3("dex", "TOKEN", 110_000),
+            perp("BTC", 0, None),
+            perp("ETH", 1, None),
+            perp("BLUR", 2, None),
+            perp("BONK", 3, None),
+            perp("TOKEN", 110_000, Some("dex")),
         ],
-        vec![SpotAsset::new("PURR/USDC", 10_000, "PURR", "USDC")],
+        vec![purr_usdc()],
     )
 }
 
@@ -62,42 +82,15 @@ fn parses_outcome_notation_format() {
 fn resolves_btc_and_eth_to_perp_asset_indices() {
     let resolver = AssetResolver::new(fixture_metadata());
 
-    assert_eq!(
-        resolver.resolve_perp("BTC").unwrap(),
-        ResolvedAsset::Perp {
-            name: "BTC".to_string(),
-            index: 0,
-            dex: None,
-            sz_decimals: 8,
-            collateral: "USDC".to_string()
-        }
-    );
-    assert_eq!(
-        resolver.resolve_perp("eth").unwrap(),
-        ResolvedAsset::Perp {
-            name: "ETH".to_string(),
-            index: 1,
-            dex: None,
-            sz_decimals: 8,
-            collateral: "USDC".to_string()
-        }
-    );
+    assert_eq!(resolver.resolve_perp("BTC").unwrap(), perp("BTC", 0, None));
+    assert_eq!(resolver.resolve_perp("eth").unwrap(), perp("ETH", 1, None));
 }
 
 #[test]
 fn resolves_purr_usdc_to_spot_asset_index() {
     let resolver = AssetResolver::new(fixture_metadata());
 
-    assert_eq!(
-        resolver.resolve_spot("purr/usdc").unwrap(),
-        ResolvedAsset::Spot {
-            symbol: "PURR/USDC".to_string(),
-            index: 10_000,
-            base: "PURR".to_string(),
-            quote: "USDC".to_string(),
-            base_sz_decimals: 8
-        }
-    );
+    assert_eq!(resolver.resolve_spot("purr/usdc").unwrap(), purr_usdc());
 }
 
 #[test]
@@ -106,13 +99,7 @@ fn resolves_dex_token_to_hip3_asset_index() {
 
     assert_eq!(
         resolver.resolve_perp("dex:TOKEN").unwrap(),
-        ResolvedAsset::Perp {
-            name: "TOKEN".to_string(),
-            index: 110_000,
-            dex: Some("dex".to_string()),
-            sz_decimals: 8,
-            collateral: "USDC".to_string()
-        }
+        perp("TOKEN", 110_000, Some("dex"))
     );
 }
 
@@ -143,7 +130,7 @@ fn fuzzy_matching_ignores_repeated_no_signal_inputs() {
 #[test]
 fn invalid_asset_with_close_matches_exits_13() {
     let resolver = AssetResolver::new(fixture_metadata());
-    let err = resolver.resolve_perp("BT").unwrap_err();
+    let err = CliError::from(resolver.resolve_perp("BT").unwrap_err());
 
     assert_eq!(err.exit_code(), 13);
     match err {
@@ -158,7 +145,7 @@ fn invalid_asset_with_close_matches_exits_13() {
 #[test]
 fn invalid_asset_without_close_matches_exits_13_without_suggestions() {
     let resolver = AssetResolver::new(fixture_metadata());
-    let err = resolver.resolve_perp("ZZZZZZZZ").unwrap_err();
+    let err = CliError::from(resolver.resolve_perp("ZZZZZZZZ").unwrap_err());
 
     assert_eq!(err.exit_code(), 13);
     assert!(matches!(err, CliError::AssetNotFoundNoSuggestion { .. }));
@@ -167,7 +154,7 @@ fn invalid_asset_without_close_matches_exits_13_without_suggestions() {
 #[test]
 fn outcome_notation_reports_outcome_aware_command_guidance_for_generic_resolver() {
     let resolver = AssetResolver::new(fixture_metadata());
-    let err = resolver.resolve("#10").unwrap_err();
+    let err = CliError::from(resolver.resolve_perp("#10").unwrap_err());
 
     assert_eq!(err.exit_code(), 13);
     assert!(err.to_string().contains("outcome-aware command path"));

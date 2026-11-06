@@ -3,6 +3,7 @@ use super::validation::{
     reject_spot_trigger_order, require_decimal,
 };
 use super::*;
+use crate::assets::PerpAsset;
 
 pub struct OrderDryRunPlan {
     command: &'static str,
@@ -167,54 +168,38 @@ pub(crate) async fn prepare_order(
     let query = qualify_dex_asset(args.dex.as_deref(), &args.coin);
     let asset = resolve_tradable_asset(client, resolver, &query, args).await?;
     let (coin, index, sz_decimals, mid_lookup, price_tick, asset_kind, amount_unit) = match asset {
-        TradableAsset::Perp {
-            name,
-            index,
-            dex,
-            sz_decimals,
-            collateral,
-        } => {
-            let coin = dex
-                .as_ref()
-                .map(|dex| format!("{dex}:{name}"))
-                .unwrap_or_else(|| name.clone());
+        Market::Perp(perp) => {
+            let coin = perp.display_name();
             (
                 coin.clone(),
-                index,
-                sz_decimals,
+                perp.index,
+                perp.sz_decimals,
                 MidLookup {
                     coin,
-                    dex,
+                    dex: perp.dex,
                     original_coin: query.clone(),
                 },
-                PriceTick::for_perp(i64::from(sz_decimals)),
+                PriceTick::for_perp(i64::from(perp.sz_decimals)),
                 TradableAssetKind::Perp,
-                collateral,
+                perp.collateral,
             )
         }
-        TradableAsset::Spot {
-            symbol,
-            index,
-            base_sz_decimals,
-            quote,
-        } => (
-            symbol,
-            index,
-            base_sz_decimals,
+        Market::Spot(spot) => (
+            spot.symbol,
+            spot.index,
+            spot.base_sz_decimals,
             MidLookup {
-                coin: spot_mid_key(index),
+                coin: spot_coin_key(spot.index),
                 dex: None,
                 original_coin: args.coin.clone(),
             },
-            PriceTick::for_spot(i64::from(base_sz_decimals)),
+            PriceTick::for_spot(i64::from(spot.base_sz_decimals)),
             TradableAssetKind::Spot,
-            quote,
+            spot.quote,
         ),
-        TradableAsset::Outcome {
-            notation, asset_id, ..
-        } => (
-            notation,
-            asset_id,
+        Market::Outcome(outcome) => (
+            outcome.notation().to_string(),
+            outcome.asset_index()?,
             0,
             MidLookup {
                 coin: args.coin.clone(),
@@ -558,7 +543,7 @@ pub(crate) async fn prepare_position_tpsl_batch(
     args: &TpslArgs,
 ) -> Result<PreparedTpslBatch, CliError> {
     validate_tpsl_args(args)?;
-    let resolved = resolve_tpsl_perp(resolver, args.dex.as_deref(), &args.coin)?;
+    let resolved = resolve_dex_perp(resolver, args.dex.as_deref(), &args.coin)?;
     let (side, size, entry) = match (args.side, args.size) {
         (Some(side), Some(size)) => {
             let entry =
@@ -603,7 +588,7 @@ pub(crate) async fn prepare_position_tpsl_batch(
 
     Ok(build_position_tpsl_batch(
         TpslGroupingArg::PositionTpsl,
-        resolved.coin,
+        resolved.display_name(),
         resolved.index,
         resolved.collateral,
         side,
@@ -810,45 +795,12 @@ pub(crate) fn validate_tpsl_price_ordering(
     }
 }
 
-#[derive(Debug, Clone)]
-pub(crate) struct ResolvedTpslPerp {
-    pub(crate) coin: String,
-    pub(crate) name: String,
-    pub(crate) index: usize,
-    pub(crate) dex: Option<String>,
-    pub(crate) collateral: String,
-}
-
-pub(crate) fn resolve_tpsl_perp(
+fn resolve_dex_perp(
     resolver: &AssetResolver,
     dex: Option<&str>,
     coin: &str,
-) -> Result<ResolvedTpslPerp, CliError> {
-    let query = qualify_dex_asset(dex, coin);
-    match resolver.resolve_perp(&query)? {
-        ResolvedAsset::Perp {
-            name,
-            index,
-            dex,
-            collateral,
-            ..
-        } => {
-            let display = dex
-                .as_ref()
-                .map(|dex| format!("{dex}:{name}"))
-                .unwrap_or_else(|| name.clone());
-            Ok(ResolvedTpslPerp {
-                coin: display,
-                name,
-                index,
-                dex,
-                collateral,
-            })
-        }
-        _ => Err(CliError::Unsupported(
-            "TP/SL grouping currently supports perpetual markets only".to_string(),
-        )),
-    }
+) -> Result<PerpAsset, CliError> {
+    Ok(resolver.resolve_perp(&qualify_dex_asset(dex, coin))?)
 }
 
 /// Build the dry-run argument object from the same prepared order used for submission.
@@ -1226,7 +1178,7 @@ pub(crate) fn prepare_twap_create_plan(
     args: &TwapCreateArgs,
 ) -> Result<TwapCreatePlan, CliError> {
     validate_twap_create_args(args)?;
-    let resolved = resolve_tpsl_perp(resolver, args.dex.as_deref(), &args.coin)?;
+    let resolved = resolve_dex_perp(resolver, args.dex.as_deref(), &args.coin)?;
     let minutes = duration_seconds_to_minutes(args.duration);
     Ok(TwapCreatePlan {
         action: TwapExchangeAction::TwapOrder {
@@ -1239,7 +1191,7 @@ pub(crate) fn prepare_twap_create_plan(
                 t: false,
             },
         },
-        coin: resolved.coin,
+        coin: resolved.display_name(),
         asset: resolved.index,
         side: args.side.to_string(),
         size: args.size,
@@ -1252,13 +1204,13 @@ pub(crate) fn prepare_twap_cancel_plan(
     resolver: &AssetResolver,
     args: &TwapCancelArgs,
 ) -> Result<TwapCancelPlan, CliError> {
-    let resolved = resolve_tpsl_perp(resolver, args.dex.as_deref(), &args.coin)?;
+    let resolved = resolve_dex_perp(resolver, args.dex.as_deref(), &args.coin)?;
     Ok(TwapCancelPlan {
         action: TwapExchangeAction::TwapCancel {
             a: resolved.index,
             t: args.twap_id,
         },
-        coin: resolved.coin,
+        coin: resolved.display_name(),
         twap_id: args.twap_id,
     })
 }
@@ -1343,7 +1295,7 @@ fn prepared_order_dry_run_args(prepared: &PreparedOrder, args: &CreateArgs) -> s
     });
     if prepared.asset_kind == TradableAssetKind::Outcome
         && let Some(object) = value.as_object_mut()
-        && let Ok(notation) = crate::commands::outcomes::parse_outcome_notation(&args.coin)
+        && let Ok(notation) = crate::assets::asset_id::parse_outcome_notation(&args.coin)
     {
         object.insert("outcome".to_string(), serde_json::json!({
             "outcome": notation.outcome,
@@ -1423,7 +1375,7 @@ pub fn tpsl_dry_run_preview(
     args: &TpslArgs,
 ) -> Result<serde_json::Value, CliError> {
     validate_tpsl_args(args)?;
-    let resolved = resolve_tpsl_perp(resolver, args.dex.as_deref(), &args.coin)?;
+    let resolved = resolve_dex_perp(resolver, args.dex.as_deref(), &args.coin)?;
     let (absolute_tp, absolute_sl) =
         absolute_trigger_prices(args.take_profit.as_ref(), args.stop_loss.as_ref());
     let inferred_side = args
@@ -1437,7 +1389,7 @@ pub fn tpsl_dry_run_preview(
         "stop_loss": args.stop_loss.as_ref().map(TriggerPriceSpec::display),
         "grouping": args.grouping.to_string(),
         "grouping_wire": args.grouping.wire_value(),
-        "resolved_asset": resolved.coin,
+        "resolved_asset": resolved.display_name(),
         "side": inferred_side.map(|side| side.to_string()),
         "size": args.size.map(|value| value.to_string()),
         "size_mode": if args.size.is_some() { "fixed" } else { "current_position" },
@@ -1466,7 +1418,7 @@ pub fn tpsl_dry_run_preview(
             let parsed_cloid = args.cloid.as_deref().map(parse_cloid).transpose()?;
             let prepared = build_position_tpsl_batch(
                 TpslGroupingArg::PositionTpsl,
-                resolved.coin,
+                resolved.display_name(),
                 resolved.index,
                 resolved.collateral,
                 side,

@@ -3,12 +3,13 @@
 use std::time::{Duration, Instant};
 
 use hypersdk::Decimal;
-use hypersdk::hypercore::{HttpClient, SpotMarket};
+use hypersdk::hypercore::HttpClient;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+use crate::assets::{SpotListing, load_spot_markets, raw_info_base_url};
 use crate::command_context::CommandContext;
-use crate::commands::{RawSpotMarket, load_raw_spot_markets, map_api_error, raw_info_base_url};
+use crate::commands::map_api_error;
 use crate::errors::CliError;
 use crate::output::format::thousands;
 use crate::output::{OutputFormat, TableData};
@@ -22,20 +23,8 @@ pub struct MetaSpotRow {
     pub base_sz_decimals: i64,
 }
 
-impl From<SpotMarket> for MetaSpotRow {
-    fn from(market: SpotMarket) -> Self {
-        Self {
-            symbol: market.symbol(),
-            index: market.index,
-            base: market.base().name.clone(),
-            quote: market.quote().name.clone(),
-            base_sz_decimals: market.base().sz_decimals,
-        }
-    }
-}
-
-impl From<RawSpotMarket> for MetaSpotRow {
-    fn from(market: RawSpotMarket) -> Self {
+impl From<SpotListing> for MetaSpotRow {
+    fn from(market: SpotListing) -> Self {
         Self {
             symbol: market.symbol,
             index: market.index,
@@ -298,13 +287,11 @@ async fn fetch_raw_info<T: serde::de::DeserializeOwned>(
 }
 
 async fn load_spot_universe(client: &HttpClient) -> Result<Vec<MetaSpotRow>, CliError> {
-    match client.spot().await {
-        Ok(markets) => Ok(markets.into_iter().map(MetaSpotRow::from).collect()),
-        Err(spot_err) => load_raw_spot_markets(client)
-            .await
-            .map(|markets| markets.into_iter().map(MetaSpotRow::from).collect())
-            .map_err(|_| map_api_error(spot_err)),
-    }
+    Ok(load_spot_markets(client)
+        .await?
+        .into_iter()
+        .map(MetaSpotRow::from)
+        .collect())
 }
 
 fn asset_name_from_value(value: &Value) -> Option<String> {

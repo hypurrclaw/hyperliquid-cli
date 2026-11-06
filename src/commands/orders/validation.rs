@@ -139,11 +139,8 @@ pub fn validate_tpsl_args(args: &TpslArgs) -> Result<(), CliError> {
 }
 
 /// Validate asset-specific `orders create` constraints once metadata resolution is available.
-pub fn validate_create_resolved_asset(
-    args: &CreateArgs,
-    asset: &ResolvedAsset,
-) -> Result<(), CliError> {
-    if matches!(asset, ResolvedAsset::Spot { .. }) {
+pub fn validate_create_resolved_asset(args: &CreateArgs, asset: &Market) -> Result<(), CliError> {
+    if matches!(asset, Market::Spot(_)) {
         reject_spot_buy_builder_fee(args)?;
         reject_spot_margin_mode(args.margin_mode)?;
         reject_spot_reduce_only(args)?;

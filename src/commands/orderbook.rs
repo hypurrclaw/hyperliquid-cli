@@ -19,8 +19,9 @@ use hypersdk::hypercore::{
 };
 use serde::Serialize;
 
+use crate::assets::{AssetResolver, Market};
 use crate::command_context::CommandContext;
-use crate::commands::{AssetResolver, ResolvedAsset, map_api_error};
+use crate::commands::{map_api_error, outcomes};
 use crate::errors::CliError;
 use crate::output::{OutputFormat, TableData};
 
@@ -759,17 +760,9 @@ pub(crate) fn spread_row_from_book(coin: &str, book: &L2Book) -> Result<SpreadRo
 
 fn resolve_book_coin(resolver: &AssetResolver, coin: &str) -> Result<String, CliError> {
     match resolver.resolve(coin)? {
-        ResolvedAsset::Perp { name, dex, .. } => Ok(match dex {
-            Some(dex) => format!("{dex}:{name}"),
-            None => name,
-        }),
-        ResolvedAsset::Spot {
-            symbol,
-            index,
-            base,
-            quote,
-            ..
-        } => Ok(book_coin_for_spot(&symbol, index, &base, &quote)),
+        Market::Perp(perp) => Ok(perp.display_name()),
+        Market::Spot(spot) => Ok(spot.info_coin()),
+        Market::Outcome(_) => Err(outcomes::unsupported_outcome_trading_error(coin)),
     }
 }
 
@@ -780,24 +773,8 @@ pub fn resolve_subscription_info_coin(
     resolve_book_coin(resolver, coin)
 }
 
-fn book_coin_for_spot(symbol: &str, index: usize, base: &str, quote: &str) -> String {
-    if base.eq_ignore_ascii_case("PURR") && quote.eq_ignore_ascii_case("USDC") && index == 10_000 {
-        symbol.to_string()
-    } else {
-        format!("@{}", index.saturating_sub(10_000))
-    }
-}
-
 fn resolve_perp_coin(resolver: &AssetResolver, coin: &str) -> Result<String, CliError> {
-    match resolver.resolve_perp(coin)? {
-        ResolvedAsset::Perp { name, dex, .. } => Ok(match dex {
-            Some(dex) => format!("{dex}:{name}"),
-            None => name,
-        }),
-        ResolvedAsset::Spot { .. } => Err(CliError::AssetNotFoundNoSuggestion {
-            asset: coin.to_string(),
-        }),
-    }
+    Ok(resolver.resolve_perp(coin)?.display_name())
 }
 
 async fn fetch_l2_book(chain: Chain, coin: &str) -> Result<L2Book, CliError> {
@@ -893,7 +870,8 @@ fn sorted_decimal_map(rows: &[MidRow]) -> BTreeMap<String, Decimal> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::commands::{AssetMetadata, PerpAsset, SpotAsset};
+    use crate::assets::AssetMetadata;
+    use crate::assets::test_support::{perp, spot};
     use rust_decimal::Decimal;
     use std::str::FromStr;
 
@@ -903,13 +881,10 @@ mod tests {
 
     fn fixture_resolver() -> AssetResolver {
         AssetResolver::new(AssetMetadata::from_assets(
+            vec![perp("BTC", 0), perp("ETH", 1)],
             vec![
-                PerpAsset::default_dex("BTC", 0),
-                PerpAsset::default_dex("ETH", 1),
-            ],
-            vec![
-                SpotAsset::new("PURR/USDC", 10_000, "PURR", "USDC"),
-                SpotAsset::new("HYPE/USDC", 11_035, "HYPE", "USDC"),
+                spot("PURR/USDC", 10_000, "PURR", "USDC"),
+                spot("HYPE/USDC", 11_035, "HYPE", "USDC"),
             ],
         ))
     }
@@ -1019,6 +994,16 @@ mod tests {
             }
             other => panic!("expected spot pair suggestion, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn book_resolution_rejects_outcome_notation_with_outcome_guidance() {
+        let resolver = fixture_resolver();
+        let err = resolve_book_coin(&resolver, "#10").unwrap_err();
+
+        assert_eq!(err.exit_code(), 13);
+        assert!(err.to_string().contains("outcome-aware command path"));
+        assert!(err.to_string().contains("outcomes get #10"));
     }
 
     #[test]

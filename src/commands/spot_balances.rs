@@ -2,7 +2,7 @@ use hypersdk::hypercore::HttpClient;
 use hypersdk::{Address, Decimal};
 use serde::{Deserialize, Serialize};
 
-use crate::commands::raw_info_base_url;
+use crate::assets::raw_info_base_url;
 use crate::errors::CliError;
 use crate::http_api::post_info_json;
 

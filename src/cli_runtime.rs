@@ -1026,7 +1026,7 @@ fn validate_cli_inputs(cli: &Cli) -> Result<(), errors::CliError> {
         Some(Commands::Outcomes { subcommand }) => match subcommand {
             OutcomeCommands::List(_) => {}
             OutcomeCommands::Get(args) => {
-                hyperliquid_cli::commands::outcomes::parse_outcome_notation(&args.notation)?;
+                hyperliquid_cli::assets::asset_id::parse_outcome_notation(&args.notation)?;
             }
         },
         Some(Commands::Account { subcommand }) => match subcommand {
@@ -1395,13 +1395,9 @@ fn validate_env_bound(name: &str) -> Result<(), errors::CliError> {
 }
 
 fn validate_asset_input(label: &str, value: &str) -> Result<(), errors::CliError> {
-    use hyperliquid_cli::commands::AssetQuery;
     use hyperliquid_cli::input_hardening::validate_resource_id;
 
-    if matches!(
-        hyperliquid_cli::commands::parse_asset_query(value),
-        AssetQuery::Outcome(_)
-    ) {
+    if matches!(parse_asset_query(value), AssetQuery::Outcome(_)) {
         return Ok(());
     }
     validate_resource_id(label, value)
@@ -2671,24 +2667,25 @@ async fn create_order(
             format,
         );
     }
-    let margin_validation_target = if !matches!(
-        hyperliquid_cli::commands::parse_asset_query(&args.coin),
-        hyperliquid_cli::commands::AssetQuery::Outcome(_)
-    ) {
-        let resolved = resolve_asset_or_load_hip3(&client, &resolver, &coin_query).await?;
-        hyperliquid_cli::commands::orders::validate_create_resolved_asset(args, &resolved)?;
-        match resolved {
-            hyperliquid_cli::commands::ResolvedAsset::Perp { name, dex, .. } => Some((name, dex)),
-            hyperliquid_cli::commands::ResolvedAsset::Spot { .. } => None,
-        }
-    } else if args.margin_mode.is_some() {
-        return Err(errors::CliError::Configuration(
-            "orders create --margin-mode is only supported for perpetual orders".to_string(),
-        )
-        .into());
-    } else {
-        None
-    };
+    let margin_validation_target =
+        if !matches!(parse_asset_query(&args.coin), AssetQuery::Outcome(_)) {
+            let resolved = resolver
+                .resolve_or_fetch(&client, &coin_query)
+                .await
+                .map_err(errors::CliError::from)?;
+            hyperliquid_cli::commands::orders::validate_create_resolved_asset(args, &resolved)?;
+            match resolved {
+                Market::Perp(perp) => Some((perp.name, perp.dex)),
+                Market::Spot(_) | Market::Outcome(_) => None,
+            }
+        } else if args.margin_mode.is_some() {
+            return Err(errors::CliError::Configuration(
+                "orders create --margin-mode is only supported for perpetual orders".to_string(),
+            )
+            .into());
+        } else {
+            None
+        };
     let resolved_signer = context.resolve_signer()?;
     if let Some((coin, dex)) = margin_validation_target {
         let margin_mode_user = vault_address.unwrap_or_else(|| resolved_signer.query_address());
@@ -2744,31 +2741,33 @@ async fn scale_orders(
         );
     }
     let coin_query = qualify_dex_asset(args.dex.as_deref(), &args.coin);
-    let margin_validation_target = if !matches!(
-        hyperliquid_cli::commands::parse_asset_query(&args.coin),
-        hyperliquid_cli::commands::AssetQuery::Outcome(_)
-    ) {
-        match resolve_asset_or_load_hip3(&client, &resolver, &coin_query).await? {
-            hyperliquid_cli::commands::ResolvedAsset::Perp { name, dex, .. } => Some((name, dex)),
-            hyperliquid_cli::commands::ResolvedAsset::Spot { .. } => {
-                if args.margin_mode.is_some() {
-                    return Err(errors::CliError::Configuration(
-                        "orders scale --margin-mode is only supported for perpetual orders"
-                            .to_string(),
-                    )
-                    .into());
+    let margin_validation_target =
+        if !matches!(parse_asset_query(&args.coin), AssetQuery::Outcome(_)) {
+            match resolver
+                .resolve_or_fetch(&client, &coin_query)
+                .await
+                .map_err(errors::CliError::from)?
+            {
+                Market::Perp(perp) => Some((perp.name, perp.dex)),
+                Market::Spot(_) | Market::Outcome(_) => {
+                    if args.margin_mode.is_some() {
+                        return Err(errors::CliError::Configuration(
+                            "orders scale --margin-mode is only supported for perpetual orders"
+                                .to_string(),
+                        )
+                        .into());
+                    }
+                    None
                 }
-                None
             }
-        }
-    } else if args.margin_mode.is_some() {
-        return Err(errors::CliError::Configuration(
-            "orders scale --margin-mode is only supported for perpetual orders".to_string(),
-        )
-        .into());
-    } else {
-        None
-    };
+        } else if args.margin_mode.is_some() {
+            return Err(errors::CliError::Configuration(
+                "orders scale --margin-mode is only supported for perpetual orders".to_string(),
+            )
+            .into());
+        } else {
+            None
+        };
     let resolved_signer = context.resolve_signer()?;
     if let Some((coin, dex)) = margin_validation_target {
         let margin_mode_user = vault_address.unwrap_or_else(|| resolved_signer.query_address());
@@ -2849,8 +2848,10 @@ async fn create_tpsl(
     let client = context.http_client();
     let resolver = load_trading_resolver(context).await?;
     let coin_query = qualify_dex_asset(args.dex.as_deref(), &args.coin);
-    let (resolver, resolved_tpsl_perp) =
-        resolver_with_loaded_hip3_perp(&client, resolver, &coin_query).await?;
+    let (resolver, resolved_tpsl_perp) = resolver
+        .with_resolved_perp(&client, &coin_query)
+        .await
+        .map_err(errors::CliError::from)?;
     let vault_address = resolve_optional_acting_account_target(args.on_behalf_of.as_deref())?;
     let vault_address_string = vault_address.map(|address| address.to_string());
     if dry_run {
@@ -2875,8 +2876,8 @@ async fn create_tpsl(
     validate_order_margin_mode(
         &client,
         margin_mode_user,
-        resolved_tpsl_perp.0.as_str(),
-        resolved_tpsl_perp.1.as_deref(),
+        resolved_tpsl_perp.name.as_str(),
+        resolved_tpsl_perp.dex.as_deref(),
         args.margin_mode,
     )
     .await?;
@@ -3059,8 +3060,10 @@ async fn create_twap(
     let client = context.http_client();
     let resolver = load_trading_resolver(context).await?;
     let coin_query = qualify_dex_asset(args.dex.as_deref(), &args.coin);
-    let (resolver, resolved_twap_perp) =
-        resolver_with_loaded_hip3_perp(&client, resolver, &coin_query).await?;
+    let (resolver, resolved_twap_perp) = resolver
+        .with_resolved_perp(&client, &coin_query)
+        .await
+        .map_err(errors::CliError::from)?;
     let dry_run_plan =
         hyperliquid_cli::commands::orders::twap_create_dry_run_plan(&resolver, args)?;
     let vault_address = resolve_optional_acting_account_target(args.on_behalf_of.as_deref())?;
@@ -3086,8 +3089,8 @@ async fn create_twap(
     validate_order_margin_mode(
         &client,
         margin_mode_user,
-        resolved_twap_perp.0.as_str(),
-        resolved_twap_perp.1.as_deref(),
+        resolved_twap_perp.name.as_str(),
+        resolved_twap_perp.dex.as_deref(),
         args.margin_mode,
     )
     .await?;
@@ -3114,7 +3117,10 @@ async fn trailing_stop_order(
     let client = context.http_client();
     let resolver = load_trading_resolver(context).await?;
     let coin_query = qualify_dex_asset(args.dex.as_deref(), &args.coin);
-    let (resolver, _) = resolver_with_loaded_hip3_perp(&client, resolver, &coin_query).await?;
+    let (resolver, _) = resolver
+        .with_resolved_perp(&client, &coin_query)
+        .await
+        .map_err(errors::CliError::from)?;
     let dry_run_plan =
         hyperliquid_cli::commands::orders::trailing_stop_dry_run_plan(&resolver, args)?;
     let vault_address = resolve_optional_acting_account_target(args.on_behalf_of.as_deref())?;
@@ -3158,7 +3164,10 @@ async fn cancel_twap(
     let client = context.http_client();
     let resolver = load_trading_resolver(context).await?;
     let coin_query = qualify_dex_asset(args.dex.as_deref(), &args.coin);
-    let (resolver, _) = resolver_with_loaded_hip3_perp(&client, resolver, &coin_query).await?;
+    let (resolver, _) = resolver
+        .with_resolved_perp(&client, &coin_query)
+        .await
+        .map_err(errors::CliError::from)?;
     let dry_run_plan =
         hyperliquid_cli::commands::orders::twap_cancel_dry_run_plan(&resolver, args)?;
     let vault_address = resolve_optional_acting_account_target(args.on_behalf_of.as_deref())?;
@@ -4173,12 +4182,7 @@ async fn referral_status(
 async fn load_trading_resolver(context: &AppContext) -> Result<AssetResolver, errors::CliError> {
     match load_asset_resolver(context).await {
         Ok(resolver) => Ok(resolver),
-        Err(_) => {
-            hyperliquid_cli::commands::orders::load_perp_resolver_from_api_base(
-                &context.api_base_url(),
-            )
-            .await
-        }
+        Err(_) => AssetResolver::load_raw(&context.api_base_url()).await,
     }
 }
 
@@ -4198,124 +4202,8 @@ fn unimplemented_command_error() -> anyhow::Error {
     .into()
 }
 
-async fn resolve_asset_or_load_hip3(
-    client: &hypersdk::hypercore::HttpClient,
-    resolver: &AssetResolver,
-    query: &str,
-) -> Result<hyperliquid_cli::commands::ResolvedAsset, errors::CliError> {
-    match resolver.resolve(query) {
-        Ok(resolved) => Ok(resolved),
-        Err(err) => match hyperliquid_cli::commands::parse_asset_query(query) {
-            hyperliquid_cli::commands::AssetQuery::Hip3 { dex, token } => {
-                match load_hip3_perp_asset(client, query, &dex, &token).await {
-                    Ok(asset) => Ok(resolved_asset_from_perp(asset)),
-                    Err(errors::CliError::AssetNotFoundNoSuggestion { .. }) => Err(err),
-                    Err(err) => Err(err),
-                }
-            }
-            _ => Err(err),
-        },
-    }
-}
-
-async fn resolver_with_loaded_hip3_perp(
-    client: &hypersdk::hypercore::HttpClient,
-    resolver: AssetResolver,
-    query: &str,
-) -> Result<(AssetResolver, (String, Option<String>)), errors::CliError> {
-    match resolver.resolve_perp(query) {
-        Ok(hyperliquid_cli::commands::ResolvedAsset::Perp {
-            name,
-            index: _,
-            dex,
-            ..
-        }) => Ok((resolver, (name, dex))),
-        Ok(hyperliquid_cli::commands::ResolvedAsset::Spot { .. }) => {
-            unreachable!("resolve_perp never returns spots")
-        }
-        Err(err) => match hyperliquid_cli::commands::parse_asset_query(query) {
-            hyperliquid_cli::commands::AssetQuery::Hip3 { dex, token } => {
-                match load_hip3_perp_asset(client, query, &dex, &token).await {
-                    Ok(asset) => {
-                        let resolved_name = asset.name.clone();
-                        let resolved_dex = asset.dex.clone();
-                        Ok((
-                            resolver.with_perp_asset(asset),
-                            (resolved_name, resolved_dex),
-                        ))
-                    }
-                    Err(errors::CliError::AssetNotFoundNoSuggestion { .. }) => Err(err),
-                    Err(err) => Err(err),
-                }
-            }
-            _ => Err(err),
-        },
-    }
-}
-
-async fn load_hip3_perp_asset(
-    client: &hypersdk::hypercore::HttpClient,
-    input: &str,
-    dex_name: &str,
-    token: &str,
-) -> Result<hyperliquid_cli::commands::PerpAsset, errors::CliError> {
-    let dex = client
-        .perp_dexes()
-        .await
-        .map_err(errors::from_anyhow)?
-        .into_iter()
-        .find(|dex| dex.name().eq_ignore_ascii_case(dex_name))
-        .ok_or_else(|| errors::CliError::Unsupported(format!("Unknown DEX: {dex_name}")))?;
-    let canonical_dex_name = dex.name().to_string();
-    let prefix = format!("{canonical_dex_name}:");
-    let market = client
-        .perps_from(dex)
-        .await
-        .map_err(errors::from_anyhow)?
-        .into_iter()
-        .find(|market| {
-            let display_token = market.name.strip_prefix(&prefix).unwrap_or(&market.name);
-            display_token.eq_ignore_ascii_case(token) || market.name.eq_ignore_ascii_case(token)
-        })
-        .ok_or_else(|| errors::CliError::AssetNotFoundNoSuggestion {
-            asset: input.to_string(),
-        })?;
-    let name = market
-        .name
-        .strip_prefix(&prefix)
-        .unwrap_or(market.name.as_str())
-        .to_string();
-
-    Ok(hyperliquid_cli::commands::PerpAsset {
-        name,
-        index: market.index,
-        dex: Some(canonical_dex_name),
-        sz_decimals: u32::try_from(market.sz_decimals).unwrap_or_default(),
-        collateral: market.collateral.name,
-    })
-}
-
-fn resolved_asset_from_perp(
-    asset: hyperliquid_cli::commands::PerpAsset,
-) -> hyperliquid_cli::commands::ResolvedAsset {
-    hyperliquid_cli::commands::ResolvedAsset::Perp {
-        name: asset.name,
-        index: asset.index,
-        dex: asset.dex,
-        sz_decimals: asset.sz_decimals,
-        collateral: asset.collateral,
-    }
-}
-
-fn qualify_dex_asset(dex: Option<&str>, coin: &str) -> String {
-    match dex {
-        Some(dex) if !coin.contains(':') => format!("{dex}:{coin}"),
-        _ => coin.to_string(),
-    }
-}
-
 fn ensure_outcome_coin(coin: &str) -> Result<(), errors::CliError> {
-    hyperliquid_cli::commands::outcomes::parse_outcome_notation(coin)?;
+    hyperliquid_cli::assets::asset_id::parse_outcome_notation(coin)?;
     Ok(())
 }
 
