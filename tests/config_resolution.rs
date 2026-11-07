@@ -56,13 +56,6 @@ fn write_config_files(
     fs::write(mac_path, json).unwrap();
 }
 
-fn expected_address(private_key: &str) -> String {
-    let signer = private_key
-        .parse::<hypersdk::hypercore::PrivateKeySigner>()
-        .unwrap();
-    signer.address().to_string()
-}
-
 // ── Test: missing config does not crash read-only commands ───────────
 
 #[test]
@@ -116,7 +109,9 @@ fn test_cli_private_key_flag_overrides_env_and_config() {
         .arg("address")
         .assert()
         .success()
-        .stdout(predicates::str::contains(expected_address(CLI_KEY)));
+        .stdout(predicates::str::contains(support::expected_address(
+            CLI_KEY,
+        )));
 }
 
 #[test]
@@ -140,7 +135,9 @@ fn test_cli_private_key_env_overrides_config() {
         .arg("address")
         .assert()
         .success()
-        .stdout(predicates::str::contains(expected_address(ENV_KEY)));
+        .stdout(predicates::str::contains(support::expected_address(
+            ENV_KEY,
+        )));
 }
 
 #[test]
@@ -164,7 +161,9 @@ fn test_cli_private_key_config_fallback() {
         .arg("address")
         .assert()
         .success()
-        .stdout(predicates::str::contains(expected_address(FILE_KEY)));
+        .stdout(predicates::str::contains(support::expected_address(
+            FILE_KEY,
+        )));
 }
 
 /// Run `status` against a local mock API and return the network the

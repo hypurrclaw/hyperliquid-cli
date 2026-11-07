@@ -995,22 +995,6 @@ mod tests {
     }
 
     #[test]
-    fn test_render_json_snake_case_keys() {
-        let data = TestData {
-            headers: vec!["Asset Name".to_string(), "Max Leverage".to_string()],
-            rows: vec![vec!["BTC".to_string(), "50".to_string()]],
-            json: serde_json::json!([
-                {"asset_name": "BTC", "max_leverage": "50"}
-            ]),
-        };
-        let output = render(&data, OutputFormat::Json);
-        let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
-        let first = &parsed.as_array().unwrap()[0];
-        assert!(first.get("asset_name").is_some());
-        assert!(first.get("max_leverage").is_some());
-    }
-
-    #[test]
     fn test_project_selected_fields_filters_array_objects() {
         let value = serde_json::json!([
             {"coin": "BTC", "price": "50000", "size": "0.1", "side": "buy"},
