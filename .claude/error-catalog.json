@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "errors": [
+    {
+      "exit_code": 1,
+      "category": "internal",
+      "retryable": false,
+      "agent_action": "Stop and inspect the message."
+    },
+    {
+      "exit_code": 2,
+      "category": "usage_or_config",
+      "retryable": false,
+      "agent_action": "Fix arguments, configuration, or environment."
+    },
+    {
+      "exit_code": 10,
+      "category": "auth",
+      "retryable": false,
+      "agent_action": "Configure a wallet, account, private key, or keystore."
+    },
+    {
+      "exit_code": 11,
+      "category": "rate_limit",
+      "retryable": true,
+      "agent_action": "Back off before retrying; prefer streaming over REST polling."
+    },
+    {
+      "exit_code": 12,
+      "category": "network_or_unavailable",
+      "retryable": true,
+      "agent_action": "Retry with bounded exponential backoff."
+    },
+    {
+      "exit_code": 13,
+      "category": "unsupported",
+      "retryable": false,
+      "agent_action": "Correct asset, DEX, address, or unsupported input."
+    },
+    {
+      "exit_code": 14,
+      "category": "stale_data",
+      "retryable": true,
+      "agent_action": "Refresh metadata or retry after market data updates."
+    },
+    {
+      "exit_code": 15,
+      "category": "partial_results",
+      "retryable": false,
+      "agent_action": "Inspect returned partial result details before continuing."
+    }
+  ]
+}
