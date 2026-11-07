@@ -782,6 +782,7 @@ impl CliCommand for OrdersTwapCreate {
         arg("size").kind(InputKind::Amount).describe("Total base-asset size."),
         arg("duration").kind(InputKind::Duration).describe("Whole-minute duration in seconds. Minimum 300."),
         arg("margin_mode").describe("Require the target perpetual position to already use this margin mode."),
+        arg("randomize").kind(InputKind::Boolean).describe("Randomize execution timing and suborder sizes up to ±20%."),
         arg("yes").kind(InputKind::Boolean).describe("Skip the mainnet confirmation prompt for deliberate automation. Testnet orders never prompt."),
     ]);
 

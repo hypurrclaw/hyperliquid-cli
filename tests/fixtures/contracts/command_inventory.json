@@ -1952,6 +1952,7 @@
         "dex": "venue_selector",
         "duration": "duration",
         "on_behalf_of": "acting_account_selector",
+        "randomize": "boolean",
         "size": "amount",
         "yes": "boolean"
       },

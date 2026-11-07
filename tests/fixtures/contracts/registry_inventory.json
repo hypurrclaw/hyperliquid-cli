@@ -5879,6 +5879,19 @@
         {
           "arg_type": "boolean",
           "default": null,
+          "description": "Randomize execution timing and suborder sizes up to ±20%.",
+          "enum_values": [],
+          "id": "randomize",
+          "kind": "boolean",
+          "long": "randomize",
+          "multiple": false,
+          "positional_index": null,
+          "required": false,
+          "short": null
+        },
+        {
+          "arg_type": "boolean",
+          "default": null,
           "description": "Skip the mainnet confirmation prompt for deliberate automation. Testnet orders never prompt.",
           "enum_values": [],
           "id": "yes",
