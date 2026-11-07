@@ -473,7 +473,6 @@ pub async fn funding(inv: &Invocation, coin: &str) -> Result<(), anyhow::Error> 
     Ok(())
 }
 
-/// Fetch and render all mid prices.
 pub async fn mids(inv: &Invocation) -> Result<(), anyhow::Error> {
     let selected = inv.session().json_options().selected_fields();
     inv.print(&mids_snapshot(inv.remote()?.api().sdk(), selected).await?);

@@ -201,7 +201,6 @@ enum RawInfoRequest {
     PerpDexs,
 }
 
-/// Fetch and render exchange metadata: perpetual universe, spot universe, asset contexts, and DEXes.
 pub async fn show(inv: &Invocation) -> Result<(), anyhow::Error> {
     let api = inv.remote()?.api();
     let raw_meta_and_contexts = fetch_meta_and_asset_contexts(api).await?;

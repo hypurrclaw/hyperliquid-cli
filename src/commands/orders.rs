@@ -224,7 +224,6 @@ pub struct OrderSubmissionContext<'a> {
     pub require_mainnet_confirmation: bool,
 }
 
-/// Place an order through hypersdk's authenticated `/exchange` flow.
 pub async fn create(
     context: OrderExecutionContext<'_>,
     args: &CreateArgs,
@@ -389,7 +388,6 @@ async fn place_prepared_single(
     Ok(statuses)
 }
 
-/// Place a generated scale order batch.
 pub async fn scale(
     context: OrderExecutionContext<'_>,
     args: &ScaleArgs,
@@ -412,7 +410,6 @@ pub async fn scale(
     finish_order_batch(rows, context.submission.inv)
 }
 
-/// Place an explicit JSON order batch.
 pub async fn batch_create(
     context: OrderExecutionContext<'_>,
     args: &BatchCreateArgs,
@@ -467,7 +464,6 @@ async fn place_order_batch(
         .collect())
 }
 
-/// Place position-attached take-profit and/or stop-loss trigger orders.
 pub async fn tpsl(
     context: OrderExecutionContext<'_>,
     args: &TpslArgs,
@@ -558,7 +554,6 @@ fn finish_with_failures(
     Err(partial.error().into())
 }
 
-/// Print a placed batch, or report its failed legs.
 fn finish_order_batch(rows: Vec<OrderConfirmation>, inv: &Invocation) -> Result<(), anyhow::Error> {
     let legs = OrderConfirmationOutput { rows };
     let failures = legs.rejection_errors();
@@ -588,7 +583,6 @@ fn finish_tpsl_batch(
     finish_with_failures(legs, "Placed", "place TP/SL orders", failures, inv)
 }
 
-/// Cancel a single open order by exchange OID or client order ID.
 pub async fn cancel(
     context: OrderExecutionContext<'_>,
     user: Address,
@@ -626,7 +620,6 @@ pub async fn cancel(
     Ok(())
 }
 
-/// Cancel all open orders, optionally filtered by coin.
 pub async fn cancel_all(
     context: OrderExecutionContext<'_>,
     user: Address,
@@ -696,7 +689,6 @@ pub async fn cancel_all(
     Ok(())
 }
 
-/// Modify an existing order's price and/or size.
 pub async fn modify(
     context: OrderExecutionContext<'_>,
     user: Address,
@@ -731,7 +723,6 @@ pub async fn modify(
     Ok(())
 }
 
-/// Create a TWAP order using Hyperliquid's signed TWAP exchange action.
 pub async fn twap_create(
     context: OrderSubmissionContext<'_>,
     resolver: &AssetResolver,
@@ -778,7 +769,6 @@ pub async fn twap_create(
     Ok(())
 }
 
-/// Cancel a TWAP order using Hyperliquid's signed TWAP cancel action.
 pub async fn twap_cancel(
     context: OrderSubmissionContext<'_>,
     resolver: &AssetResolver,
@@ -807,7 +797,6 @@ pub async fn twap_cancel(
     Ok(())
 }
 
-/// Schedule a dead man's switch cancel-all.
 pub async fn schedule_cancel(
     context: OrderSubmissionContext<'_>,
     args: &ScheduleCancelArgs,
@@ -1772,7 +1761,6 @@ fn ask_confirmation(
     prompt::confirm_warning(target.mode, question, "--yes")
 }
 
-/// Pick the singular or plural noun for `count`.
 pub(crate) fn plural<'a>(count: usize, singular: &'a str, plural: &'a str) -> &'a str {
     if count == 1 { singular } else { plural }
 }

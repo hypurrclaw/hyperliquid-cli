@@ -132,7 +132,6 @@ impl TableData for SpotMarketDetailsOutput {
     }
 }
 
-/// Fetch and render all spot markets.
 pub async fn list(inv: &Invocation) -> Result<(), anyhow::Error> {
     let markets = load_spot_market_rows(inv.remote()?.api()).await?;
     inv.print(&SpotMarketsOutput::new(markets));

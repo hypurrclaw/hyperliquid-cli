@@ -146,7 +146,6 @@ impl TableData for PerpMarketDetailsOutput {
     }
 }
 
-/// Fetch and render perpetual markets, optionally from a HIP-3 DEX.
 pub async fn list(inv: &Invocation, args: &PerpsListArgs) -> Result<(), anyhow::Error> {
     let client = inv.remote()?.api().sdk();
     let markets = if let Some(dex_name) = args.dex.as_deref() {
