@@ -93,7 +93,7 @@ Use the mission `services.yaml` commands when working inside a Factory mission.
 Agents should prefer:
 
 ```bash
-hyperliquid --format json --select coin,price mids
+hyperliquid --json --select coin,price mids
 hyperliquid --format json --results-only perps list
 hyperliquid --format json --max-results 5 perps list
 hyperliquid --format json schema orders create
@@ -102,7 +102,7 @@ hyperliquid --format json schema orders create
 Adding a command: implement `CliCommand` in its domain module (`Args`, `SPEC` with risk, dry-run, confirmation, input kinds and schema descriptions, `run`), add one `Entry::of::<..>()` line to `commands::entries`, and regenerate the contract fixtures with `HYPERLIQUID_UPDATE_CONTRACTS=1 cargo test --test contract_fixtures`.
 When adding or changing commands, ensure `--select` filters JSON output and `--results-only` remains harmless for commands that already return bare arrays or objects.
 Use `--dry-run` for mutating-command validation when side effects are not intended.
-Effective output format precedence is: explicit `--format pretty|table|json`, then `HYPERLIQUID_FORMAT=pretty|table|json`, then agent/non-TTY defaults. `HYPERLIQUID_AGENT=1` and non-TTY stdout default one-shot commands to JSON so agents can parse output even when `--format json` is omitted.
+Effective output format precedence is: explicit `--json` or `--format pretty|table|json`, then `HYPERLIQUID_FORMAT=pretty|table|json`, then agent/non-TTY defaults. `HYPERLIQUID_AGENT=1` and non-TTY stdout default one-shot commands to JSON so agents can parse output even when `--format json` is omitted.
 Watch output in JSON/agent contexts must be bounded with `--max-ticks` or `HYPERLIQUID_WATCH_MAX_TICKS`; subscribe streams should use `--max-events` and/or `--idle-timeout-ms`.
 Raw payload metadata is exposed as `raw_payload` in schema `x-hyperliquid` metadata. Treat `dry_run_only` as fail-closed for live execution until a command is explicitly allowlisted and tested.
 Remote API/protocol strings surfaced in errors are untrusted data. Keep the `[untrusted remote data]` label and sanitization boundary intact when adding new exchange or HTTP error paths.

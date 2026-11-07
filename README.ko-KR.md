@@ -15,7 +15,7 @@ Languages: [English](README.md) | [简体中文](README.zh-CN.md) | [日本語](
 
 ## hyperliquid-cli를 사용하는 이유
 
-- **에이전트 우선.** 에이전트 루프를 위해 구축되었습니다. 모든 명령은 `--format json`, 필드 프로젝션(`--select`), 결과 제한(`--max-results`), 기계가 읽을 수 있는 `schema` 출력으로 JSON을 말합니다. `HYPERLIQUID_AGENT=1`(또는 non-TTY stdout)은 자동으로 JSON을 기본값으로 사용합니다. 에이전트는 안정적인 snake_case 키, 구조화된 오류 객체, 명확히 정의된 종료 코드를 읽습니다. 스크래핑도, 추측도 필요 없습니다.
+- **에이전트 우선.** 에이전트 루프를 위해 구축되었습니다. 모든 명령은 `--json` 또는 `--format json`, 필드 프로젝션(`--select`), 결과 제한(`--max-results`), 기계가 읽을 수 있는 `schema` 출력으로 JSON을 말합니다. `HYPERLIQUID_AGENT=1`(또는 non-TTY stdout)은 자동으로 JSON을 기본값으로 사용합니다. 에이전트는 안정적인 snake_case 키, 구조화된 오류 객체, 명확히 정의된 종료 코드를 읽습니다. 스크래핑도, 추측도 필요 없습니다.
 - **에이전트를 위한 지갑.** 거래는 가능하지만 출금은 절대 할 수 없는 API wallet(일명 agent wallet)을 생성하세요. 이를 OpenClaw, Hermes, Claude 또는 어떤 자동화에도 전달하면 제한된 권한 안에서 동작합니다. OWS wallet secrets는 암호화된 vault에 저장됩니다. CLI가 생성하는 API wallet private key는 안전하게 보관할 수 있도록 정확히 한 번 출력됩니다.
 - **하나의 도구, 광범위한 프로토콜 지원.** 시장, perps, spot, HIP-3 DEXes, 주문, 이체, subaccounts, vaults, staking, borrow/lend, builder fees, referrals, account abstraction, WebSocket subscriptions까지 모두 하나의 바이너리 뒤에 있습니다.
 - **기본적으로 안전함.** schema가 prompt-gated로 표시한 live mainnet 변경 작업은 확인이 필요합니다. `--dry-run`은 지원되는 부작용을 실행 전에 미리 보여줍니다. Testnet은 플래그 하나면 됩니다. API wallets는 프로토콜 설계상 출금이 불가능합니다.

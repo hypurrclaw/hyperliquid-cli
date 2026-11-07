@@ -22,7 +22,7 @@ The CLI is designed for agents. Prefer structured JSON, command schemas, bounded
 
 ## Operating Rules for Agents
 
-1. **Default to JSON.** Use `--format json` or set `HYPERLIQUID_AGENT=1`.
+1. **Default to JSON.** Use `--json`, `--format json`, or set `HYPERLIQUID_AGENT=1`.
 2. **Discover before acting.** Use `schema`, `--help`, and read-only commands before composing mutations.
 3. **Dry-run every mutation first** unless the user explicitly asks for funded-live validation and has authorized it.
 4. **Never request secrets in chat.** Private keys, mnemonics, keystore passwords, and OWS passphrases must be entered locally by the operator or supplied through existing secure environment/config.

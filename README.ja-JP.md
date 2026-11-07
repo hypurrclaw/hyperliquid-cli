@@ -15,7 +15,7 @@ Languages: [English](README.md) | [简体中文](README.zh-CN.md) | [日本語](
 
 ## hyperliquid-cli を選ぶ理由
 
-- **エージェント優先。** エージェントループのために構築されています。すべてのコマンドは `--format json`、フィールド投影 (`--select`)、結果上限 (`--max-results`)、機械可読な `schema` 出力で JSON を扱います。`HYPERLIQUID_AGENT=1`（または非 TTY stdout）では自動的に JSON がデフォルトになります。エージェントは安定した snake_case キー、構造化エラーオブジェクト、明確な終了コードを読み取れます。スクレイピングも推測も不要です。
+- **エージェント優先。** エージェントループのために構築されています。すべてのコマンドは `--json` または `--format json`、フィールド投影 (`--select`)、結果上限 (`--max-results`)、機械可読な `schema` 出力で JSON を扱います。`HYPERLIQUID_AGENT=1`（または非 TTY stdout）では自動的に JSON がデフォルトになります。エージェントは安定した snake_case キー、構造化エラーオブジェクト、明確な終了コードを読み取れます。スクレイピングも推測も不要です。
 - **エージェント用ウォレット。** 取引はできても出金はできない API wallet（別名 agent wallet）を作成できます。OpenClaw、Hermes、Claude、または任意の自動化に渡せば、限定された権限で動作します。OWS wallet secrets は暗号化 vault に保存されます。CLI が生成する API wallet private key は安全に保管できるよう一度だけ表示されます。
 - **1 つのツールで広範なプロトコルをカバー。** マーケット、perps、spot、HIP-3 DEX、注文、送金、サブアカウント、Vault、ステーキング、借入/貸付、ビルダー手数料、リファラル、account abstraction、WebSocket サブスクリプションまで、すべて 1 つのバイナリの背後にあります。
 - **デフォルトで安全。** schema で prompt-gated と示された live mainnet の変更操作は確認を要求します。`--dry-run` は対応する副作用を実行前にプレビューします。testnet は 1 つのフラグで利用できます。API wallet はプロトコル設計上、出金できません。
