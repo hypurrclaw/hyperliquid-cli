@@ -49,6 +49,22 @@ fn test_format_flag_accepts_json() {
 }
 
 #[test]
+fn test_json_flag_enables_json_mode() {
+    let output = Command::cargo_bin("hyperliquid")
+        .unwrap()
+        .arg("--json")
+        .arg("--version")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(output).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(parsed["version"], env!("CARGO_PKG_VERSION"));
+}
+
+#[test]
 fn test_format_flag_rejects_invalid() {
     Command::cargo_bin("hyperliquid")
         .unwrap()

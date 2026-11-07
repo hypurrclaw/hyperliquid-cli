@@ -49,6 +49,9 @@ struct Cli {
     #[arg(long, short, global = true, value_enum, default_value = "pretty", help_heading = GLOBAL_OPTIONS)]
     format: output::OutputFormat,
 
+    /// Shortcut for --format json
+    #[arg(long, global = true, help_heading = GLOBAL_OPTIONS)]
+    json: bool,
     /// Private key to sign with. Prefer HYPERLIQUID_PRIVATE_KEY: command-line options appear in process lists
     #[arg(long, global = true, help_heading = GLOBAL_OPTIONS)]
     private_key: Option<String>,
@@ -142,7 +145,12 @@ async fn main() {
         let _ = PANIC_COMMAND.set(path.join(" "));
     }
     let env = output::terminal::OutputEnv::probe(parsed.explicit_format);
-    let format = match resolve_output_format(&env, parsed.cli.format) {
+    let effective_format = if parsed.cli.json {
+        output::OutputFormat::Json
+    } else {
+        parsed.cli.format
+    };
+    let format = match resolve_output_format(&env, effective_format) {
         Ok(format) => format,
         Err(err) => errors::exit_with_error(err, errors::ErrorOutput::Json),
     };
