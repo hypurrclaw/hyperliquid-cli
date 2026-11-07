@@ -61,43 +61,18 @@ impl OrderConfirmation {
     /// carries the sanitized exchange error, so one bad leg never hides the
     /// legs that were placed.
     pub(super) fn from_leg_status(prepared: &PreparedOrder, status: OrderResponseStatus) -> Self {
-        match status {
-            OrderResponseStatus::Success => {
-                Self::from_prepared(prepared, "accepted", None, prepared.price, prepared.size)
-            }
-            OrderResponseStatus::WaitingForTrigger => Self::from_prepared(
-                prepared,
-                "waiting_for_trigger",
-                None,
-                prepared.price,
-                prepared.size,
-            ),
-            OrderResponseStatus::WaitingForFill => Self::from_prepared(
-                prepared,
-                "waiting_for_fill",
-                None,
-                prepared.price,
-                prepared.size,
-            ),
-            OrderResponseStatus::Resting { oid, .. } => Self::from_prepared(
-                prepared,
-                "resting",
-                Some(oid),
-                prepared.price,
-                prepared.size,
-            ),
-            OrderResponseStatus::Filled {
-                oid,
-                total_sz,
-                avg_px,
-            } => Self::from_prepared(prepared, "filled", Some(oid), avg_px, total_sz),
-            OrderResponseStatus::Error(err) => {
-                let mut row =
-                    Self::from_prepared(prepared, "rejected", None, prepared.price, prepared.size);
-                row.error = Some(labelled_untrusted_text(&err));
-                row
-            }
+        let placed = super::Placement::classify(status);
+        let (price, size) = match &placed {
+            super::Placement::Filled {
+                avg_px, total_sz, ..
+            } => (*avg_px, *total_sz),
+            _ => (prepared.price, prepared.size),
+        };
+        let mut row = Self::from_prepared(prepared, placed.label(), placed.oid(), price, size);
+        if let super::Placement::Rejected(err) = placed {
+            row.error = Some(labelled_untrusted_text(&err));
         }
+        row
     }
 
     /// Build the row for a single order; a rejection is an error.
@@ -222,7 +197,7 @@ impl TpslOrderConfirmation {
     pub(super) fn from_tpsl_status(
         prepared: &PreparedTpslLeg,
         grouping: TpslGroupingArg,
-        status: TpslResponseStatus,
+        status: OrderResponseStatus,
     ) -> Self {
         let mut row = Self {
             grouping: grouping.to_string(),
@@ -241,56 +216,21 @@ impl TpslOrderConfirmation {
             error: None,
         };
 
-        match status {
-            TpslResponseStatus::Success => {
-                row.status = "accepted".to_string();
-            }
-            TpslResponseStatus::Resting { oid, .. } => {
-                row.status = "resting".to_string();
-                row.order_id = Some(oid);
-            }
-            TpslResponseStatus::Filled {
-                oid,
-                total_sz,
-                avg_px,
-            } => {
-                row.status = "filled".to_string();
-                row.order_id = Some(oid);
-                row.price = avg_px.to_string();
-                row.size = total_sz.to_string();
-            }
-            TpslResponseStatus::WaitingForFill => {
-                row.status = "waiting_for_fill".to_string();
-            }
-            TpslResponseStatus::WaitingForTrigger => {
-                row.status = "waiting_for_trigger".to_string();
-            }
-            TpslResponseStatus::Error(err) => {
-                row.status = "rejected".to_string();
-                row.error = Some(labelled_untrusted_text(&err));
-            }
+        let placed = super::Placement::classify(status);
+        row.status = placed.label().to_string();
+        row.order_id = placed.oid();
+        if let super::Placement::Filled {
+            avg_px, total_sz, ..
+        } = &placed
+        {
+            row.price = avg_px.to_string();
+            row.size = total_sz.to_string();
+        }
+        if let super::Placement::Rejected(err) = placed {
+            row.error = Some(labelled_untrusted_text(&err));
         }
         row
     }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) enum TpslResponseStatus {
-    Success,
-    Resting {
-        oid: u64,
-    },
-    Filled {
-        #[serde(rename = "totalSz")]
-        total_sz: Decimal,
-        #[serde(rename = "avgPx")]
-        avg_px: Decimal,
-        oid: u64,
-    },
-    Error(String),
-    WaitingForFill,
-    WaitingForTrigger,
 }
 
 pub(super) struct TpslOrderConfirmationOutput {

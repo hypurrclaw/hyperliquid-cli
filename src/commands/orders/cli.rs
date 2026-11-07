@@ -989,7 +989,7 @@ hyperliquid --format json orders chase --coin ETH --side buy --size 0.5 --timeou
     ]);
 
     async fn run(inv: &Invocation, args: &ChaseArgs) -> Result<(), anyhow::Error> {
-        chase_dry_run_plan(args, None)?;
+        chase_dry_run_plan(args, None, chase::requires_explicit_timeout(inv))?;
         let client = inv.remote()?.api().sdk();
         let resolver = inv.trading_resolver().await?;
         let vault_address =
@@ -1002,7 +1002,7 @@ hyperliquid --format json orders chase --coin ETH --side buy --size 0.5 --timeou
                 .await
                 .ok()
                 .and_then(|mids| mids.get(&coin_key).copied());
-            let plan = chase_dry_run_plan(args, mid)?;
+            let plan = chase_dry_run_plan(args, mid, chase::requires_explicit_timeout(inv))?;
             let (signer, acting_as, vault_address_string) =
                 dry_run_vault_signing_addresses(inv, vault_address_string);
             return print_dry_run(

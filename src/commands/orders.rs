@@ -47,12 +47,19 @@ mod args;
 mod bracket;
 mod chase;
 pub mod cli;
+mod exchange;
 mod hip3;
+mod live_order;
 mod planning;
 mod queries;
 mod rendering;
 mod trailing_stop;
 mod validation;
+
+pub(super) use exchange::{
+    Placement, ensure_action_statuses_ok, modification_result_oid, order_statuses_from_response,
+    parse_order_statuses,
+};
 
 pub use bracket::{bracket, bracket_dry_run_plan, validate_bracket_args};
 pub use chase::{chase, chase_dry_run_plan};
@@ -84,7 +91,7 @@ use rendering::{
     CancelAllSummary, CancelAllSummaryOutput, CancelConfirmation, CancelConfirmationOutput,
     CancelLeg, CancelLegsOutput, ModifyConfirmation, ModifyConfirmationOutput, OrderConfirmation,
     OrderConfirmationOutput, OrderListRow, PartialBatchOutput, ScheduleCancelConfirmation,
-    ScheduleCancelOutput, TpslOrderConfirmation, TpslOrderConfirmationOutput, TpslResponseStatus,
+    ScheduleCancelOutput, TpslOrderConfirmation, TpslOrderConfirmationOutput,
     TwapCancelConfirmation, TwapCancelOutput, TwapCreateConfirmation, TwapCreateOutput,
 };
 pub use validation::{
@@ -1100,7 +1107,7 @@ fn position_close_side_and_size(
 
 fn tpsl_confirmation_rows(
     prepared: &PreparedTpslBatch,
-    statuses: Vec<TpslResponseStatus>,
+    statuses: Vec<OrderResponseStatus>,
 ) -> Result<Vec<TpslOrderConfirmation>, CliError> {
     if statuses.len() != prepared.legs.len() {
         return Err(status_count_mismatch(statuses.len(), prepared.legs.len()));
@@ -1131,17 +1138,8 @@ async fn place_tpsl_batch(
     signer: &SelectedSigner,
     batch: BatchOrder,
     vault_address: Option<Address>,
-) -> Result<Vec<TpslResponseStatus>, CliError> {
-    let response = actions::send_l1_action_raw(
-        api,
-        signer,
-        Action::Order(batch),
-        actions::nonce_now(),
-        vault_address,
-        "order placement failed",
-    )
-    .await?;
-    parse_tpsl_order_statuses(response)
+) -> Result<Vec<OrderResponseStatus>, CliError> {
+    place_order_batch_raw(api, signer, batch, vault_address).await
 }
 
 async fn place_order_batch_raw(
@@ -1196,44 +1194,6 @@ async fn place_builder_order_batch_raw(
     )
     .await?;
     parse_order_statuses(response)
-}
-
-fn parse_order_statuses(response: serde_json::Value) -> Result<Vec<OrderResponseStatus>, CliError> {
-    decode_order_statuses(response)
-}
-
-fn parse_tpsl_order_statuses(
-    response: serde_json::Value,
-) -> Result<Vec<TpslResponseStatus>, CliError> {
-    decode_order_statuses(response)
-}
-
-fn decode_order_statuses<T: serde::de::DeserializeOwned>(
-    response: serde_json::Value,
-) -> Result<Vec<T>, CliError> {
-    let body = || labelled_untrusted_text(&response.to_string());
-    if response.get("type").and_then(serde_json::Value::as_str) != Some("order") {
-        return Err(CliError::Internal(anyhow::anyhow!(
-            "order placement response had unexpected type: {}",
-            body()
-        )));
-    }
-    let statuses = response
-        .get("data")
-        .and_then(|data| data.get("statuses"))
-        .cloned()
-        .ok_or_else(|| {
-            CliError::Internal(anyhow::anyhow!(
-                "order placement response missing statuses: {}",
-                body()
-            ))
-        })?;
-    serde_json::from_value(statuses).map_err(|err| {
-        CliError::Internal(anyhow::anyhow!(
-            "order placement response decode failed: {err}; body={}",
-            body()
-        ))
-    })
 }
 
 async fn resolve_tradable_asset(
@@ -1490,63 +1450,6 @@ fn resolve_cancel_all_coin_filter(
             _ => Err(err.into()),
         },
     }
-}
-
-fn order_statuses_from_response(
-    response: serde_json::Value,
-    action: &'static str,
-) -> Result<Vec<OrderResponseStatus>, CliError> {
-    #[derive(Deserialize)]
-    struct StatusesResponse {
-        statuses: Vec<OrderResponseStatus>,
-    }
-
-    #[derive(Deserialize)]
-    #[serde(tag = "type", content = "data", rename_all = "camelCase")]
-    enum TaggedResponse {
-        Cancel(StatusesResponse),
-        Order(StatusesResponse),
-    }
-
-    if let Ok(parsed) = serde_json::from_value::<StatusesResponse>(response.clone()) {
-        return Ok(parsed.statuses);
-    }
-
-    serde_json::from_value::<TaggedResponse>(response)
-        .map(|parsed| match parsed {
-            TaggedResponse::Cancel(data) | TaggedResponse::Order(data) => data.statuses,
-        })
-        .map_err(|err| {
-            CliError::Internal(anyhow::anyhow!(
-                "{action}: unexpected response shape: {err}"
-            ))
-        })
-}
-
-/// Fail on the first rejected status, with the exchange text sanitized and
-/// labelled. `action` completes "Couldn't ...", such as `cancel order`.
-fn ensure_action_statuses_ok(
-    statuses: &[OrderResponseStatus],
-    action: &str,
-) -> Result<usize, CliError> {
-    for status in statuses {
-        if let OrderResponseStatus::Error(err) = status {
-            return Err(rendering::status_error(action, err));
-        }
-    }
-    Ok(statuses.len())
-}
-
-fn modification_result_oid(statuses: &[OrderResponseStatus]) -> Option<u64> {
-    statuses.iter().find_map(|status| match status {
-        OrderResponseStatus::Resting { oid, .. } | OrderResponseStatus::Filled { oid, .. } => {
-            Some(*oid)
-        }
-        OrderResponseStatus::Success
-        | OrderResponseStatus::WaitingForTrigger
-        | OrderResponseStatus::WaitingForFill
-        | OrderResponseStatus::Error(_) => None,
-    })
 }
 
 fn order_type_placement(
@@ -2496,31 +2399,6 @@ mod tests {
 
         assert_eq!(err.exit_code(), 2);
         assert!(err.to_string().contains("price must be positive"));
-    }
-
-    #[test]
-    fn tpsl_response_parser_accepts_waiting_children() {
-        let response = serde_json::json!({
-            "type": "order",
-            "data": {
-                "statuses": [
-                    {"resting": {"oid": 12345}},
-                    "waitingForFill",
-                    "waitingForTrigger"
-                ]
-            }
-        });
-
-        let statuses = parse_tpsl_order_statuses(response).unwrap();
-
-        assert!(matches!(
-            statuses.as_slice(),
-            [
-                TpslResponseStatus::Resting { oid: 12345 },
-                TpslResponseStatus::WaitingForFill,
-                TpslResponseStatus::WaitingForTrigger
-            ]
-        ));
     }
 
     #[test]
