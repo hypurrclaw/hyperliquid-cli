@@ -1,6 +1,6 @@
 # Hyperliquid CLI
 
-[![Crates.io](https://img.shields.io/badge/crates.io-v0.11.1-orange.svg)](https://crates.io/crates/hyperliquid-cli)
+[![Crates.io](https://img.shields.io/badge/crates.io-v0.12.0-orange.svg)](https://crates.io/crates/hyperliquid-cli)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.93%2B-blue.svg)](https://www.rust-lang.org)
 [![Built on hypersdk](https://img.shields.io/badge/built%20on-hypersdk-blueviolet.svg)](https://github.com/infinitefield/hypersdk)
@@ -30,7 +30,7 @@ sh install.sh
 hyperliquid --version
 ```
 
-インストーラはバイナリを `~/.local/bin` にコピーする前に SHA-256 チェックサムを検証します。デフォルトでは最新 release をインストールします。repo、固定 version、install directory は `HYPERLIQUID_CLI_REPO=OWNER/REPO`、`HYPERLIQUID_CLI_VERSION=v0.11.1`、`BIN_DIR=/path/to/bin` で上書きできます。
+インストーラはバイナリを `~/.local/bin` にコピーする前に SHA-256 チェックサムを検証します。デフォルトでは最新 release をインストールします。repo、固定 version、install directory は `HYPERLIQUID_CLI_REPO=OWNER/REPO`、`HYPERLIQUID_CLI_VERSION=v0.12.0`、`BIN_DIR=/path/to/bin` で上書きできます。
 
 ソースから:
 

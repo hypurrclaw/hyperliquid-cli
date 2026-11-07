@@ -1,6 +1,15 @@
 # Changelog
 
-## Unreleased
+## 0.12.0 - 2026-11-07
+
+Highlights:
+
+- Untangled core architecture: consolidated errors, state, streams, assets, execution contexts, and command catalog.
+- Added global `--json` flag shortcut for `--format json` across all subcommands.
+- Added native L1 TWAP randomization (`--randomize`) on `orders twap-create` to jitter execution timing and suborder sizes by ±20%.
+- Added native trailing stop orders (`orders trailing-stop`) tracking mark prices on L1 nodes with activation price and percent/distance retracement.
+- Added atomic order modification (`orders modify --always-place`).
+- Upgraded hypersdk to 0.3 with full native OrderResponseStatus handling and resting-order reconciliation.
 
 Command-line behavior:
 

@@ -1,6 +1,6 @@
 # Hyperliquid CLI
 
-[![Crates.io](https://img.shields.io/badge/crates.io-v0.11.1-orange.svg)](https://crates.io/crates/hyperliquid-cli)
+[![Crates.io](https://img.shields.io/badge/crates.io-v0.12.0-orange.svg)](https://crates.io/crates/hyperliquid-cli)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.93%2B-blue.svg)](https://www.rust-lang.org)
 [![Built on hypersdk](https://img.shields.io/badge/built%20on-hypersdk-blueviolet.svg)](https://github.com/infinitefield/hypersdk)
@@ -30,7 +30,7 @@ sh install.sh
 hyperliquid --version
 ```
 
-설치 프로그램은 바이너리를 `~/.local/bin`에 복사하기 전에 SHA-256 체크섬을 검증합니다. 기본적으로 최신 release를 설치합니다. `HYPERLIQUID_CLI_REPO=OWNER/REPO`, `HYPERLIQUID_CLI_VERSION=v0.11.1`, `BIN_DIR=/path/to/bin`으로 repo, 고정 version, install directory를 재정의할 수 있습니다.
+설치 프로그램은 바이너리를 `~/.local/bin`에 복사하기 전에 SHA-256 체크섬을 검증합니다. 기본적으로 최신 release를 설치합니다. `HYPERLIQUID_CLI_REPO=OWNER/REPO`, `HYPERLIQUID_CLI_VERSION=v0.12.0`, `BIN_DIR=/path/to/bin`으로 repo, 고정 version, install directory를 재정의할 수 있습니다.
 
 소스에서 설치:
 
