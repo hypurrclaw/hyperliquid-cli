@@ -317,6 +317,10 @@ pub struct TwapCreateArgs {
     #[arg(long)]
     pub on_behalf_of: Option<String>,
 
+    /// Randomize execution timing and suborder sizes up to ±20%
+    #[arg(long)]
+    pub randomize: bool,
+
     /// Skip the mainnet confirmation prompt for deliberate automation
     #[arg(short = 'y', long)]
     pub yes: bool,

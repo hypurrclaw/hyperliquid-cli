@@ -93,8 +93,8 @@ pub(crate) struct TwapCreatePlan {
     pub(crate) size: Decimal,
     pub(crate) duration_seconds: u64,
     pub(crate) duration_minutes: u64,
+    pub(crate) randomize: bool,
 }
-
 impl TwapCreatePlan {
     fn dry_run_args(&self, raw_coin: &str, dex: Option<&str>) -> serde_json::Value {
         serde_json::json!({
@@ -104,6 +104,7 @@ impl TwapCreatePlan {
             "size": self.size.to_string(),
             "duration": self.duration_seconds,
             "duration_minutes": self.duration_minutes,
+            "randomize": self.randomize,
             "asset_id": self.asset,
             "resolved_asset": self.coin,
         })
@@ -1185,7 +1186,7 @@ pub(crate) fn prepare_twap_create_plan(
                 s: args.size.normalize().to_string(),
                 r: false,
                 m: minutes,
-                t: false,
+                t: args.randomize,
             },
         },
         coin: resolved.display_name(),
@@ -1194,6 +1195,7 @@ pub(crate) fn prepare_twap_create_plan(
         size: args.size,
         duration_seconds: args.duration,
         duration_minutes: minutes,
+        randomize: args.randomize,
     })
 }
 

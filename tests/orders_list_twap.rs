@@ -448,6 +448,66 @@ async fn orders_twap_create_outputs_twap_id() {
 }
 
 #[tokio::test]
+async fn orders_twap_create_supports_randomize_flag() {
+    let env = IsolatedHome::new();
+    let server = mock_trading_server(serde_json::json!({
+        "status": "ok",
+        "response": {
+            "type": "twapOrder",
+            "data": {
+                "status": {
+                    "running": {
+                        "twapId": 77738399
+                    }
+                }
+            }
+        }
+    }))
+    .await;
+
+    Mock::given(method("POST"))
+        .and(path("/exchange"))
+        .and(body_string_contains("\"type\":\"twapOrder\""))
+        .and(body_string_contains("\"t\":true"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "status": "ok",
+            "response": {
+                "type": "twapOrder",
+                "data": {
+                    "status": {
+                        "running": {
+                            "twapId": 77738399
+                        }
+                    }
+                }
+            }
+        })))
+        .mount(&server)
+        .await;
+
+    env.command()
+        .env(API_OVERRIDE_ENV, server.uri())
+        .env(PRIVATE_KEY_ENV, VALID_PRIVATE_KEY)
+        .args([
+            "orders",
+            "twap-create",
+            "--coin",
+            "BTC",
+            "--side",
+            "buy",
+            "--size",
+            "1.0",
+            "--duration",
+            "3600",
+            "--randomize",
+            "--testnet",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("77738399"));
+}
+
+#[tokio::test]
 async fn orders_twap_create_normalizes_size_and_reports_matching_units() {
     let env = IsolatedHome::new();
     let server = mock_trading_server(serde_json::json!({
