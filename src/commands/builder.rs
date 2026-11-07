@@ -69,7 +69,7 @@ pub struct ApproveArgs {
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-struct BuilderMaxFeeRow {
+struct BuilderFeeRow {
     user: String,
     builder: String,
     max_fee_tenths_bps: u64,
@@ -78,20 +78,12 @@ struct BuilderMaxFeeRow {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuilderMaxFeeOutput {
-    row: BuilderMaxFeeRow,
-}
-
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-struct BuilderApprovedRow {
-    user: String,
-    builder: String,
-    max_fee_tenths_bps: u64,
-    max_fee_rate: String,
+    row: BuilderFeeRow,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuilderApprovedOutput {
-    rows: Vec<BuilderApprovedRow>,
+    rows: Vec<BuilderFeeRow>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -164,18 +156,24 @@ struct ApproveBuilderFeeAction {
     nonce: u64,
 }
 
+const BUILDER_FEE_HEADERS: &[&str] = &["User", "Builder", "Max Fee", "Tenths Bps"];
+
+fn builder_fee_cells(row: &BuilderFeeRow) -> Vec<String> {
+    vec![
+        row.user.clone(),
+        row.builder.clone(),
+        row.max_fee_rate.clone(),
+        row.max_fee_tenths_bps.to_string(),
+    ]
+}
+
 impl TableData for BuilderMaxFeeOutput {
     fn headers(&self) -> Vec<&str> {
-        vec!["User", "Builder", "Max Fee", "Tenths Bps"]
+        BUILDER_FEE_HEADERS.to_vec()
     }
 
     fn rows(&self) -> Vec<Vec<String>> {
-        vec![vec![
-            self.row.user.clone(),
-            self.row.builder.clone(),
-            self.row.max_fee_rate.clone(),
-            self.row.max_fee_tenths_bps.to_string(),
-        ]]
+        vec![builder_fee_cells(&self.row)]
     }
 
     fn to_json_value(&self) -> serde_json::Value {
@@ -185,21 +183,11 @@ impl TableData for BuilderMaxFeeOutput {
 
 impl TableData for BuilderApprovedOutput {
     fn headers(&self) -> Vec<&str> {
-        vec!["User", "Builder", "Max Fee", "Tenths Bps"]
+        BUILDER_FEE_HEADERS.to_vec()
     }
 
     fn rows(&self) -> Vec<Vec<String>> {
-        self.rows
-            .iter()
-            .map(|row| {
-                vec![
-                    row.user.clone(),
-                    row.builder.clone(),
-                    row.max_fee_rate.clone(),
-                    row.max_fee_tenths_bps.to_string(),
-                ]
-            })
-            .collect()
+        self.rows.iter().map(builder_fee_cells).collect()
     }
 
     fn empty_message(&self) -> Option<&str> {
@@ -252,7 +240,7 @@ pub async fn max_fee(
 ) -> Result<(), anyhow::Error> {
     let max_fee_tenths_bps = load_max_fee(inv.remote()?.api(), user, builder).await?;
     inv.print(&BuilderMaxFeeOutput {
-        row: BuilderMaxFeeRow {
+        row: BuilderFeeRow {
             user: user.to_string(),
             builder: builder.to_string(),
             max_fee_tenths_bps,
@@ -276,7 +264,7 @@ pub async fn approved(inv: &Invocation, user: Address) -> Result<(), anyhow::Err
 
     let rows = try_join_all(builders.into_iter().map(|builder| async move {
         let max_fee_tenths_bps = load_max_fee(api, user, builder).await?;
-        Ok::<_, CliError>(BuilderApprovedRow {
+        Ok::<_, CliError>(BuilderFeeRow {
             user: user.to_string(),
             builder: builder.to_string(),
             max_fee_tenths_bps,

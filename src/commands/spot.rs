@@ -62,37 +62,38 @@ impl SpotMarketsOutput {
     }
 }
 
+const SPOT_MARKET_HEADERS: &[&str] = &[
+    "Symbol",
+    "Index",
+    "Base",
+    "Quote",
+    "Base Sz Decimals",
+    "Quote Sz Decimals",
+    "Tick Size @ Price 1",
+];
+
+fn spot_market_cells(market: &SpotMarketRow) -> Vec<String> {
+    vec![
+        market.symbol.clone(),
+        market.index.to_string(),
+        market.base.clone(),
+        market.quote.clone(),
+        market.base_sz_decimals.to_string(),
+        market.quote_sz_decimals.to_string(),
+        market
+            .tick_size_at_price_1
+            .clone()
+            .unwrap_or_else(|| "n/a".to_string()),
+    ]
+}
+
 impl TableData for SpotMarketsOutput {
     fn headers(&self) -> Vec<&str> {
-        vec![
-            "Symbol",
-            "Index",
-            "Base",
-            "Quote",
-            "Base Sz Decimals",
-            "Quote Sz Decimals",
-            "Tick Size @ Price 1",
-        ]
+        SPOT_MARKET_HEADERS.to_vec()
     }
 
     fn rows(&self) -> Vec<Vec<String>> {
-        self.markets
-            .iter()
-            .map(|market| {
-                vec![
-                    market.symbol.clone(),
-                    market.index.to_string(),
-                    market.base.clone(),
-                    market.quote.clone(),
-                    market.base_sz_decimals.to_string(),
-                    market.quote_sz_decimals.to_string(),
-                    market
-                        .tick_size_at_price_1
-                        .clone()
-                        .unwrap_or_else(|| "n/a".to_string()),
-                ]
-            })
-            .collect()
+        self.markets.iter().map(spot_market_cells).collect()
     }
 
     fn to_json_value(&self) -> serde_json::Value {
@@ -119,19 +120,11 @@ impl SpotMarketDetailsOutput {
 
 impl TableData for SpotMarketDetailsOutput {
     fn headers(&self) -> Vec<&str> {
-        vec![
-            "Symbol",
-            "Index",
-            "Base",
-            "Quote",
-            "Base Sz Decimals",
-            "Quote Sz Decimals",
-            "Tick Size @ Price 1",
-        ]
+        SPOT_MARKET_HEADERS.to_vec()
     }
 
     fn rows(&self) -> Vec<Vec<String>> {
-        SpotMarketsOutput::new(vec![self.market.clone()]).rows()
+        vec![spot_market_cells(&self.market)]
     }
 
     fn to_json_value(&self) -> serde_json::Value {

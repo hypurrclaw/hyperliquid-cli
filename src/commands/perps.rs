@@ -76,37 +76,38 @@ impl PerpMarketsOutput {
     }
 }
 
+const PERP_MARKET_HEADERS: &[&str] = &[
+    "Name",
+    "Index",
+    "Max Leverage",
+    "Sz Decimals",
+    "Collateral",
+    "Isolated",
+    "Tick Size @ Price 1",
+];
+
+fn perp_market_cells(market: &PerpMarketRow) -> Vec<String> {
+    vec![
+        market.name.clone(),
+        market.index.to_string(),
+        format!("{}x", market.max_leverage),
+        market.sz_decimals.to_string(),
+        market.collateral.clone(),
+        market.isolated_margin.to_string(),
+        market
+            .tick_size_at_price_1
+            .clone()
+            .unwrap_or_else(|| "n/a".to_string()),
+    ]
+}
+
 impl TableData for PerpMarketsOutput {
     fn headers(&self) -> Vec<&str> {
-        vec![
-            "Name",
-            "Index",
-            "Max Leverage",
-            "Sz Decimals",
-            "Collateral",
-            "Isolated",
-            "Tick Size @ Price 1",
-        ]
+        PERP_MARKET_HEADERS.to_vec()
     }
 
     fn rows(&self) -> Vec<Vec<String>> {
-        self.markets
-            .iter()
-            .map(|market| {
-                vec![
-                    market.name.clone(),
-                    market.index.to_string(),
-                    format!("{}x", market.max_leverage),
-                    market.sz_decimals.to_string(),
-                    market.collateral.clone(),
-                    market.isolated_margin.to_string(),
-                    market
-                        .tick_size_at_price_1
-                        .clone()
-                        .unwrap_or_else(|| "n/a".to_string()),
-                ]
-            })
-            .collect()
+        self.markets.iter().map(perp_market_cells).collect()
     }
 
     fn to_json_value(&self) -> serde_json::Value {
@@ -133,19 +134,11 @@ impl PerpMarketDetailsOutput {
 
 impl TableData for PerpMarketDetailsOutput {
     fn headers(&self) -> Vec<&str> {
-        vec![
-            "Name",
-            "Index",
-            "Max Leverage",
-            "Sz Decimals",
-            "Collateral",
-            "Isolated",
-            "Tick Size @ Price 1",
-        ]
+        PERP_MARKET_HEADERS.to_vec()
     }
 
     fn rows(&self) -> Vec<Vec<String>> {
-        PerpMarketsOutput::new(vec![self.market.clone()]).rows()
+        vec![perp_market_cells(&self.market)]
     }
 
     fn to_json_value(&self) -> serde_json::Value {
