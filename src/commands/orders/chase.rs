@@ -23,7 +23,7 @@ use crate::assets::qualify_dex_asset;
 use crate::commands::actions;
 
 const BPS: i64 = 10_000;
-const DEFAULT_TIMEOUT: Duration = Duration::from_secs(300);
+use super::live_order::DEFAULT_TRACKING_TIMEOUT;
 const MIN_NOTIONAL_USDC: i64 = 10;
 
 pub fn chase_dry_run_plan(
@@ -190,7 +190,7 @@ fn effective_timeout(args: &ChaseArgs, require_explicit: bool) -> Result<Duratio
              hyperliquid --format json --dry-run orders chase --coin ETH --side buy --size 0.5 --timeout 60s"
                 .to_string(),
         )),
-        None => Ok(DEFAULT_TIMEOUT),
+        None => Ok(DEFAULT_TRACKING_TIMEOUT),
     }
 }
 

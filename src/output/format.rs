@@ -32,6 +32,11 @@ pub fn plural<N: TryInto<u64>>(count: N, singular: &str, plural: &str) -> String
     format!("{} {noun}", thousands(count))
 }
 
+/// Pick the singular or plural noun for `count` without formatting the number.
+pub fn noun<'a, N: TryInto<u64>>(count: N, singular: &'a str, plural: &'a str) -> &'a str {
+    let count = count.try_into().unwrap_or(0);
+    if count == 1 { singular } else { plural }
+}
 /// Compact duration: `42ms`, `3.4s`, `2m 10s`, `1h 5m`.
 #[must_use]
 pub fn duration(value: Duration) -> String {

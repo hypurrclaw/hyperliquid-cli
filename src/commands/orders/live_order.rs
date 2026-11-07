@@ -5,6 +5,8 @@
 
 use hypersdk::Decimal;
 use hypersdk::hypercore::Cloid;
+use std::time::Duration;
+
 use hypersdk::hypercore::types::{
     Action, BasicOrder, BatchCancel, BatchCancelCloid, Cancel, CancelByCloid,
 };
@@ -16,6 +18,8 @@ pub(crate) struct LiveOrder {
     pub open_size: Decimal,
 }
 
+/// Default maximum time to track a resting order or ALO chase quote (5 minutes).
+pub(crate) const DEFAULT_TRACKING_TIMEOUT: Duration = Duration::from_secs(300);
 impl LiveOrder {
     /// Size still open for this order. Zero means it filled or was cancelled.
     pub(crate) fn open_size_in(&self, orders: &[BasicOrder]) -> Decimal {

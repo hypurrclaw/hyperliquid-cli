@@ -22,7 +22,7 @@ use super::{
     place_prepared_single, validate_tpsl_args,
 };
 
-const DEFAULT_ENTRY_TIMEOUT: Duration = Duration::from_secs(300);
+use super::live_order::DEFAULT_TRACKING_TIMEOUT;
 
 pub fn validate_bracket_args(args: &BracketArgs) -> Result<(), CliError> {
     match args.entry {
@@ -215,7 +215,7 @@ pub async fn bracket(
     // Poll the entry order itself (not position presence) so pre-existing
     // exposure cannot falsely complete the bracket.
     let timeout = if args.entry_timeout.is_zero() {
-        DEFAULT_ENTRY_TIMEOUT
+        DEFAULT_TRACKING_TIMEOUT
     } else {
         args.entry_timeout
     };
@@ -310,7 +310,7 @@ fn report_unprotected(
         "Entry order {} is {state} and not protected. {failed_step}: {cause}",
         entry.label()
     );
-    let mut next_commands = vec!["hyperliquid orders open".to_string()];
+    let mut next_commands = vec![super::rendering::CHECK_LIVE_COMMAND.to_string()];
     let lead = if state == "resting" {
         next_commands.push(entry.cancel_command(args));
         "Check what is live, then cancel the entry if you don't want it:"
@@ -363,7 +363,7 @@ async fn arm_protection(
         result.problem = Some(BracketProblem {
             entry_order_id: entry.oid,
             headline: headline.clone(),
-            next_commands: vec!["hyperliquid orders open".to_string()],
+            next_commands: vec![super::rendering::CHECK_LIVE_COMMAND.to_string()],
         });
         context.submission.inv.print(&result);
         return Err(CliError::PartialResults(format!(
