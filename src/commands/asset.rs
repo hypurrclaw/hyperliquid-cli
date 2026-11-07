@@ -16,10 +16,10 @@ use crate::assets::asset_id::{
 };
 use crate::assets::{AssetResolver, Market};
 use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, InputKind, arg};
-use crate::commands::outcomes::parse_positive_usize;
 use crate::http_api::ApiClient;
 use crate::invocation::Invocation;
 use crate::output::TableData;
+use crate::stream::parse_positive_usize;
 
 #[derive(Args, Debug, Clone)]
 pub struct AssetDecodeArgs {

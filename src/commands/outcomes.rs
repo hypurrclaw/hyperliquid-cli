@@ -15,6 +15,7 @@ use crate::errors::CliError;
 use crate::http_api::ApiClient;
 use crate::invocation::Invocation;
 use crate::output::TableData;
+use crate::stream::parse_positive_usize;
 
 #[derive(Args, Debug, Clone)]
 pub struct OutcomeListArgs {
@@ -205,16 +206,6 @@ pub fn unsupported_outcome_trading_error(raw: &str) -> CliError {
     CliError::Unsupported(format!(
         "outcome asset notation '{raw}' requires an outcome-aware command path; use `hyperliquid outcomes get {raw}` to inspect the encoded HIP-4 asset id. Live limit orders support outcome notation."
     ))
-}
-
-pub(crate) fn parse_positive_usize(raw: &str) -> Result<usize, String> {
-    let value = raw
-        .parse::<usize>()
-        .map_err(|err| format!("invalid positive integer: {err}"))?;
-    if value == 0 {
-        return Err("value must be greater than zero".to_string());
-    }
-    Ok(value)
 }
 
 #[derive(Debug, Serialize)]
