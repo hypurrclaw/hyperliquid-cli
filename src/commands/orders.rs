@@ -547,7 +547,7 @@ fn finish_with_failures(
         failed,
         headline: format!(
             "{verb} {succeeded} of {total} {}. {failed} failed.",
-            plural(total, "order", "orders")
+            output::format::noun(total, "order", "orders")
         ),
     };
     inv.print(&partial);
@@ -1116,8 +1116,8 @@ fn tpsl_confirmation_rows(
 fn status_count_mismatch(statuses: usize, orders: usize) -> CliError {
     CliError::Internal(anyhow::anyhow!(
         "The exchange returned {statuses} {} for {orders} {}. Check what is live:\n    {}",
-        plural(statuses, "status", "statuses"),
-        plural(orders, "order", "orders"),
+        output::format::noun(statuses, "status", "statuses"),
+        output::format::noun(orders, "order", "orders"),
         rendering::CHECK_LIVE_COMMAND
     ))
 }
@@ -1520,7 +1520,7 @@ fn confirm_cancel_all(
     let scope = coin.map(|coin| format!("{coin} ")).unwrap_or_default();
     let question = format!(
         "Cancel {count} open {scope}{} on {}?",
-        plural(count, "order", "orders"),
+        output::format::noun(count, "order", "orders"),
         target.network()
     );
     ask_confirmation(target, &[], &question)
@@ -1626,7 +1626,7 @@ fn confirm_mainnet_order_batch(
     target: &ConsentTarget<'_>,
 ) -> Result<bool, CliError> {
     let count = prepared.legs.len();
-    let orders = plural(count, "order", "orders");
+    let orders = output::format::noun(count, "order", "orders");
     ask_confirmation(
         target,
         &[format!("Orders: {count} {label} {orders}")],
@@ -1650,7 +1650,7 @@ fn confirm_mainnet_tpsl_batch(
             parent.size,
             parent.coin,
             parent.price,
-            plural(children, "order", "orders"),
+            output::format::noun(children, "order", "orders"),
             prepared.grouping
         )
     } else {
@@ -1660,7 +1660,7 @@ fn confirm_mainnet_tpsl_batch(
         format!(
             "Orders: {} grouped TP/SL {} for {} using {}",
             prepared.legs.len(),
-            plural(prepared.legs.len(), "order", "orders"),
+            output::format::noun(prepared.legs.len(), "order", "orders"),
             first.coin,
             prepared.grouping
         )
@@ -1759,10 +1759,6 @@ fn ask_confirmation(
         writeln!(stderr, "{line}").map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
     }
     prompt::confirm_warning(target.mode, question, "--yes")
-}
-
-pub(crate) fn plural<'a>(count: usize, singular: &'a str, plural: &'a str) -> &'a str {
-    if count == 1 { singular } else { plural }
 }
 
 #[cfg(test)]

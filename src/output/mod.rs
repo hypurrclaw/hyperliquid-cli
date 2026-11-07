@@ -903,7 +903,6 @@ mod tests {
     fn test_render_pretty_contains_headers() {
         let data = sample_data();
         let output = render_pretty(&data);
-        // Should contain header text (with ANSI codes for cyan)
         assert!(output.contains("Name"));
         assert!(output.contains("Price"));
         assert!(output.contains("Change"));
@@ -923,7 +922,6 @@ mod tests {
     fn test_render_pretty_has_ansi_colors_when_enabled() {
         colors::with_streams_for_test(true, false, || {
             let output = render_pretty(&sample_data());
-            // Should contain cyan ANSI code for headers
             assert!(output.contains(colors::CYAN));
             assert!(output.contains(colors::RESET));
         });
@@ -933,7 +931,6 @@ mod tests {
     fn test_render_pretty_has_separator() {
         let data = sample_data();
         let output = render_pretty(&data);
-        // Should contain separator line with dashes
         assert!(output.contains("─"));
     }
 

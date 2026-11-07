@@ -15,7 +15,7 @@ Drop it into your agent's tool belt and it can check prices, place orders, manag
 
 ## Why hyperliquid-cli
 
-- **Agent-first.** Built for the agent loop. Every command speaks JSON with `--format json`, field projection (`--select`), result caps (`--max-results`), and machine-readable `schema` output. `HYPERLIQUID_AGENT=1` (or non-TTY stdout) defaults to JSON automatically. Your agent reads stable snake_case keys, structured error objects, and well-defined exit codes — no scraping, no guessing.
+- **Agent-first.** Built for the agent loop. Every command speaks JSON with `--json` or `--format json`, field projection (`--select`), result caps (`--max-results`), and machine-readable `schema` output. `HYPERLIQUID_AGENT=1` (or non-TTY stdout) defaults to JSON automatically. Your agent reads stable snake_case keys, structured error objects, and well-defined exit codes — no scraping, no guessing.
 - **Wallet for your agent.** Create an API wallet (aka agent wallet) that can trade but never withdraw. Hand it to OpenClaw, Hermes, Claude, or any automation and it operates with bounded authority. OWS wallet secrets live in the encrypted vault; generated API wallet private keys are printed exactly once so you can store them securely.
 - **One tool, broad protocol coverage.** Markets, perps, spot, HIP-3 DEXes, orders, transfers, subaccounts, vaults, staking, borrow/lend, builder fees, referrals, account abstraction, and WebSocket subscriptions — all behind one binary.
 - **Safe by default.** Commands marked prompt-gated require confirmation for live mainnet mutations. `--dry-run` previews supported side effects before they happen. Testnet is one flag away. API wallets are withdraw-proof by protocol design.

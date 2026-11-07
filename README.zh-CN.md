@@ -15,7 +15,7 @@ Languages: [English](README.md) | [简体中文](README.zh-CN.md) | [日本語](
 
 ## 为什么选择 hyperliquid-cli
 
-- **代理优先。** 为代理循环而构建。每个命令都支持通过 `--format json` 输出 JSON、字段投影（`--select`）、结果上限（`--max-results`）以及机器可读的 `schema` 输出。`HYPERLIQUID_AGENT=1`（或非 TTY stdout）会自动默认输出 JSON。你的代理读取稳定的 snake_case 键、结构化错误对象和定义明确的退出码——无需抓取文本，无需猜测。
+- **代理优先。** 为代理循环而构建。每个命令都支持通过 `--json` 或 `--format json` 输出 JSON、字段投影（`--select`）、结果上限（`--max-results`）以及机器可读的 `schema` 输出。`HYPERLIQUID_AGENT=1`（或非 TTY stdout）会自动默认输出 JSON。你的代理读取稳定的 snake_case 键、结构化错误对象和定义明确的退出码——无需抓取文本，无需猜测。
 - **给代理使用的钱包。** 创建一个可以交易但永远不能提现的 API wallet（也称为 agent wallet）。把它交给 OpenClaw、Hermes、Claude 或任何自动化系统，它就能在受限权限内运行。OWS wallet secrets 保存在加密 vault 中；由 CLI 生成的 API wallet private key 会且只会打印一次，方便你安全保存。
 - **一个工具，覆盖广泛协议。** 市场、perps、spot、HIP-3 DEXes、订单、转账、子账户、金库、质押、借贷、builder 费用、推荐、账户抽象以及 WebSocket 订阅——全部在一个二进制文件后面。
 - **默认安全。** 被 schema 标记为 prompt-gated 的 live mainnet 可变更操作需要确认。`--dry-run` 会在受支持的副作用发生前预览。testnet 只需一个标志即可使用。API wallets 按协议设计无法提现。

@@ -58,7 +58,8 @@ where
     let mut command = build_command();
     let matches = command.try_get_matches_from_mut(args)?;
     let registry_path = command_registry_path_from_matches(&matches);
-    let explicit_format = matches.value_source("format") == Some(ValueSource::CommandLine);
+    let explicit_format = matches.value_source("format") == Some(ValueSource::CommandLine)
+        || matches.get_one::<bool>("json").copied().unwrap_or(false);
     let confirmation = confirmation_from_matches(&matches);
     let cli = Cli::from_arg_matches(&matches)?;
     let selected = match registry_path.as_deref() {
@@ -374,11 +375,15 @@ fn offending_arg_indexes(err: &clap::Error, args: &[OsString]) -> Option<Vec<usi
 /// Output format for a failed parse: an explicit `--format` wins, then
 /// `HYPERLIQUID_FORMAT`, then JSON for agents and non-terminal stdout.
 fn error_format(matches: Option<&ArgMatches>) -> output::OutputFormat {
-    if let Some(matches) = matches
-        && matches.value_source("format") == Some(ValueSource::CommandLine)
-        && let Some(format) = matches.get_one::<output::OutputFormat>("format")
-    {
-        return *format;
+    if let Some(matches) = matches {
+        if matches.get_one::<bool>("json").copied().unwrap_or(false) {
+            return output::OutputFormat::Json;
+        }
+        if matches.value_source("format") == Some(ValueSource::CommandLine)
+            && let Some(format) = matches.get_one::<output::OutputFormat>("format")
+        {
+            return *format;
+        }
     }
     match env_output_format() {
         Some(Ok(format)) => return format,
