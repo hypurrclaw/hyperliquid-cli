@@ -1,11 +1,12 @@
-use hypersdk::hypercore::HttpClient;
 use hypersdk::{Address, Decimal};
 use serde_json::json;
 
-use crate::commands::account::abstraction_query;
+use crate::commands::account::fetch_abstraction;
 use crate::commands::transfers::{self, SendAssetArgs};
 use crate::errors::CliError;
-use crate::output::OutputFormat;
+use crate::http_api::ApiClient;
+use crate::invocation::Remote;
+use crate::mode::Mode;
 use crate::signing::SelectedSigner;
 
 const DEFAULT_HIP3_LEVERAGE: i64 = 10;
@@ -30,8 +31,7 @@ impl Hip3MarginPlan {
 }
 
 pub async fn plan_hip3_margin_transfer(
-    client: &HttpClient,
-    api_base_url: &str,
+    api: &ApiClient,
     user: Address,
     dex: Option<&str>,
     notional: Decimal,
@@ -43,11 +43,11 @@ pub async fn plan_hip3_margin_transfer(
         return Ok(None);
     }
 
-    let Ok(abstraction) = abstraction_query(api_base_url, &user.to_string()).await else {
+    let Ok(abstraction) = fetch_abstraction(api, &user.to_string()).await else {
         return Ok(None);
     };
     if matches!(
-        abstraction.output.row.normalized_mode.as_str(),
+        abstraction.normalized_mode.as_str(),
         "unified-account" | "portfolio-margin"
     ) {
         return Ok(None);
@@ -61,7 +61,8 @@ pub async fn plan_hip3_margin_transfer(
         return Ok(None);
     }
 
-    let dest_available = client
+    let dest_available = api
+        .sdk()
         .clearinghouse_state(user, Some(dest_dex.to_string()))
         .await
         .map(|state| state.withdrawable)
@@ -77,17 +78,15 @@ pub async fn plan_hip3_margin_transfer(
 }
 
 pub async fn execute_hip3_margin_transfer(
-    api_base_url: &str,
-    chain: hypersdk::hypercore::Chain,
-    client: &HttpClient,
+    mode: &Mode,
+    remote: &Remote,
     signer: &SelectedSigner,
     user: Address,
     plan: &Hip3MarginPlan,
 ) -> Result<(), anyhow::Error> {
-    transfers::send_asset(
-        api_base_url,
-        chain,
-        client,
+    transfers::execute_send_asset(
+        mode,
+        remote,
         signer,
         &SendAssetArgs {
             to: user.to_string(),
@@ -98,10 +97,9 @@ pub async fn execute_hip3_margin_transfer(
             from_subaccount: None,
             yes: true,
         },
-        OutputFormat::Json,
-        false,
     )
     .await
+    .map(drop)
 }
 
 pub fn hip3_dex_from_coin(coin: &str, dex: Option<&str>) -> Option<String> {

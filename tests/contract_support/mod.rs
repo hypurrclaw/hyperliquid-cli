@@ -4,7 +4,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use assert_cmd::Command;
-use serde_json::Value;
+use hyperliquid_cli::command_registry::CommandRegistry;
+use hyperliquid_cli::command_spec::Risk;
+use hyperliquid_cli::commands::schema::schema_query;
+use hyperliquid_cli::output::TableData;
+use serde_json::{Value, json};
 
 pub fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf()
@@ -66,21 +70,103 @@ pub fn command_path(schema: &Value) -> String {
         .join(" ")
 }
 
-pub fn selected_schemas(commands: &[&str]) -> Value {
-    let schemas = schema_all();
-    let selected = commands
-        .iter()
-        .map(|command| {
-            schemas
-                .iter()
-                .find(|schema| command_path(schema) == *command)
-                .unwrap_or_else(|| panic!("missing schema for {command}"))
-                .clone()
-        })
-        .collect::<Vec<_>>();
-    serde_json::json!({
+/// The command schemas exactly as `hyperliquid schema` prints them.
+fn registry_schemas() -> Vec<Value> {
+    match schema_query(&[]).unwrap().to_json_value() {
+        Value::Array(schemas) => schemas,
+        other => panic!("schema output is not an array: {other}"),
+    }
+}
+
+fn wrap(commands: impl Into<Value>) -> Value {
+    json!({
         "characterization": true,
         "review_required_to_update": true,
-        "commands": selected,
+        "commands": commands.into(),
     })
+}
+
+/// Every fixture derived from the command registry, computed in one pass. This is
+/// the only place their contents are defined: `tests/contract_fixtures.rs` checks
+/// them and, with `HYPERLIQUID_UPDATE_CONTRACTS=1`, rewrites them.
+pub fn registry_fixtures() -> Vec<(&'static str, Value)> {
+    let registry = CommandRegistry::get();
+    let schemas = registry_schemas();
+
+    let inventory = registry
+        .commands()
+        .iter()
+        .map(|command| {
+            let input_kinds = command
+                .inputs
+                .iter()
+                .filter_map(|input| Some((input.id.clone(), input.kind?)))
+                .collect::<std::collections::BTreeMap<_, _>>();
+            json!({
+                "command": command.command,
+                "command_path": command.command_path,
+                "group": command.group,
+                "auth_required": command.auth_required,
+                "dangerous": command.dangerous,
+                "risk": command.risk,
+                "mutability": command.lifecycle,
+                "dry_run": command.dry_run,
+                "raw_payload": command.raw_payload,
+                "confirmation": command.confirmation,
+                "transport": command.transport,
+                "input_kinds": input_kinds,
+                "output_contract": command.output_contract,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    let high_risk = registry
+        .commands()
+        .iter()
+        .filter(|command| {
+            command.dangerous
+                || matches!(
+                    command.risk,
+                    Risk::FundsMovement | Risk::LocalSecret | Risk::LocalState
+                )
+        })
+        .map(|command| {
+            json!({
+                "command": command.command,
+                "auth_required": command.auth_required,
+                "dangerous": command.dangerous,
+                "lifecycle": command.lifecycle,
+                "risk": command.risk,
+                "dry_run": command.dry_run,
+                "raw_payload": command.raw_payload,
+                "confirmation": command.confirmation,
+                "ows_signer": command.ows_signer,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    let representative = [
+        "orders create",
+        "orders modify",
+        "transfer send",
+        "wallet address",
+        "borrowlend supply",
+        "subscribe all-mids",
+    ]
+    .iter()
+    .map(|command| {
+        schemas
+            .iter()
+            .find(|schema| command_path(schema) == *command)
+            .unwrap_or_else(|| panic!("missing schema for {command}"))
+            .clone()
+    })
+    .collect::<Vec<_>>();
+
+    vec![
+        ("command_inventory.json", wrap(inventory)),
+        ("registry_inventory.json", wrap(json!(registry.commands()))),
+        ("schema_high_risk_metadata.json", wrap(high_risk)),
+        ("schema_representative.json", wrap(representative)),
+    ]
 }

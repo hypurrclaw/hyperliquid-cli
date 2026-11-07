@@ -6,7 +6,9 @@
 
 | File | Purpose |
 |------|---------|
-| `src/update_check.rs` | Passive update notice, cache, foreground self-update |
+| `src/update/notifier.rs` | Passive update notice and cache |
+| `src/update/self_update.rs` | Foreground self-update |
+| `src/update/release.rs` | Release URLs, version compare, asset table, install method |
 | `install.sh` | Installer that downloads + verifies + places the binary |
 | `.github/workflows/release.yml` | GitHub Actions packaging for Linux, macOS, Windows |
 | `scripts/pre-release-check.sh` | Local-only secret/artifact gate before tagging |
@@ -74,8 +76,8 @@ Each artifact ships with a SHA-256 checksum file. v0.11.0 specifically tightened
 
 ## Entry points for modification
 
-- To change the update cadence: edit `UPDATE_CHECK_INTERVAL` in `src/update_check.rs`.
-- To support a new platform target: add an asset selector branch in `update_check.rs` and a matching matrix entry in `.github/workflows/release.yml`.
+- To change the update cadence: edit `UPDATE_CHECK_INTERVAL` in `src/update/notifier.rs`.
+- To support a new platform target: add an asset selector branch in `src/update/release.rs` and a matching matrix entry in `.github/workflows/release.yml`.
 - To change install location semantics: edit `install.sh` and refresh the README override docs.
 
 See also: [deployment](../deployment.md), [security](../security.md).

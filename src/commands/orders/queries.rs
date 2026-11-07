@@ -1,26 +1,15 @@
 use super::*;
-use crate::commands::AssetResolver;
-use crate::errors::http_response_indicates_rate_limit;
-use crate::http_api::{decode_json, post_info_raw};
+use crate::assets::AssetResolver;
+use crate::http_api::ApiClient;
 use crate::output::JsonValueOutput;
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct OrderStatusResult {
-    pub output: JsonValueOutput,
-    pub elapsed: Duration,
-}
 
 /// List authenticated user's open orders.
 pub async fn open(
-    client: &HttpClient,
+    inv: &Invocation,
     resolver: &AssetResolver,
     user: Address,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
-    let start = Instant::now();
-    let output = open_snapshot(client, resolver, user).await?;
-
-    output::print_data(&output, format, start.elapsed());
+    inv.print(&open_snapshot(inv.remote()?.api().sdk(), resolver, user).await?);
     Ok(())
 }
 
@@ -33,7 +22,7 @@ pub async fn open_snapshot(
     let rows = client
         .open_orders(user, None)
         .await
-        .map_err(map_api_error)?
+        .map_err(from_sdk)?
         .into_iter()
         .map(|order| OrderListRow::from(normalize_order_display_coin(resolver, order)))
         .collect();
@@ -46,23 +35,10 @@ pub async fn open_snapshot(
 
 /// Show a public order status by OID or CLOID.
 pub async fn status(
-    api_base_url: &str,
+    inv: &Invocation,
     user: Address,
     args: &StatusArgs,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
-    let result = status_query(api_base_url, user, args).await?;
-    output::print_data(&result.output, format, result.elapsed);
-    Ok(())
-}
-
-/// Fetch a public order status by OID or CLOID without printing it.
-pub async fn status_query(
-    api_base_url: &str,
-    user: Address,
-    args: &StatusArgs,
-) -> Result<OrderStatusResult, anyhow::Error> {
-    let start = Instant::now();
     let oid = match (args.oid, args.cloid.as_deref()) {
         (Some(oid), None) => serde_json::json!(oid),
         (None, Some(cloid)) => {
@@ -81,13 +57,13 @@ pub async fn status_query(
         user,
         oid,
     };
-    let value =
-        post_info_json::<serde_json::Value>(api_base_url, &request, "loading order status").await?;
-    let output = JsonValueOutput::new(value, "No order status.");
-    Ok(OrderStatusResult {
-        output,
-        elapsed: start.elapsed(),
-    })
+    let value = inv
+        .remote()?
+        .api()
+        .info::<serde_json::Value>(&request, "loading order status")
+        .await?;
+    inv.print(&JsonValueOutput::new(value, "No order status."));
+    Ok(())
 }
 
 #[derive(Debug, Serialize)]
@@ -101,26 +77,20 @@ struct OrderStatusRequest {
 
 /// List authenticated user's historical orders.
 pub async fn history(
-    client: &HttpClient,
+    inv: &Invocation,
     resolver: &AssetResolver,
     user: Address,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
-    let start = Instant::now();
-    let rows = historical_orders(client, user)
+    let rows = historical_orders(inv.remote()?.api(), user)
         .await?
         .into_iter()
         .map(|order| OrderListRow::from(normalize_order_display_coin(resolver, order)))
         .collect();
 
-    output::print_data(
-        &OrderListOutput {
-            rows,
-            empty_message: "No historical orders.",
-        },
-        format,
-        start.elapsed(),
-    );
+    inv.print(&OrderListOutput {
+        rows,
+        empty_message: "No historical orders.",
+    });
     Ok(())
 }
 
@@ -147,16 +117,13 @@ impl HistoricalOrderItem {
     }
 }
 
-async fn historical_orders(
-    client: &HttpClient,
-    user: Address,
-) -> Result<Vec<BasicOrder>, CliError> {
-    match client.historical_orders(user).await {
+async fn historical_orders(api: &ApiClient, user: Address) -> Result<Vec<BasicOrder>, CliError> {
+    match api.sdk().historical_orders(user).await {
         Ok(orders) => Ok(orders.into_iter().map(|update| update.order).collect()),
         Err(err) if should_fallback_to_raw_historical_orders(&err) => {
-            historical_orders_raw(client, user).await
+            historical_orders_raw(api, user).await
         }
-        Err(err) => Err(map_api_error(err)),
+        Err(err) => Err(from_sdk(err)),
     }
 }
 
@@ -173,27 +140,16 @@ fn should_fallback_to_raw_historical_orders(err: &anyhow::Error) -> bool {
 }
 
 async fn historical_orders_raw(
-    client: &HttpClient,
+    api: &ApiClient,
     user: Address,
 ) -> Result<Vec<BasicOrder>, CliError> {
-    let api_url = crate::commands::raw_info_base_url(client)?;
     let request = HistoricalOrdersRequest {
         request_type: "historicalOrders",
         user,
     };
-    let response = post_info_raw(api_url.as_str(), &request).await?;
-    let status = response.status;
-    let body = response.body;
-
-    if http_response_indicates_rate_limit(status.as_u16(), &body) {
-        return Err(CliError::RateLimited);
-    }
-
-    if !status.is_success() {
-        return Err(map_api_error(anyhow::anyhow!("HTTP {status} body={body}")));
-    }
-
-    let items = decode_json::<Vec<HistoricalOrderItem>>(&body, "loading historical orders")?;
+    let items = api
+        .info::<Vec<HistoricalOrderItem>>(&request, "loading historical orders")
+        .await?;
     Ok(items
         .into_iter()
         .map(HistoricalOrderItem::into_order)

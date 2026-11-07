@@ -1,8 +1,5 @@
-//! Wallet-neutral signer abstractions.
-//!
-//! This module is intentionally additive for now: existing command paths still
-//! use `PrivateKeySigner` directly, while new code can depend on `SelectedSigner`
-//! as the stable boundary that future OWS support will implement.
+//! The selected signer: a local private key or an OWS vault wallet behind one
+//! signing interface.
 
 use alloy::dyn_abi::TypedData;
 use alloy::signers::SignerSync;
@@ -12,6 +9,7 @@ use hypersdk::hypercore::types::{Action, ActionRequest, Signature};
 use hypersdk::hypercore::{Chain, PrivateKeySigner};
 
 use crate::errors::CliError;
+use crate::ows::signing::{self as ows_signing, OwsSigningConfig};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -25,7 +23,7 @@ pub enum SignerSource {
 #[derive(Debug, Clone)]
 enum SignerBackend {
     LocalPrivateKey(PrivateKeySigner),
-    Ows(crate::ows::OwsSigningConfig),
+    Ows(OwsSigningConfig),
 }
 
 #[derive(Debug, Clone)]
@@ -50,12 +48,7 @@ impl SelectedSigner {
     }
 
     #[must_use]
-    pub fn experimental_ows(selector: String, address: Address) -> Self {
-        Self::ows(crate::ows::OwsSigningConfig::new(selector, None, address))
-    }
-
-    #[must_use]
-    pub fn ows(config: crate::ows::OwsSigningConfig) -> Self {
+    pub fn ows(config: OwsSigningConfig) -> Self {
         let selector = config.selector().to_string();
         let address = config.address();
         Self {
@@ -83,11 +76,20 @@ impl SelectedSigner {
         &self.source
     }
 
+    /// The vault wallet's name, when the signer is a resolved OWS wallet.
+    #[must_use]
+    pub fn ows_wallet_name(&self) -> Option<&str> {
+        match &self.backend {
+            SignerBackend::LocalPrivateKey(_) => None,
+            SignerBackend::Ows(config) => config.wallet_name(),
+        }
+    }
+
     pub fn private_key_signer(&self) -> Result<&PrivateKeySigner, CliError> {
         match &self.backend {
             SignerBackend::LocalPrivateKey(signer) => Ok(signer),
             SignerBackend::Ows(config) => {
-                Err(crate::ows::unsupported_live_signing(config.selector()))
+                Err(ows_signing::unsupported_live_signing(config.selector()))
             }
         }
     }
@@ -101,7 +103,7 @@ impl SelectedSigner {
             SignerBackend::LocalPrivateKey(_) => Ok(()),
             SignerBackend::Ows(config) if config.has_resolved_wallet() => Ok(()),
             SignerBackend::Ows(config) => {
-                Err(crate::ows::unsupported_live_signing(config.selector()))
+                Err(ows_signing::unsupported_live_signing(config.selector()))
             }
         }
     }
@@ -131,7 +133,7 @@ impl SelectedSigner {
                         .map_err(|err| {
                             CliError::Internal(anyhow::anyhow!("failed to hash OWS action: {err}"))
                         })?;
-                let signature = crate::ows::sign_hash(config, signing_hash)?;
+                let signature = ows_signing::sign_hash(config, signing_hash)?;
                 let request = ActionRequest {
                     action,
                     nonce,
@@ -152,7 +154,7 @@ impl SelectedSigner {
                 .sign_dynamic_typed_data_sync(typed_data)
                 .map(Into::into)
                 .map_err(|err| CliError::Internal(anyhow::anyhow!("failed to sign action: {err}"))),
-            SignerBackend::Ows(config) => crate::ows::sign_typed_data(config, typed_data),
+            SignerBackend::Ows(config) => ows_signing::sign_typed_data(config, typed_data),
         }
     }
 
@@ -166,7 +168,7 @@ impl SelectedSigner {
                 .await
                 .map_err(|err| CliError::Internal(anyhow::anyhow!("failed to sign action: {err}"))),
             SignerBackend::Ows(config) => {
-                crate::ows::sign_hash(config, agent_signing_hash(chain, connection_id))
+                ows_signing::sign_hash(config, agent_signing_hash(chain, connection_id))
             }
         }
     }
@@ -178,7 +180,7 @@ impl SelectedSigner {
                     CliError::Internal(anyhow::anyhow!("failed to sign message: {err}"))
                 })
             }
-            SignerBackend::Ows(config) => crate::ows::sign_message(config, message),
+            SignerBackend::Ows(config) => ows_signing::sign_message(config, message),
         }
     }
 }
@@ -186,6 +188,7 @@ impl SelectedSigner {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ows::vault::{Vault, test_support::import_test_wallet};
 
     const KEY: &str = "0x0000000000000000000000000000000000000000000000000000000000000009";
 
@@ -217,22 +220,13 @@ mod tests {
     #[test]
     fn resolved_ows_signer_can_build_signed_l1_action_request() {
         let tmp = tempfile::TempDir::new().unwrap();
-        let wallet = ows_lib::import_wallet_private_key(
-            "signing-test-wallet",
-            KEY,
-            Some("hyperliquid"),
-            None,
-            Some(tmp.path()),
-            None,
-            None,
-        )
-        .unwrap();
+        let wallet = import_test_wallet(tmp.path(), "signing-test-wallet");
         let address = KEY.parse::<PrivateKeySigner>().unwrap().address();
-        let selected = SelectedSigner::ows(crate::ows::OwsSigningConfig::with_vault_path(
-            wallet.name,
-            Some(wallet.id),
+        let selected = SelectedSigner::ows(OwsSigningConfig::for_wallet(
+            wallet.name.clone(),
+            &wallet,
             address,
-            Some(tmp.path().to_path_buf()),
+            Vault::at(tmp.path()),
         ));
 
         let request = selected
@@ -255,14 +249,14 @@ mod tests {
     }
 
     #[test]
-    fn experimental_ows_signer_exposes_address_but_rejects_live_signing() {
+    fn address_only_ows_signer_exposes_address_but_rejects_live_signing() {
         let address: Address = "0x0000000000000000000000000000000000000001"
             .parse()
             .unwrap();
-        let selected = SelectedSigner::experimental_ows(
+        let selected = SelectedSigner::ows(OwsSigningConfig::address_only(
             "0x0000000000000000000000000000000000000001".to_string(),
             address,
-        );
+        ));
 
         assert_eq!(selected.address(), address);
         assert_eq!(selected.query_address(), address);

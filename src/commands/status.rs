@@ -2,13 +2,13 @@
 
 use std::time::{Duration, Instant};
 
-use hypersdk::hypercore::HttpClient;
 use serde::Serialize;
 
-use crate::command_context::CommandContext;
-use crate::commands::map_api_error;
+use crate::command_spec::{CliCommand, CommandSpec, NoArgs};
+use crate::errors::from_sdk;
+use crate::invocation::Invocation;
+use crate::output::TableData;
 use crate::output::format::{duration, plural};
-use crate::output::{OutputFormat, TableData};
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct StatusOutput {
@@ -20,12 +20,6 @@ pub struct StatusOutput {
     pub mids_count: usize,
     pub rate_limit_status: String,
     pub rate_limit_note: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StatusResult {
-    pub output: StatusOutput,
-    pub elapsed: Duration,
 }
 
 impl TableData for StatusOutput {
@@ -54,70 +48,45 @@ impl TableData for StatusOutput {
     }
 }
 
-/// Query lightweight public endpoints and return typed API health/rate-limit status.
-pub async fn query(
-    client: &HttpClient,
-    network: impl Into<String>,
-    api_url: impl Into<String>,
-) -> Result<StatusResult, anyhow::Error> {
-    let start = Instant::now();
-    let output = query_output(client, network, api_url).await?;
-
-    Ok(StatusResult {
-        output,
-        elapsed: start.elapsed(),
-    })
-}
-
-async fn query_output(
-    client: &HttpClient,
-    network: impl Into<String>,
-    api_url: impl Into<String>,
-) -> Result<StatusOutput, anyhow::Error> {
+/// Query lightweight public endpoints and render API health/rate-limit status.
+pub async fn show(inv: &Invocation) -> Result<(), anyhow::Error> {
+    let remote = inv.remote()?;
+    let client = remote.api().sdk();
     let probe_start = Instant::now();
-    let perps = client.perps().await.map_err(map_api_error)?;
-    let mids = client.all_mids(None).await.map_err(map_api_error)?;
+    let perps = client.perps().await.map_err(from_sdk)?;
+    let mids = client.all_mids(None).await.map_err(from_sdk)?;
     let latency = probe_start.elapsed();
 
-    Ok(StatusOutput {
-        network: network.into(),
-        api_url: api_url.into(),
+    inv.print(&StatusOutput {
+        network: remote.network().to_string(),
+        api_url: remote.api().base_url().to_string(),
         health: "healthy".to_string(),
-        latency_ms: duration_millis(latency),
+        latency_ms: latency.as_millis(),
         perps_count: perps.len(),
         mids_count: mids.len(),
         rate_limit_status: "ok".to_string(),
         rate_limit_note:
             "no rate-limit response observed; 429 responses map to exit code 11 and should be retried with backoff"
                 .to_string(),
-    })
-}
-
-/// Query lightweight public endpoints and render API health/rate-limit status
-/// through a per-call output context.
-pub async fn show_with_context(context: &CommandContext<'_>) -> Result<(), anyhow::Error> {
-    let client = context
-        .hypercore_client()
-        .ok_or_else(|| anyhow::anyhow!("status command requires a Hyperliquid HTTP client"))?;
-    let result = query(client, context.network(), context.api_base_url()).await?;
-    context.print(&result.output, result.elapsed);
+    });
     Ok(())
 }
 
-/// Query lightweight public endpoints and render API health/rate-limit status.
-pub async fn show(
-    client: &HttpClient,
-    network: impl Into<String>,
-    api_url: impl Into<String>,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let result = query(client, network, api_url).await?;
-    crate::output::print_data(&result.output, format, result.elapsed);
-    Ok(())
-}
+pub struct Status;
 
-fn duration_millis(duration: Duration) -> u128 {
-    duration.as_millis()
+impl CliCommand for Status {
+    type Args = NoArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["status"],
+        "market",
+        "Show API health and rate limits",
+        "Show Hyperliquid API health and rate-limit context.",
+    );
+
+    async fn run(inv: &Invocation, _args: &NoArgs) -> Result<(), anyhow::Error> {
+        show(inv).await
+    }
 }
 
 #[cfg(test)]

@@ -15,21 +15,20 @@
 //! Streams:
 //! - stdout carries the answer. Empty-state sentences and `--max-results`
 //!   truncation notices go to stderr in pretty and table modes.
-//! - JSON mode: errors printed to stdout as `{"error": "..."}`
-//! - Pretty mode: errors printed to stderr as `✗ message` (rich) or `Error: message`
-//! - Table mode: errors printed to stderr as `Error: message`
+//! - Errors are rendered by [`crate::errors`], which depends on this module.
 //!
 //! Timing feedback:
 //! - "Completed in 1.2s" is printed to stderr only for human formats on a terminal
-
-#![allow(dead_code)]
 
 use clap::ValueEnum;
 use serde_json::Value;
 use std::fmt;
 use std::io::Write;
-use std::sync::{OnceLock, RwLock};
 use tabwriter::TabWriter;
+
+mod session;
+
+pub use session::Session;
 
 pub mod colors;
 pub mod format;
@@ -57,6 +56,7 @@ impl fmt::Display for OutputFormat {
 
 // ── JSON projection options ─────────────────────────────────────────────
 
+/// `--select`, `--results-only` and `--max-results`, applied to JSON output.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct JsonRenderOptions {
     selected_fields: Option<Vec<String>>,
@@ -79,50 +79,65 @@ impl JsonRenderOptions {
         self.max_results
     }
 
+    /// The `--select` field names, lowercased, when `--select` was given.
     #[must_use]
     pub fn selected_fields(&self) -> Option<&[String]> {
         self.selected_fields.as_deref()
     }
-}
 
-static JSON_OPTIONS: OnceLock<RwLock<JsonRenderOptions>> = OnceLock::new();
+    /// Whether any projection flag was given.
+    #[must_use]
+    pub fn is_active(&self) -> bool {
+        self.selected_fields.is_some() || self.results_only || self.max_results.is_some()
+    }
 
-fn json_options() -> &'static RwLock<JsonRenderOptions> {
-    JSON_OPTIONS.get_or_init(|| RwLock::new(JsonRenderOptions::default()))
-}
+    /// Project one JSON document.
+    #[must_use]
+    pub fn apply(&self, value: serde_json::Value) -> serde_json::Value {
+        let value = if self.results_only {
+            strip_results_envelope(value)
+        } else {
+            value
+        };
 
-/// Configure process-wide JSON rendering options for the current CLI invocation.
-///
-/// The binary is a one-command process, so this lets every command module keep
-/// using the shared output renderer while global flags such as `--select` and
-/// `--results-only` are still enforced consistently.
-pub fn set_json_options(select: Option<&str>, results_only: bool) {
-    set_json_options_with_limit(select, results_only, None);
-}
+        let value = if let Some(max_results) = self.max_results {
+            limit_json_results(value, max_results)
+        } else {
+            value
+        };
 
-/// Configure process-wide JSON rendering options, including an optional
-/// top-level result limiter for agent context-window control.
-pub fn set_json_options_with_limit(
-    select: Option<&str>,
-    results_only: bool,
-    max_results: Option<usize>,
-) {
-    let mut options = json_options()
-        .write()
-        .expect("json options lock should not be poisoned");
-    *options = JsonRenderOptions::from_cli(select, results_only, max_results);
-}
+        if let Some(fields) = self.selected_fields.as_deref() {
+            project_selected_fields(value, fields)
+        } else {
+            value
+        }
+    }
 
-fn current_json_options() -> JsonRenderOptions {
-    json_options()
-        .read()
-        .expect("json options lock should not be poisoned")
-        .clone()
-}
+    /// Project one JSONL stream envelope.
+    ///
+    /// Stream envelopes keep their top-level `type`, `subscription`, and `data`
+    /// keys unless the caller explicitly selects top-level fields. `--max-results`
+    /// is therefore applied recursively to nested payloads instead of truncating
+    /// the envelope itself.
+    #[must_use]
+    pub fn apply_stream(&self, value: serde_json::Value) -> serde_json::Value {
+        let value = if self.results_only {
+            strip_results_envelope(value)
+        } else {
+            value
+        };
+        let value = if let Some(max_results) = self.max_results {
+            limit_json_stream_results(value, max_results)
+        } else {
+            value
+        };
 
-pub fn json_projection_options_enabled() -> bool {
-    let options = current_json_options();
-    options.selected_fields.is_some() || options.results_only || options.max_results.is_some()
+        if let Some(fields) = self.selected_fields.as_deref() {
+            project_stream_selected_fields(value, fields)
+        } else {
+            value
+        }
+    }
 }
 
 fn parse_selected_fields(select: &str) -> Vec<String> {
@@ -132,68 +147,6 @@ fn parse_selected_fields(select: &str) -> Vec<String> {
         .filter(|field| !field.is_empty())
         .map(|field| field.to_ascii_lowercase())
         .collect()
-}
-
-fn apply_json_options(value: serde_json::Value, options: &JsonRenderOptions) -> serde_json::Value {
-    let value = if options.results_only {
-        strip_results_envelope(value)
-    } else {
-        value
-    };
-
-    let value = if let Some(max_results) = options.max_results {
-        limit_json_results(value, max_results)
-    } else {
-        value
-    };
-
-    if let Some(fields) = options.selected_fields.as_deref() {
-        project_selected_fields(value, fields)
-    } else {
-        value
-    }
-}
-
-/// Apply the current global JSON options to an arbitrary JSON value.
-#[must_use]
-pub fn apply_current_json_options_to_value(value: serde_json::Value) -> serde_json::Value {
-    apply_json_options(value, &current_json_options())
-}
-
-/// Apply global JSON options to a JSONL stream envelope.
-///
-/// Stream envelopes should keep their top-level `type`, `subscription`, and `data`
-/// keys unless the caller explicitly selects top-level fields. `--max-results`
-/// is therefore applied recursively to nested payloads instead of truncating the
-/// envelope itself.
-#[must_use]
-pub fn apply_current_json_stream_options(value: serde_json::Value) -> serde_json::Value {
-    let options = current_json_options();
-    apply_json_stream_options(value, &options)
-}
-
-/// Apply explicit JSON options to a JSONL stream envelope.
-#[must_use]
-pub fn apply_json_stream_options(
-    value: serde_json::Value,
-    options: &JsonRenderOptions,
-) -> serde_json::Value {
-    let value = if options.results_only {
-        strip_results_envelope(value)
-    } else {
-        value
-    };
-    let value = if let Some(max_results) = options.max_results {
-        limit_json_stream_results(value, max_results)
-    } else {
-        value
-    };
-
-    if let Some(fields) = options.selected_fields.as_deref() {
-        project_stream_selected_fields(value, fields)
-    } else {
-        value
-    }
 }
 
 fn limit_json_results(value: serde_json::Value, max_results: usize) -> serde_json::Value {
@@ -458,8 +411,7 @@ impl TableData for JsonValueOutput {
     }
 }
 
-#[must_use]
-pub fn snake_case_json_keys(value: Value) -> Value {
+fn snake_case_json_keys(value: Value) -> Value {
     match value {
         Value::Object(object) => Value::Object(
             object
@@ -788,12 +740,6 @@ fn json_string(value: &Value, tty: bool) -> String {
     rendered.unwrap_or_else(|_| "[]".to_string())
 }
 
-/// Serialize JSON for stdout: indented on a terminal, compact single-line on a pipe.
-#[must_use]
-pub fn json_to_string(value: &Value) -> String {
-    json_string(value, terminal::stdout_is_terminal())
-}
-
 fn render_outcome(
     data: &dyn TableData,
     format: OutputFormat,
@@ -804,152 +750,15 @@ fn render_outcome(
         OutputFormat::Pretty => render_pretty_inner(data, options.max_results(), tty),
         OutputFormat::Table => render_table_inner(data, options.max_results(), tty),
         OutputFormat::Json => Rendered {
-            text: json_string(&json_value_with_options(data, options), tty),
+            text: json_string(&options.apply(data.to_json_value()), tty),
             notices: Vec::new(),
         },
     }
 }
 
-/// Render data in pretty format (tabwriter-aligned, colorized when enabled).
-///
-/// Uses tabwriter for column alignment with tab-separated input. Headers are
-/// cyan and values use contextual coloring when stdout styling is enabled.
-pub fn render_pretty(data: &dyn TableData) -> String {
-    render_pretty_with_limit(data, current_json_options().max_results())
-}
-
-/// Render data in pretty format with an explicit row limit.
-pub fn render_pretty_with_limit(data: &dyn TableData, max_results: Option<usize>) -> String {
-    render_pretty_inner(data, max_results, terminal::stdout_is_terminal()).text
-}
-
-/// Render data in table format: a bordered table on a terminal, a header line
-/// plus tab-separated rows on a pipe.
-pub fn render_table(data: &dyn TableData) -> String {
-    render_table_with_limit(data, current_json_options().max_results())
-}
-
-/// Render data in table format with an explicit row limit.
-pub fn render_table_with_limit(data: &dyn TableData, max_results: Option<usize>) -> String {
-    render_table_inner(data, max_results, terminal::stdout_is_terminal()).text
-}
-
-/// Render data as JSON (stable output with snake_case keys).
-///
-/// Indented on a terminal, compact single-line otherwise.
-pub fn render_json(data: &dyn TableData) -> String {
-    json_to_string(&json_value(data))
-}
-
-/// Render data as JSON using explicit per-call projection options.
-pub fn render_json_with_options(data: &dyn TableData, options: &JsonRenderOptions) -> String {
-    json_to_string(&json_value_with_options(data, options))
-}
-
-/// Return the JSON value after applying global projection/result options.
-pub fn json_value(data: &dyn TableData) -> serde_json::Value {
-    apply_json_options(data.to_json_value(), &current_json_options())
-}
-
-/// Return the JSON value after applying explicit per-call projection options.
-pub fn json_value_with_options(
-    data: &dyn TableData,
-    options: &JsonRenderOptions,
-) -> serde_json::Value {
-    apply_json_options(data.to_json_value(), options)
-}
-
-/// Render data as a compact JSON string after applying global JSON options.
-pub fn render_json_compact(data: &dyn TableData) -> Result<String, serde_json::Error> {
-    serde_json::to_string(&json_value(data))
-}
-
-/// Render data using the specified format.
-pub fn render(data: &dyn TableData, format: OutputFormat) -> String {
-    render_with_json_options(data, format, &current_json_options())
-}
-
-/// Render data using explicit per-call projection options.
-pub fn render_with_json_options(
-    data: &dyn TableData,
-    format: OutputFormat,
-    options: &JsonRenderOptions,
-) -> String {
-    render_outcome(data, format, options, terminal::stdout_is_terminal()).text
-}
-
-// ── Print functions ─────────────────────────────────────────────────────
-
-/// Write rendered output: the answer to stdout, notices to stderr.
-fn print_rendered(rendered: &Rendered) {
-    if !rendered.text.is_empty() {
-        println!("{}", rendered.text);
-    }
-    for notice in &rendered.notices {
-        eprintln!("{notice}");
-    }
-}
-
-/// Print data to stdout using explicit projection options. Empty-state and
-/// `--max-results` truncation notices go to stderr for pretty and table.
-pub fn emit(data: &dyn TableData, format: OutputFormat, options: &JsonRenderOptions) {
-    print_rendered(&render_outcome(
-        data,
-        format,
-        options,
-        terminal::stdout_is_terminal(),
-    ));
-}
-
-/// Print data to stdout using the specified format, with timing feedback on stderr.
-///
-/// This is the main entry point for printing command output.
-/// - Prints formatted data to stdout
-/// - Prints timing feedback ("Completed in 1.2s") to stderr only when the
-///   format is human and stderr is a terminal
-pub fn print_data(data: &dyn TableData, format: OutputFormat, duration: std::time::Duration) {
-    print_data_no_timing(data, format);
-    print_timing(duration, format);
-}
-
-/// Print data to stdout using the specified format, without timing feedback.
-pub fn print_data_no_timing(data: &dyn TableData, format: OutputFormat) {
-    emit(data, format, &current_json_options());
-}
-
-/// The timing footer for a finished command, or `None` when it must stay silent:
-/// JSON output, agent or CI runs, and any stderr that is not a terminal.
-fn timing_footer(
-    duration: std::time::Duration,
-    format: OutputFormat,
-    stderr_is_terminal: bool,
-) -> Option<String> {
-    if format == OutputFormat::Json
-        || !stderr_is_terminal
-        || crate::mode::agent_env()
-        || crate::mode::ci_env()
-    {
-        return None;
-    }
-    Some(colors::stderr::gray(&format_timing(duration)))
-}
-
-/// Print timing feedback to stderr when the format is human and stderr is a terminal.
-pub fn print_timing(duration: std::time::Duration, format: OutputFormat) {
-    if let Some(line) = timing_footer(duration, format, terminal::stderr_is_terminal()) {
-        eprintln!("{line}");
-    }
-}
-
-/// Format timing feedback string.
-pub fn format_timing(duration: std::time::Duration) -> String {
-    format!("Completed in {}", format::duration(duration))
-}
-
 /// A warning line for stderr: `! message` with a yellow `!` in rich output,
 /// `Warning: message` otherwise.
-#[must_use]
-pub fn format_warning_line(message: &str) -> String {
+fn warning_line(message: &str) -> String {
     if colors::stderr_enabled() {
         format!("{} {message}", colors::stderr::yellow("!"))
     } else {
@@ -957,55 +766,9 @@ pub fn format_warning_line(message: &str) -> String {
     }
 }
 
-/// An error line for stderr: `✗ message` with a red `✗` in rich output,
-/// `Error: message` otherwise.
-#[must_use]
-pub fn format_error_line(message: &str) -> String {
-    if colors::stderr_enabled() {
-        format!("{} {message}", colors::stderr::red("✗"))
-    } else {
-        format!("Error: {message}")
-    }
-}
-
 /// Print a warning to stderr (all formats).
 pub fn warn(message: &str) {
-    eprintln!("{}", format_warning_line(message));
-}
-
-/// Print a plain error message with proper routing based on output format.
-///
-/// For richer error handling with [`crate::errors::CliError`], use
-/// [`crate::errors::print_error`] instead.
-///
-/// - JSON mode: prints `{"error": "..."}` to **stdout**
-/// - Pretty mode: prints `✗ message` (red glyph) or `Error: message` to **stderr**
-/// - Table mode: prints a plain `Error: message` to **stderr**
-pub fn print_error(message: &str, format: OutputFormat) {
-    match format {
-        OutputFormat::Json => {
-            println!(
-                "{}",
-                crate::errors::ErrorEnvelope::new(message.to_string()).to_json()
-            );
-        }
-        OutputFormat::Pretty => {
-            eprintln!("{}", format_error_line(message));
-        }
-        OutputFormat::Table => {
-            eprintln!("Error: {message}");
-        }
-    }
-}
-
-/// Print a warning message to stderr (always stderr, all formats).
-pub fn print_warning(message: &str) {
-    warn(message);
-}
-
-/// Print a separator line to stderr for visual feedback.
-pub fn print_separator() {
-    eprintln!("{}", "-".repeat(60));
+    eprintln!("{}", warning_line(message));
 }
 
 // ── Unit tests ──────────────────────────────────────────────────────────
@@ -1013,6 +776,33 @@ pub fn print_separator() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn plain_env() -> terminal::OutputEnv {
+        terminal::OutputEnv::default()
+    }
+
+    fn tty_env() -> terminal::OutputEnv {
+        terminal::OutputEnv {
+            stdout_tty: true,
+            ..terminal::OutputEnv::default()
+        }
+    }
+
+    fn render_with(data: &dyn TableData, format: OutputFormat, env: terminal::OutputEnv) -> String {
+        Session::new(format, JsonRenderOptions::default(), env).render(data)
+    }
+
+    fn render(data: &dyn TableData, format: OutputFormat) -> String {
+        render_with(data, format, plain_env())
+    }
+
+    fn render_pretty(data: &dyn TableData) -> String {
+        render(data, OutputFormat::Pretty)
+    }
+
+    fn render_table(data: &dyn TableData) -> String {
+        render(data, OutputFormat::Table)
+    }
 
     /// Simple test data struct for testing the output system.
     struct TestData {
@@ -1167,13 +957,11 @@ mod tests {
 
     #[test]
     fn test_render_table_has_borders_on_terminal() {
-        terminal::with_tty_for_test(true, false, || {
-            let output = render_table(&sample_data());
-            // Rounded table style uses these border characters
-            assert!(output.contains('│'));
-            assert!(output.contains('╭'));
-            assert!(output.contains('╯'));
-        });
+        let output = render_with(&sample_data(), OutputFormat::Table, tty_env());
+        // Rounded table style uses these border characters
+        assert!(output.contains('│'));
+        assert!(output.contains('╭'));
+        assert!(output.contains('╯'));
     }
 
     #[test]
@@ -1187,7 +975,7 @@ mod tests {
     #[test]
     fn test_render_json_valid() {
         let data = sample_data();
-        let output = render_json(&data);
+        let output = render(&data, OutputFormat::Json);
         let parsed: serde_json::Value =
             serde_json::from_str(&output).expect("Should be valid JSON");
         assert!(parsed.is_array());
@@ -1198,28 +986,12 @@ mod tests {
     #[test]
     fn test_render_json_has_correct_fields() {
         let data = sample_data();
-        let output = render_json(&data);
+        let output = render(&data, OutputFormat::Json);
         let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
         let first = &parsed.as_array().unwrap()[0];
         assert!(first.get("name").is_some());
         assert!(first.get("price").is_some());
         assert!(first.get("change").is_some());
-    }
-
-    #[test]
-    fn test_render_json_snake_case_keys() {
-        let data = TestData {
-            headers: vec!["Asset Name".to_string(), "Max Leverage".to_string()],
-            rows: vec![vec!["BTC".to_string(), "50".to_string()]],
-            json: serde_json::json!([
-                {"asset_name": "BTC", "max_leverage": "50"}
-            ]),
-        };
-        let output = render_json(&data);
-        let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
-        let first = &parsed.as_array().unwrap()[0];
-        assert!(first.get("asset_name").is_some());
-        assert!(first.get("max_leverage").is_some());
     }
 
     #[test]
@@ -1324,7 +1096,7 @@ mod tests {
             }
         });
 
-        let limited = apply_json_stream_options(value, &options);
+        let limited = options.apply_stream(value);
 
         assert_eq!(limited["type"], "event");
         assert_eq!(limited["subscription"], "allMids(None)");
@@ -1351,7 +1123,7 @@ mod tests {
             }
         });
 
-        let limited = apply_json_stream_options(value, &options);
+        let limited = options.apply_stream(value);
 
         assert_eq!(limited["data"]["channel"], "allMids");
         let payload = limited["data"]["data"]["mids"].as_object().unwrap();
@@ -1368,7 +1140,7 @@ mod tests {
             "data": {"ignored": true}
         });
 
-        let projected = apply_json_stream_options(value, &options);
+        let projected = options.apply_stream(value);
 
         assert_eq!(
             projected,
@@ -1391,7 +1163,7 @@ mod tests {
             }
         });
 
-        let projected = apply_json_stream_options(value, &options);
+        let projected = options.apply_stream(value);
 
         assert_eq!(
             projected,
@@ -1416,7 +1188,7 @@ mod tests {
             }
         });
 
-        let projected = apply_json_stream_options(value, &options);
+        let projected = options.apply_stream(value);
 
         assert_eq!(projected["data"]["channel"], "trades");
         assert!(projected["data"]["data"].is_array());
@@ -1439,16 +1211,14 @@ mod tests {
         let data = sample_data();
 
         colors::with_streams_for_test(true, false, || {
-            terminal::with_tty_for_test(true, false, || {
-                let pretty = render(&data, OutputFormat::Pretty);
-                let table = render(&data, OutputFormat::Table);
-                let json = render(&data, OutputFormat::Json);
+            let pretty = render_with(&data, OutputFormat::Pretty, tty_env());
+            let table = render_with(&data, OutputFormat::Table, tty_env());
+            let json = render_with(&data, OutputFormat::Json, tty_env());
 
-                assert!(pretty.contains(colors::CYAN));
-                assert!(table.contains('│') || table.contains('─'));
-                assert!(json.contains('\n'));
-                serde_json::from_str::<serde_json::Value>(&json).unwrap();
-            });
+            assert!(pretty.contains(colors::CYAN));
+            assert!(table.contains('│') || table.contains('─'));
+            assert!(json.contains('\n'));
+            serde_json::from_str::<serde_json::Value>(&json).unwrap();
         });
     }
 
@@ -1470,54 +1240,24 @@ mod tests {
 
     #[test]
     fn test_table_on_terminal_is_bordered() {
-        terminal::with_tty_for_test(true, false, || {
-            let output = render_table(&sample_data());
-            assert!(output.contains('╭'));
-            assert!(output.contains("BTC"));
-        });
+        let output = render_with(&sample_data(), OutputFormat::Table, tty_env());
+        assert!(output.contains('╭'));
+        assert!(output.contains("BTC"));
     }
 
     #[test]
     fn test_json_is_compact_on_pipe_and_indented_on_terminal() {
         let data = sample_data();
-        let compact = render_json(&data);
+        let compact = render(&data, OutputFormat::Json);
         assert!(!compact.contains('\n'));
         let value: serde_json::Value = serde_json::from_str(&compact).unwrap();
 
-        terminal::with_tty_for_test(true, false, || {
-            let pretty = render_json(&data);
-            assert!(pretty.contains("\n  "));
-            assert_eq!(
-                serde_json::from_str::<serde_json::Value>(&pretty).unwrap(),
-                value
-            );
-        });
-    }
-
-    #[test]
-    fn test_format_timing() {
-        let duration = std::time::Duration::from_millis(1234);
-        assert_eq!(format_timing(duration), "Completed in 1.2s");
+        let pretty = render_with(&data, OutputFormat::Json, tty_env());
+        assert!(pretty.contains("\n  "));
         assert_eq!(
-            format_timing(std::time::Duration::from_millis(42)),
-            "Completed in 42ms"
+            serde_json::from_str::<serde_json::Value>(&pretty).unwrap(),
+            value
         );
-    }
-
-    #[test]
-    fn test_timing_footer_only_for_human_formats_on_terminal() {
-        let duration = std::time::Duration::from_millis(1234);
-        assert!(timing_footer(duration, OutputFormat::Json, true).is_none());
-        assert!(timing_footer(duration, OutputFormat::Pretty, false).is_none());
-        assert!(timing_footer(duration, OutputFormat::Table, false).is_none());
-        // The agent/CI gates read the process environment, so assert only the
-        // terminal case when neither is set.
-        if !crate::mode::agent_env() && !crate::mode::ci_env() {
-            assert_eq!(
-                timing_footer(duration, OutputFormat::Pretty, true).as_deref(),
-                Some("Completed in 1.2s")
-            );
-        }
     }
 
     #[test]
@@ -1531,30 +1271,16 @@ mod tests {
                 colors::yellow("test"),
                 colors::paint(colors::YELLOW, "test")
             );
-            assert_eq!(colors::bold("test"), colors::paint(colors::BOLD, "test"));
-            assert_eq!(
-                colors::pnl("+100.50", true),
-                colors::paint(colors::GREEN, "+100.50")
-            );
-            assert_eq!(
-                colors::pnl("-50.25", false),
-                colors::paint(colors::RED, "-50.25")
-            );
         });
     }
 
     #[test]
-    fn test_warning_and_error_lines_use_glyphs_when_rich() {
-        assert_eq!(format_warning_line("careful"), "Warning: careful");
-        assert_eq!(format_error_line("broke"), "Error: broke");
+    fn test_warning_line_uses_glyph_when_rich() {
+        assert_eq!(warning_line("careful"), "Warning: careful");
         colors::with_streams_for_test(false, true, || {
             assert_eq!(
-                format_warning_line("careful"),
+                warning_line("careful"),
                 format!("{} careful", colors::paint(colors::YELLOW, "!"))
-            );
-            assert_eq!(
-                format_error_line("broke"),
-                format!("{} broke", colors::paint(colors::RED, "✗"))
             );
         });
     }
@@ -1575,18 +1301,16 @@ mod tests {
         assert!(pretty.contains("Name"));
         assert!(!pretty.contains('─'));
 
-        let json = render_json(&data);
+        let json = render(&data, OutputFormat::Json);
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.as_array().unwrap().len(), 0);
     }
 
     #[test]
     fn test_empty_data_prints_nothing_on_terminal() {
-        terminal::with_tty_for_test(true, false, || {
-            let data = empty_data();
-            assert_eq!(render_table(&data), "");
-            assert_eq!(render_pretty(&data), "");
-        });
+        let data = empty_data();
+        assert_eq!(render_with(&data, OutputFormat::Table, tty_env()), "");
+        assert_eq!(render_with(&data, OutputFormat::Pretty, tty_env()), "");
     }
 
     #[test]
@@ -1648,9 +1372,7 @@ mod tests {
         assert!(pretty.contains(expected));
         assert_eq!(pretty.lines().count(), 3);
 
-        terminal::with_tty_for_test(true, false, || {
-            assert!(render_table(&data).contains(expected));
-        });
+        assert!(render_with(&data, OutputFormat::Table, tty_env()).contains(expected));
     }
 
     #[test]
@@ -1680,7 +1402,7 @@ mod tests {
         assert!(pretty.contains("BTC"));
         assert!(pretty.contains("Coin"));
 
-        let json = render_json(&data);
+        let json = render(&data, OutputFormat::Json);
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.as_array().unwrap().len(), 1);
     }

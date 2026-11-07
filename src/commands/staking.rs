@@ -1,19 +1,21 @@
 //! Staking public queries and authenticated staking actions.
 
-use std::time::{Duration, Instant};
-
 use alloy::sol;
 use clap::Args;
 use hypersdk::hypercore::Chain;
 use hypersdk::{Address, Decimal};
-use rust_decimal::prelude::ToPrimitive;
 use serde::{Deserialize, Serialize};
 
+use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, InputKind, NoArgs, arg};
+use crate::commands::account::OptionalAddressArgs;
 use crate::commands::actions;
+use crate::commands::support::print_signed_dry_run;
 use crate::dry_run::ActionReversibility;
 use crate::errors::CliError;
-use crate::http_api::post_info_json;
-use crate::output::{self, JsonValueOutput, OutputFormat, TableData};
+use crate::http_api::ApiClient;
+use crate::invocation::Invocation;
+use crate::mode::Mode;
+use crate::output::{self, JsonValueOutput, TableData};
 use crate::signing::SelectedSigner;
 
 const HYPE_WEI_SCALE: u64 = 100_000_000;
@@ -193,12 +195,6 @@ pub struct RewardsOutput {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ValidatorsOutput {
     rows: Vec<ValidatorSummary>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct StakingQueryResult<T> {
-    pub output: T,
-    pub elapsed: Duration,
 }
 
 struct ActionConfirmationContext<'a> {
@@ -557,154 +553,92 @@ impl TableData for LinkStakingOutput {
 }
 
 /// Show staking balance, delegations, and reward summary for an address.
-pub async fn summary(
-    api_base_url: &str,
-    address: &str,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let result = summary_query(api_base_url, address).await?;
-    output::print_data(&result.output, format, result.elapsed);
-    Ok(())
-}
-
-/// Show staking balance, delegations, and reward summary without printing it.
-pub async fn summary_query(
-    api_base_url: &str,
-    address: &str,
-) -> Result<StakingQueryResult<StakingSummaryOutput>, anyhow::Error> {
-    let start = Instant::now();
+pub async fn summary(inv: &Invocation, address: &str) -> Result<(), anyhow::Error> {
+    let api = inv.remote()?.api();
     validate_address(address)?;
-    let summary = delegator_summary(api_base_url, address).await?;
-    let delegations = delegations(api_base_url, address).await?;
-    let rewards = rewards_rows(api_base_url, address).await?;
+    let summary = delegator_summary(api, address).await?;
+    let delegations = delegations(api, address).await?;
+    let rewards = rewards_rows(api, address).await?;
     let pending_rewards = rewards.iter().map(|row| row.total_amount).sum();
-    Ok(StakingQueryResult {
-        output: StakingSummaryOutput {
-            address: address.to_string(),
-            summary,
-            pending_rewards,
-            delegations,
-            rewards,
-        },
-        elapsed: start.elapsed(),
-    })
+    inv.print(&StakingSummaryOutput {
+        address: address.to_string(),
+        summary,
+        pending_rewards,
+        delegations,
+        rewards,
+    });
+    Ok(())
 }
 
 /// List validator summaries.
-pub async fn validators(api_base_url: &str, format: OutputFormat) -> Result<(), anyhow::Error> {
-    let result = validators_query(api_base_url).await?;
-    output::print_data(&result.output, format, result.elapsed);
+pub async fn validators(inv: &Invocation) -> Result<(), anyhow::Error> {
+    let rows = inv
+        .remote()?
+        .api()
+        .info::<Vec<ValidatorSummary>>(
+            &InfoRequest {
+                request_type: "validatorSummaries",
+                user: None,
+            },
+            "",
+        )
+        .await?;
+    inv.print(&ValidatorsOutput { rows });
     Ok(())
-}
-
-/// List validator summaries without printing them.
-pub async fn validators_query(
-    api_base_url: &str,
-) -> Result<StakingQueryResult<ValidatorsOutput>, anyhow::Error> {
-    let start = Instant::now();
-    let rows = post_info::<Vec<ValidatorSummary>>(
-        api_base_url,
-        &InfoRequest {
-            request_type: "validatorSummaries",
-            user: None,
-        },
-    )
-    .await?;
-    Ok(StakingQueryResult {
-        output: ValidatorsOutput { rows },
-        elapsed: start.elapsed(),
-    })
 }
 
 /// Show staking reward rows for an address.
-pub async fn rewards(
-    api_base_url: &str,
-    address: &str,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let result = rewards_query(api_base_url, address).await?;
-    output::print_data(&result.output, format, result.elapsed);
-    Ok(())
-}
-
-/// Show staking reward rows without printing them.
-pub async fn rewards_query(
-    api_base_url: &str,
-    address: &str,
-) -> Result<StakingQueryResult<RewardsOutput>, anyhow::Error> {
-    let start = Instant::now();
+pub async fn rewards(inv: &Invocation, address: &str) -> Result<(), anyhow::Error> {
     validate_address(address)?;
-    let rows = rewards_rows(api_base_url, address).await?;
-    Ok(StakingQueryResult {
-        output: RewardsOutput { rows },
-        elapsed: start.elapsed(),
-    })
+    let rows = rewards_rows(inv.remote()?.api(), address).await?;
+    inv.print(&RewardsOutput { rows });
+    Ok(())
 }
 
 /// Show staking delegation and withdrawal history for an address.
-pub async fn history(
-    api_base_url: &str,
-    address: &str,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let result = history_query(api_base_url, address).await?;
-    output::print_data(&result.output, format, result.elapsed);
-    Ok(())
-}
-
-/// Show staking delegation and withdrawal history without printing it.
-pub async fn history_query(
-    api_base_url: &str,
-    address: &str,
-) -> Result<StakingQueryResult<JsonValueOutput>, anyhow::Error> {
-    let start = Instant::now();
+pub async fn history(inv: &Invocation, address: &str) -> Result<(), anyhow::Error> {
     validate_address(address)?;
-    let value = post_info_json::<serde_json::Value>(
-        api_base_url,
-        &InfoRequest {
-            request_type: "delegatorHistory",
-            user: Some(address),
-        },
-        "loading staking history",
-    )
-    .await?;
-    Ok(StakingQueryResult {
-        output: JsonValueOutput::new(value, "No staking history."),
-        elapsed: start.elapsed(),
-    })
+    let value = inv
+        .remote()?
+        .api()
+        .info::<serde_json::Value>(
+            &InfoRequest {
+                request_type: "delegatorHistory",
+                user: Some(address),
+            },
+            "loading staking history",
+        )
+        .await?;
+    inv.print(&JsonValueOutput::new(value, "No staking history."));
+    Ok(())
 }
 
 /// Delegate HYPE to a validator.
 pub async fn delegate(
-    api_base_url: &str,
-    chain: Chain,
+    inv: &Invocation,
     signer: &SelectedSigner,
     args: &DelegateArgs,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
-    token_delegate(api_base_url, chain, signer, args, false, format).await
+    token_delegate(inv, signer, args, false).await
 }
 
 /// Undelegate HYPE from a validator.
 pub async fn undelegate(
-    api_base_url: &str,
-    chain: Chain,
+    inv: &Invocation,
     signer: &SelectedSigner,
     args: &DelegateArgs,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
-    token_delegate(api_base_url, chain, signer, args, true, format).await
+    token_delegate(inv, signer, args, true).await
 }
 
 /// Move HYPE from spot to staking balance.
 pub async fn deposit(
-    api_base_url: &str,
-    chain: Chain,
+    inv: &Invocation,
     signer: &SelectedSigner,
     args: &AmountArgs,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
-    let start = Instant::now();
+    let remote = inv.remote()?;
+    let (api, chain) = (remote.api(), remote.chain());
     let wei = validate_amount_to_wei(args.amount)?;
     let nonce = actions::nonce_now();
     let signature_chain_id = chain.arbitrum_id().to_string();
@@ -723,13 +657,14 @@ pub async fn deposit(
         nonce,
     };
     actions::send_user_signed_json_action(
-        api_base_url,
+        api,
         serde_json::to_value(action).map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?,
         nonce,
         signature,
     )
     .await?;
     print_action_confirmation(
+        inv,
         ActionConfirmationContext {
             chain,
             signer,
@@ -739,21 +674,18 @@ pub async fn deposit(
         args.amount,
         None,
         None,
-        format,
-        start,
     );
     Ok(())
 }
 
 /// Queue HYPE withdrawal from staking to spot balance.
 pub async fn withdraw(
-    api_base_url: &str,
-    chain: Chain,
+    inv: &Invocation,
     signer: &SelectedSigner,
     args: &AmountArgs,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
-    let start = Instant::now();
+    let remote = inv.remote()?;
+    let (api, chain) = (remote.api(), remote.chain());
     let wei = validate_amount_to_wei(args.amount)?;
     let nonce = actions::nonce_now();
     let signature_chain_id = chain.arbitrum_id().to_string();
@@ -772,13 +704,14 @@ pub async fn withdraw(
         nonce,
     };
     actions::send_user_signed_json_action(
-        api_base_url,
+        api,
         serde_json::to_value(action).map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?,
         nonce,
         signature,
     )
     .await?;
     print_action_confirmation(
+        inv,
         ActionConfirmationContext {
             chain,
             signer,
@@ -788,23 +721,16 @@ pub async fn withdraw(
         args.amount,
         None,
         Some("7-day withdrawal queue before funds become available in spot".to_string()),
-        format,
-        start,
     );
     Ok(())
 }
 
 /// Claim available staking rewards.
-pub async fn claim_rewards(
-    api_base_url: &str,
-    chain: Chain,
-    signer: &SelectedSigner,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let start = Instant::now();
+pub async fn claim_rewards(inv: &Invocation, signer: &SelectedSigner) -> Result<(), anyhow::Error> {
+    let remote = inv.remote()?;
+    let (api, chain) = (remote.api(), remote.chain());
     actions::send_raw_l1_json_action(
-        api_base_url,
-        chain,
+        api,
         signer,
         &ClaimRewardsAction {
             action_type: "claimRewards",
@@ -814,6 +740,7 @@ pub async fn claim_rewards(
     )
     .await?;
     print_action_confirmation(
+        inv,
         ActionConfirmationContext {
             chain,
             signer,
@@ -823,8 +750,6 @@ pub async fn claim_rewards(
         Decimal::ZERO,
         None,
         None,
-        format,
-        start,
     );
     Ok(())
 }
@@ -928,18 +853,17 @@ pub fn claim_rewards_dry_run_value(chain: Chain) -> serde_json::Value {
 
 /// Link staking and trading accounts for fee discount attribution.
 pub async fn link_staking_user(
-    api_base_url: &str,
-    chain: Chain,
+    inv: &Invocation,
     signer: &SelectedSigner,
     args: &LinkArgs,
     is_finalize: bool,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
-    let start = Instant::now();
     let user = validate_link_user_address(&args.user)?;
     if !args.yes {
-        confirm_staking_link(user, is_finalize, format)?;
+        confirm_staking_link(inv.mode(), user, is_finalize)?;
     }
+    let remote = inv.remote()?;
+    let (api, chain) = (remote.api(), remote.chain());
 
     let nonce = actions::nonce_now();
     let signature_chain_id = chain.arbitrum_id().to_string();
@@ -959,34 +883,29 @@ pub async fn link_staking_user(
         nonce,
     };
     actions::send_user_signed_json_action(
-        api_base_url,
+        api,
         serde_json::to_value(action).map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?,
         nonce,
         signature,
     )
     .await?;
 
-    output::print_data(
-        &LinkStakingOutput {
-            row: LinkStakingConfirmation {
-                status: "submitted".to_string(),
-                action: "staking-link".to_string(),
-                phase: link_phase(is_finalize).to_string(),
-                acting_as: signer.query_address().to_string(),
-                signer: signer.address().to_string(),
-                user: user.to_string(),
-                is_finalize,
-                network: chain.to_string(),
-                reversibility: format_reversibility(
-                    action_kind_for_link(is_finalize).reversibility(),
-                )
+    inv.print(&LinkStakingOutput {
+        row: LinkStakingConfirmation {
+            status: "submitted".to_string(),
+            action: "staking-link".to_string(),
+            phase: link_phase(is_finalize).to_string(),
+            acting_as: signer.query_address().to_string(),
+            signer: signer.address().to_string(),
+            user: user.to_string(),
+            is_finalize,
+            network: chain.to_string(),
+            reversibility: (action_kind_for_link(is_finalize).reversibility())
+                .as_str()
                 .to_string(),
-                warning: STAKING_LINK_WARNING.to_string(),
-            },
+            warning: STAKING_LINK_WARNING.to_string(),
         },
-        format,
-        start.elapsed(),
-    );
+    });
     Ok(())
 }
 
@@ -1007,14 +926,13 @@ pub fn validate_link_args(args: &LinkArgs) -> Result<(), CliError> {
 }
 
 async fn token_delegate(
-    api_base_url: &str,
-    chain: Chain,
+    inv: &Invocation,
     signer: &SelectedSigner,
     args: &DelegateArgs,
     is_undelegate: bool,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
-    let start = Instant::now();
+    let remote = inv.remote()?;
+    let (api, chain) = (remote.api(), remote.chain());
     let validator = validate_validator_address(&args.validator)?;
     let wei = validate_amount_to_wei(args.amount)?;
     let nonce = actions::nonce_now();
@@ -1038,7 +956,7 @@ async fn token_delegate(
         nonce,
     };
     actions::send_user_signed_json_action(
-        api_base_url,
+        api,
         serde_json::to_value(action).map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?,
         nonce,
         signature,
@@ -1051,6 +969,7 @@ async fn token_delegate(
         "delegate"
     };
     print_action_confirmation(
+        inv,
         ActionConfirmationContext {
             chain,
             signer,
@@ -1064,53 +983,41 @@ async fn token_delegate(
         args.amount,
         Some(args.validator.clone()),
         None,
-        format,
-        start,
     );
     Ok(())
 }
 
-async fn delegator_summary(
-    api_base_url: &str,
-    address: &str,
-) -> Result<DelegatorSummary, CliError> {
-    post_info(
-        api_base_url,
+async fn delegator_summary(api: &ApiClient, address: &str) -> Result<DelegatorSummary, CliError> {
+    api.info(
         &InfoRequest {
             request_type: "delegatorSummary",
             user: Some(address),
         },
+        "",
     )
     .await
 }
 
-async fn delegations(api_base_url: &str, address: &str) -> Result<Vec<DelegationRow>, CliError> {
-    post_info(
-        api_base_url,
+async fn delegations(api: &ApiClient, address: &str) -> Result<Vec<DelegationRow>, CliError> {
+    api.info(
         &InfoRequest {
             request_type: "delegations",
             user: Some(address),
         },
+        "",
     )
     .await
 }
 
-async fn rewards_rows(api_base_url: &str, address: &str) -> Result<Vec<RewardRow>, CliError> {
-    post_info(
-        api_base_url,
+async fn rewards_rows(api: &ApiClient, address: &str) -> Result<Vec<RewardRow>, CliError> {
+    api.info(
         &InfoRequest {
             request_type: "delegatorRewards",
             user: Some(address),
         },
+        "",
     )
     .await
-}
-
-async fn post_info<T: for<'de> Deserialize<'de>>(
-    api_base_url: &str,
-    request: &impl Serialize,
-) -> Result<T, CliError> {
-    post_info_json(api_base_url, request, "").await
 }
 
 fn validate_address(address: &str) -> Result<Address, CliError> {
@@ -1140,19 +1047,13 @@ fn validate_link_user_address(address: &str) -> Result<Address, CliError> {
 }
 
 fn validate_amount_to_wei(amount: Decimal) -> Result<u64, CliError> {
-    if amount <= Decimal::ZERO {
-        return Err(CliError::Configuration(
-            "amount must be greater than zero".to_string(),
-        ));
-    }
-    let wei = amount * Decimal::from(HYPE_WEI_SCALE);
-    if wei.fract() != Decimal::ZERO {
-        return Err(CliError::Configuration(
-            "amount supports at most 8 decimal places".to_string(),
-        ));
-    }
-    wei.to_u64()
-        .ok_or_else(|| CliError::Configuration("amount is too large".to_string()))
+    crate::quantity::scaled_u64(
+        amount,
+        HYPE_WEI_SCALE,
+        CliError::Configuration("amount must be greater than zero".to_string()),
+        CliError::Configuration("amount supports at most 8 decimal places".to_string()),
+        CliError::Configuration("amount is too large".to_string()),
+    )
 }
 
 fn format_hype_wei(wei: u64) -> String {
@@ -1187,65 +1088,381 @@ fn action_kind_for_link(is_finalize: bool) -> StakingActionKind {
     }
 }
 
-fn confirm_staking_link(
-    user: Address,
-    is_finalize: bool,
-    format: OutputFormat,
-) -> Result<(), CliError> {
+fn confirm_staking_link(mode: &Mode, user: Address, is_finalize: bool) -> Result<(), CliError> {
     let phase = link_phase(is_finalize);
-    crate::prompt::ensure_can_prompt("--yes")?;
-    eprintln!("{STAKING_LINK_WARNING}");
     let question = format!("Submit staking link {phase} for user {user}?");
-    let question = if format == OutputFormat::Pretty {
-        output::colors::yellow(&question)
-    } else {
-        question
-    };
-    if crate::prompt::confirm(&question, "--yes")? {
-        Ok(())
-    } else {
-        Err(CliError::Configuration(
-            "staking-link confirmation required; action cancelled. Rerun with --yes for deliberate automation.".to_string(),
-        ))
-    }
+    crate::prompt::consent(
+        mode,
+        "--yes",
+        STAKING_LINK_WARNING,
+        &question,
+        "staking-link confirmation required; action cancelled. Rerun with --yes for deliberate automation.",
+    )
 }
 
 fn print_action_confirmation(
+    inv: &Invocation,
     context: ActionConfirmationContext<'_>,
     action: &str,
     amount: Decimal,
     validator: Option<String>,
     note: Option<String>,
-    format: OutputFormat,
-    start: Instant,
 ) {
-    output::print_data(
-        &ActionOutput {
-            row: ActionConfirmation {
-                action: action.to_string(),
-                status: "submitted".to_string(),
-                network: context.chain.to_string(),
-                signer: context.signer.address().to_string(),
-                acting_as: context.signer.query_address().to_string(),
-                reversibility: format_reversibility(context.action_kind.reversibility())
-                    .to_string(),
-                amount,
-                asset: "HYPE".to_string(),
-                validator,
-                note,
-            },
+    inv.print(&ActionOutput {
+        row: ActionConfirmation {
+            action: action.to_string(),
+            status: "submitted".to_string(),
+            network: context.chain.to_string(),
+            signer: context.signer.address().to_string(),
+            acting_as: context.signer.query_address().to_string(),
+            reversibility: (context.action_kind.reversibility()).as_str().to_string(),
+            amount,
+            asset: "HYPE".to_string(),
+            validator,
+            note,
         },
-        format,
-        start.elapsed(),
-    );
+    });
 }
 
-fn format_reversibility(reversibility: ActionReversibility) -> &'static str {
-    match reversibility {
-        ActionReversibility::Reversible => "reversible",
-        ActionReversibility::PartiallyReversible => "partially_reversible",
-        ActionReversibility::Irreversible => "irreversible",
+pub const GROUP: GroupSpec = GroupSpec::new(&["staking"], "Manage staking");
+
+pub const LINK_GROUP: GroupSpec = GroupSpec::new(
+    &["staking", "link"],
+    "Link trading and staking accounts for fee discount attribution",
+);
+
+pub struct StakingSummary;
+
+impl CliCommand for StakingSummary {
+    type Args = OptionalAddressArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["staking", "summary"],
+        "staking",
+        "Show the staking summary for an address or wallet",
+        "Show staking summary for an address or wallet.",
+    )
+    .args(&[arg("address")
+        .kind(InputKind::PublicUserSelector)
+        .describe("Ethereum address, wallet name, or wallet id.")
+        .resource_id("account selector")
+        .schema_required()]);
+
+    async fn run(inv: &Invocation, args: &OptionalAddressArgs) -> Result<(), anyhow::Error> {
+        let address = inv.resolve_user(args.address.as_deref())?.to_string();
+        summary(inv, &address).await
     }
+}
+
+pub struct StakingValidators;
+
+impl CliCommand for StakingValidators {
+    type Args = NoArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["staking", "validators"],
+        "staking",
+        "List validators",
+        "List staking validators.",
+    );
+
+    async fn run(inv: &Invocation, _args: &NoArgs) -> Result<(), anyhow::Error> {
+        validators(inv).await
+    }
+}
+
+pub struct StakingRewards;
+
+impl CliCommand for StakingRewards {
+    type Args = OptionalAddressArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["staking", "rewards"],
+        "staking",
+        "Show staking rewards for an address or wallet",
+        "Show staking rewards for an address or wallet.",
+    )
+    .args(&[arg("address")
+        .kind(InputKind::PublicUserSelector)
+        .describe("Ethereum address, wallet name, or wallet id.")
+        .resource_id("account selector")
+        .schema_required()]);
+
+    async fn run(inv: &Invocation, args: &OptionalAddressArgs) -> Result<(), anyhow::Error> {
+        let address = inv.resolve_user(args.address.as_deref())?.to_string();
+        rewards(inv, &address).await
+    }
+}
+
+pub struct StakingHistory;
+
+impl CliCommand for StakingHistory {
+    type Args = OptionalAddressArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["staking", "history"],
+        "staking",
+        "Show staking delegation and withdrawal history for an address or wallet",
+        "Show staking delegation and withdrawal history for an address or wallet.",
+    )
+    .args(&[arg("address")
+        .kind(InputKind::PublicUserSelector)
+        .describe("Ethereum address, wallet name, or wallet id.")
+        .resource_id("account selector")
+        .schema_required()]);
+
+    async fn run(inv: &Invocation, args: &OptionalAddressArgs) -> Result<(), anyhow::Error> {
+        let address = inv.resolve_user(args.address.as_deref())?.to_string();
+        history(inv, &address).await
+    }
+}
+
+pub struct StakingDelegate;
+
+impl CliCommand for StakingDelegate {
+    type Args = DelegateArgs;
+
+    const SPEC: CommandSpec = CommandSpec::signed(
+        &["staking", "delegate"],
+        "staking",
+        "Delegate stake to a validator",
+        "Delegate HYPE to a validator.",
+    )
+    .args(&[
+        arg("validator")
+            .kind(InputKind::ProtocolObjectAddress)
+            .describe("Validator address.")
+            .resource_id("validator address"),
+        arg("amount")
+            .kind(InputKind::Amount)
+            .describe("HYPE amount."),
+    ]);
+
+    async fn run(inv: &Invocation, args: &DelegateArgs) -> Result<(), anyhow::Error> {
+        validate_delegate_args(args)?;
+        if inv.dry_run() {
+            let action_kind = StakingActionKind::Delegate;
+            let args_json = delegate_dry_run_value(inv.remote()?.chain(), args, action_kind)?;
+            return print_signed_dry_run(
+                inv,
+                "staking delegate",
+                action_kind.would_execute(),
+                action_kind.reversibility(),
+                args_json,
+            );
+        }
+        let resolved = inv.resolve_signer()?;
+        let signer = resolved.selected_signer();
+        delegate(inv, &signer, args).await
+    }
+}
+
+pub struct StakingUndelegate;
+
+impl CliCommand for StakingUndelegate {
+    type Args = DelegateArgs;
+
+    const SPEC: CommandSpec = CommandSpec::signed(
+        &["staking", "undelegate"],
+        "staking",
+        "Undelegate stake from a validator",
+        "Undelegate HYPE from a validator.",
+    )
+    .args(&[
+        arg("validator")
+            .kind(InputKind::ProtocolObjectAddress)
+            .describe("Validator address.")
+            .resource_id("validator address"),
+        arg("amount")
+            .kind(InputKind::Amount)
+            .describe("HYPE amount."),
+    ]);
+
+    async fn run(inv: &Invocation, args: &DelegateArgs) -> Result<(), anyhow::Error> {
+        validate_delegate_args(args)?;
+        if inv.dry_run() {
+            let action_kind = StakingActionKind::Undelegate;
+            let args_json = delegate_dry_run_value(inv.remote()?.chain(), args, action_kind)?;
+            return print_signed_dry_run(
+                inv,
+                "staking undelegate",
+                action_kind.would_execute(),
+                action_kind.reversibility(),
+                args_json,
+            );
+        }
+        let resolved = inv.resolve_signer()?;
+        let signer = resolved.selected_signer();
+        undelegate(inv, &signer, args).await
+    }
+}
+
+pub struct StakingDeposit;
+
+impl CliCommand for StakingDeposit {
+    type Args = AmountArgs;
+
+    const SPEC: CommandSpec = CommandSpec::signed(
+        &["staking", "deposit"],
+        "staking",
+        "Deposit to staking",
+        "Deposit HYPE to staking.",
+    )
+    .args(&[arg("amount")
+        .kind(InputKind::Amount)
+        .describe("HYPE amount.")]);
+
+    async fn run(inv: &Invocation, args: &AmountArgs) -> Result<(), anyhow::Error> {
+        validate_amount_args(args)?;
+        if inv.dry_run() {
+            let action_kind = StakingActionKind::Deposit;
+            let args_json = amount_dry_run_value(inv.remote()?.chain(), args, action_kind)?;
+            return print_signed_dry_run(
+                inv,
+                "staking deposit",
+                action_kind.would_execute(),
+                action_kind.reversibility(),
+                args_json,
+            );
+        }
+        let resolved = inv.resolve_signer()?;
+        let signer = resolved.selected_signer();
+        deposit(inv, &signer, args).await
+    }
+}
+
+pub struct StakingWithdraw;
+
+impl CliCommand for StakingWithdraw {
+    type Args = AmountArgs;
+
+    const SPEC: CommandSpec = CommandSpec::signed(
+        &["staking", "withdraw"],
+        "staking",
+        "Withdraw from staking",
+        "Queue HYPE withdrawal from staking.",
+    )
+    .args(&[arg("amount")
+        .kind(InputKind::Amount)
+        .describe("HYPE amount.")]);
+
+    async fn run(inv: &Invocation, args: &AmountArgs) -> Result<(), anyhow::Error> {
+        validate_amount_args(args)?;
+        if inv.dry_run() {
+            let action_kind = StakingActionKind::Withdraw;
+            let args_json = amount_dry_run_value(inv.remote()?.chain(), args, action_kind)?;
+            return print_signed_dry_run(
+                inv,
+                "staking withdraw",
+                action_kind.would_execute(),
+                action_kind.reversibility(),
+                args_json,
+            );
+        }
+        let resolved = inv.resolve_signer()?;
+        let signer = resolved.selected_signer();
+        withdraw(inv, &signer, args).await
+    }
+}
+
+pub struct StakingClaimRewards;
+
+impl CliCommand for StakingClaimRewards {
+    type Args = NoArgs;
+
+    const SPEC: CommandSpec = CommandSpec::signed(
+        &["staking", "claim-rewards"],
+        "staking",
+        "Claim staking rewards",
+        "Claim staking rewards.",
+    );
+
+    async fn run(inv: &Invocation, _args: &NoArgs) -> Result<(), anyhow::Error> {
+        if inv.dry_run() {
+            let action_kind = StakingActionKind::ClaimRewards;
+            return print_signed_dry_run(
+                inv,
+                "staking claim-rewards",
+                action_kind.would_execute(),
+                action_kind.reversibility(),
+                claim_rewards_dry_run_value(inv.remote()?.chain()),
+            );
+        }
+        let resolved = inv.resolve_signer()?;
+        let signer = resolved.selected_signer();
+        claim_rewards(inv, &signer).await
+    }
+}
+
+pub struct StakingLinkInitiate;
+
+impl CliCommand for StakingLinkInitiate {
+    type Args = LinkArgs;
+
+    const SPEC: CommandSpec = CommandSpec::signed(
+        &["staking", "link", "initiate"],
+        "staking",
+        "Initiate staking-link from the trading account, targeting the staking user",
+        "Initiate staking-link fee discount attribution from the trading account, targeting the staking user. This is control-affecting; use --dry-run first.",
+    )
+    .prompt()
+    .args(&[
+        arg("user").kind(InputKind::ProtocolObjectAddress).describe("Protocol user address for the staking account to link.").resource_id("staking-link user address"),
+        arg("yes").kind(InputKind::Boolean),
+    ]);
+
+    async fn run(inv: &Invocation, args: &LinkArgs) -> Result<(), anyhow::Error> {
+        staking_link(inv, args, false).await
+    }
+}
+
+pub struct StakingLinkFinalize;
+
+impl CliCommand for StakingLinkFinalize {
+    type Args = LinkArgs;
+
+    const SPEC: CommandSpec = CommandSpec::signed(
+        &["staking", "link", "finalize"],
+        "staking",
+        "Finalize staking-link from the staking account, targeting the trading user",
+        "Finalize staking-link fee discount attribution from the staking account, targeting the trading user. Finalization may be permanent; use --dry-run first.",
+    )
+    .prompt()
+    .args(&[
+        arg("user").kind(InputKind::ProtocolObjectAddress).describe("Protocol user address for the trading account to link.").resource_id("staking-link user address"),
+        arg("yes").kind(InputKind::Boolean),
+    ]);
+
+    async fn run(inv: &Invocation, args: &LinkArgs) -> Result<(), anyhow::Error> {
+        staking_link(inv, args, true).await
+    }
+}
+
+async fn staking_link(
+    inv: &Invocation,
+    args: &LinkArgs,
+    is_finalize: bool,
+) -> Result<(), anyhow::Error> {
+    validate_link_args(args)?;
+    let phase = if is_finalize { "finalize" } else { "initiate" };
+    if inv.dry_run() {
+        let args_json = link_dry_run_value(inv.remote()?.chain(), args, is_finalize)?;
+        let action_kind = if is_finalize {
+            StakingActionKind::LinkFinalize
+        } else {
+            StakingActionKind::LinkInitiate
+        };
+        return print_signed_dry_run(
+            inv,
+            &format!("staking link {phase}"),
+            action_kind.would_execute(),
+            action_kind.reversibility(),
+            args_json,
+        );
+    }
+    let resolved = inv.resolve_signer()?;
+    let signer = resolved.selected_signer();
+    link_staking_user(inv, &signer, args, is_finalize).await
 }
 
 #[cfg(test)]

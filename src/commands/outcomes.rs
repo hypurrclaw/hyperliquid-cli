@@ -4,16 +4,18 @@
 //! - `hyperliquid outcomes list` — list active outcome market sides
 //! - `hyperliquid outcomes get <NOTATION>` — inspect an outcome side by `#N` or `+N`
 
-use std::time::Instant;
-
 use clap::Args;
 use serde::{Deserialize, Serialize};
 
+use crate::assets::asset_id::{
+    outcome_asset_id, outcome_coin, outcome_encoding, outcome_token, parse_outcome_notation,
+};
+use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, arg};
 use crate::errors::CliError;
-use crate::http_api::post_info_json;
-use crate::output::{OutputFormat, TableData};
-
-const OUTCOME_ASSET_ID_OFFSET: u64 = 100_000_000;
+use crate::http_api::ApiClient;
+use crate::invocation::Invocation;
+use crate::output::TableData;
+use crate::stream::parse_positive_usize;
 
 #[derive(Args, Debug, Clone)]
 pub struct OutcomeListArgs {
@@ -126,58 +128,16 @@ impl TableData for OutcomeSideOutput {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OutcomeSidesResult {
-    pub output: OutcomeSidesOutput,
-    pub elapsed: std::time::Duration,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OutcomeSideResult {
-    pub output: OutcomeSideOutput,
-    pub elapsed: std::time::Duration,
-}
-
-pub async fn list(
-    api_base_url: &str,
-    args: &OutcomeListArgs,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let result = list_query(api_base_url, args).await?;
-    crate::output::print_data(&result.output, format, result.elapsed);
-    Ok(())
-}
-
-pub async fn get(
-    api_base_url: &str,
-    args: &OutcomeGetArgs,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let result = get_query(api_base_url, args).await?;
-    crate::output::print_data(&result.output, format, result.elapsed);
-    Ok(())
-}
-
-pub async fn list_query(
-    api_base_url: &str,
-    args: &OutcomeListArgs,
-) -> Result<OutcomeSidesResult, anyhow::Error> {
-    let start = Instant::now();
-    let mut rows = outcome_side_rows(api_base_url).await?;
+pub async fn list(inv: &Invocation, args: &OutcomeListArgs) -> Result<(), anyhow::Error> {
+    let mut rows = outcome_side_rows(inv.remote()?.api()).await?;
     rows.truncate(args.limit);
-    Ok(OutcomeSidesResult {
-        output: OutcomeSidesOutput::new(rows),
-        elapsed: start.elapsed(),
-    })
+    inv.print(&OutcomeSidesOutput::new(rows));
+    Ok(())
 }
 
-pub async fn get_query(
-    api_base_url: &str,
-    args: &OutcomeGetArgs,
-) -> Result<OutcomeSideResult, anyhow::Error> {
-    let start = Instant::now();
+pub async fn get(inv: &Invocation, args: &OutcomeGetArgs) -> Result<(), anyhow::Error> {
     let parsed = parse_outcome_notation(&args.notation)?;
-    let row = outcome_side_rows(api_base_url)
+    let row = outcome_side_rows(inv.remote()?.api())
         .await?
         .into_iter()
         .find(|row| row.encoding == parsed.encoding)
@@ -187,21 +147,19 @@ pub async fn get_query(
                 args.notation
             ))
         })?;
-    Ok(OutcomeSideResult {
-        output: OutcomeSideOutput::new(row),
-        elapsed: start.elapsed(),
-    })
+    inv.print(&OutcomeSideOutput::new(row));
+    Ok(())
 }
 
-pub async fn outcome_side_rows(api_base_url: &str) -> Result<Vec<OutcomeSideRow>, CliError> {
-    let response = post_info_json::<OutcomeMetaResponse>(
-        api_base_url,
-        &OutcomeMetaRequest {
-            request_type: "outcomeMeta",
-        },
-        "loading outcome metadata",
-    )
-    .await?;
+pub async fn outcome_side_rows(api: &ApiClient) -> Result<Vec<OutcomeSideRow>, CliError> {
+    let response = api
+        .info::<OutcomeMetaResponse>(
+            &OutcomeMetaRequest {
+                request_type: "outcomeMeta",
+            },
+            "loading outcome metadata",
+        )
+        .await?;
     Ok(rows_from_meta(response))
 }
 
@@ -221,8 +179,8 @@ fn rows_from_meta(response: OutcomeMetaResponse) -> Vec<OutcomeSideRow> {
                         .ok()
                         .and_then(|encoding| {
                             let asset_id = outcome_asset_id(encoding).ok()?;
-                            let coin = format!("#{encoding}");
-                            let token = format!("+{encoding}");
+                            let coin = outcome_coin(encoding);
+                            let token = outcome_token(encoding);
                             Some(OutcomeSideRow {
                                 outcome: outcome_id,
                                 side,
@@ -244,79 +202,10 @@ fn rows_from_meta(response: OutcomeMetaResponse) -> Vec<OutcomeSideRow> {
     rows
 }
 
-pub fn parse_outcome_notation(raw: &str) -> Result<OutcomeNotation, CliError> {
-    let trimmed = raw.trim();
-    let Some(rest) = trimmed
-        .strip_prefix('#')
-        .or_else(|| trimmed.strip_prefix('+'))
-    else {
-        return Err(outcome_notation_error(raw));
-    };
-    if rest.is_empty() || !rest.chars().all(|ch| ch.is_ascii_digit()) {
-        return Err(outcome_notation_error(raw));
-    }
-    let encoding = rest
-        .parse::<u64>()
-        .map_err(|_| outcome_notation_error(raw))?;
-    let outcome = encoding / 10;
-    let side = encoding % 10;
-    if side > 1 {
-        return Err(CliError::Unsupported(format!(
-            "invalid outcome notation '{raw}': only binary outcome sides 0 and 1 are supported"
-        )));
-    }
-    Ok(OutcomeNotation {
-        outcome,
-        side,
-        encoding,
-    })
-}
-
-pub fn outcome_encoding(outcome: u64, side: u64) -> Result<u64, CliError> {
-    if side > 1 {
-        return Err(CliError::Unsupported(
-            "only binary outcome sides 0 and 1 are supported".to_string(),
-        ));
-    }
-    outcome
-        .checked_mul(10)
-        .and_then(|value| value.checked_add(side))
-        .ok_or_else(|| CliError::Unsupported("outcome encoding overflowed u64".to_string()))
-}
-
-pub fn outcome_asset_id(encoding: u64) -> Result<u64, CliError> {
-    OUTCOME_ASSET_ID_OFFSET
-        .checked_add(encoding)
-        .ok_or_else(|| CliError::Unsupported("outcome asset id overflowed".to_string()))
-}
-
-pub fn outcome_notation_error(raw: &str) -> CliError {
-    CliError::Unsupported(format!(
-        "invalid outcome notation '{raw}': expected #<encoding> or +<encoding>, for example #10"
-    ))
-}
-
 pub fn unsupported_outcome_trading_error(raw: &str) -> CliError {
     CliError::Unsupported(format!(
         "outcome asset notation '{raw}' requires an outcome-aware command path; use `hyperliquid outcomes get {raw}` to inspect the encoded HIP-4 asset id. Live limit orders support outcome notation."
     ))
-}
-
-fn parse_positive_usize(raw: &str) -> Result<usize, String> {
-    let value = raw
-        .parse::<usize>()
-        .map_err(|err| format!("invalid positive integer: {err}"))?;
-    if value == 0 {
-        return Err("value must be greater than zero".to_string());
-    }
-    Ok(value)
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OutcomeNotation {
-    pub outcome: u64,
-    pub side: u64,
-    pub encoding: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -329,8 +218,6 @@ struct OutcomeMetaRequest {
 #[serde(rename_all = "camelCase")]
 struct OutcomeMetaResponse {
     outcomes: Vec<OutcomeMetaOutcome>,
-    #[serde(default)]
-    questions: Vec<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -350,47 +237,49 @@ struct OutcomeSideSpec {
     token: Option<u64>,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+pub const GROUP: GroupSpec =
+    GroupSpec::new(&["outcomes"], "Browse outcome markets").aliases(&["outcome"]);
 
-    #[test]
-    fn outcome_encoding_uses_official_formula() {
-        assert_eq!(outcome_encoding(1, 0).unwrap(), 10);
-        assert_eq!(outcome_encoding(1, 1).unwrap(), 11);
-        assert!(outcome_encoding(1, 2).is_err());
+pub struct OutcomesList;
+
+impl CliCommand for OutcomesList {
+    type Args = OutcomeListArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["outcomes", "list"],
+        "market",
+        "List active outcome market sides",
+        "List active outcome market sides from outcomeMeta. Use orders create with #<encoding> or +<encoding> notation for verified outcome limit orders.",
+    )
+    .cli_aliases(&["ls"])
+    .args(&[
+        arg("limit").describe("Maximum number of outcome side rows to return."),
+    ]);
+
+    async fn run(inv: &Invocation, args: &OutcomeListArgs) -> Result<(), anyhow::Error> {
+        list(inv, args).await
+    }
+}
+
+pub struct OutcomesGet;
+
+impl CliCommand for OutcomesGet {
+    type Args = OutcomeGetArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["outcomes", "get"],
+        "market",
+        "Get outcome side metadata by #N or +N notation",
+        "Show outcome side metadata by #N coin notation or +N token notation.",
+    )
+    .args(&[arg("notation")]);
+
+    fn validate(args: &OutcomeGetArgs) -> Result<(), CliError> {
+        crate::assets::asset_id::parse_outcome_notation(&args.notation)?;
+        Ok(())
     }
 
-    #[test]
-    fn outcome_asset_id_checks_overflow() {
-        assert_eq!(outcome_asset_id(10).unwrap(), OUTCOME_ASSET_ID_OFFSET + 10);
-        assert!(outcome_asset_id(u64::MAX).is_err());
-    }
-
-    #[test]
-    fn parse_outcome_notation_accepts_coin_and_token_forms() {
-        assert_eq!(
-            parse_outcome_notation("#10").unwrap(),
-            OutcomeNotation {
-                outcome: 1,
-                side: 0,
-                encoding: 10
-            }
-        );
-        assert_eq!(
-            parse_outcome_notation("+11").unwrap(),
-            OutcomeNotation {
-                outcome: 1,
-                side: 1,
-                encoding: 11
-            }
-        );
-    }
-
-    #[test]
-    fn parse_outcome_notation_rejects_malformed_values() {
-        assert!(parse_outcome_notation("#abc").is_err());
-        assert!(parse_outcome_notation("10").is_err());
-        assert!(parse_outcome_notation("#12").is_err());
+    async fn run(inv: &Invocation, args: &OutcomeGetArgs) -> Result<(), anyhow::Error> {
+        get(inv, args).await
     }
 }

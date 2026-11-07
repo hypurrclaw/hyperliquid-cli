@@ -1,15 +1,19 @@
 //! Machine-readable command schema output for agents.
 
+use clap::Args;
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use crate::command_registry::{CommandContract, CommandRegistry, InputContract, InputKind};
+use crate::command_registry::{CommandContract, CommandRegistry, InputContract};
+use crate::command_spec::InputKind;
+use crate::command_spec::{CliCommand, CommandSpec, OutputContract, arg};
 use crate::errors::CliError;
-use crate::output::{self, OutputFormat, TableData};
+use crate::invocation::Invocation;
+use crate::output::TableData;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub struct CatalogArg {
+pub struct SchemaArg {
     id: String,
     long: Option<String>,
     short: Option<String>,
@@ -43,7 +47,7 @@ struct CommandSchema {
     output_contract: String,
     stream_bounds: Value,
     description: String,
-    args: Vec<CatalogArg>,
+    args: Vec<SchemaArg>,
     json_schema: Value,
 }
 
@@ -96,17 +100,14 @@ impl TableData for SchemaOutput {
     }
 }
 
-pub fn show(command_path: &[String], format: OutputFormat) -> Result<(), anyhow::Error> {
-    let output = schema_query(command_path)?;
-    output::print_data_no_timing(&output, format);
+pub fn show(inv: &Invocation, command_path: &[String]) -> Result<(), anyhow::Error> {
+    inv.print_untimed(&schema_query(command_path)?);
     Ok(())
 }
 
 pub fn schema_query(command_path: &[String]) -> Result<SchemaOutput, anyhow::Error> {
-    let registry = CommandRegistry::load()
-        .map_err(|err| CliError::Internal(anyhow::anyhow!("invalid command registry: {err}")))?;
-    let schemas = registry
-        .entries()
+    let schemas = CommandRegistry::get()
+        .commands()
         .iter()
         .map(command_schema)
         .collect::<Vec<_>>();
@@ -151,7 +152,7 @@ fn command_schema(command: &CommandContract) -> CommandSchema {
     let args = command
         .inputs
         .iter()
-        .map(CatalogArg::from)
+        .map(SchemaArg::from)
         .collect::<Vec<_>>();
     let json_schema = args_to_schema(&args, &command.one_of_required, metadata.clone());
     CommandSchema {
@@ -187,7 +188,7 @@ fn command_schema(command: &CommandContract) -> CommandSchema {
     }
 }
 
-impl From<&InputContract> for CatalogArg {
+impl From<&InputContract> for SchemaArg {
     fn from(input: &InputContract) -> Self {
         Self {
             id: input.id.clone(),
@@ -205,7 +206,7 @@ impl From<&InputContract> for CatalogArg {
     }
 }
 
-fn args_to_schema(args: &[CatalogArg], one_of_required: &[Vec<String>], metadata: Value) -> Value {
+fn args_to_schema(args: &[SchemaArg], one_of_required: &[Vec<String>], metadata: Value) -> Value {
     let mut properties = serde_json::Map::new();
     let mut required = Vec::new();
 
@@ -273,5 +274,42 @@ fn scalar_type(arg_type: &str) -> &'static str {
         "boolean" | "bool" => "boolean",
         "integer" | "number" => "number",
         _ => "string",
+    }
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct SchemaArgs {
+    /// Optional command path, for example: orders create
+    pub command_path: Vec<String>,
+}
+
+pub struct Schema;
+
+impl CliCommand for Schema {
+    type Args = SchemaArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["schema"],
+        "system",
+        "Show machine-readable command schemas",
+        "Show machine-readable command schemas for agents.",
+    )
+    .long_about(
+        "Show machine-readable command schemas.\n\
+\n\
+Examples:\n  \
+hyperliquid --format json schema\n  \
+hyperliquid --format json schema orders create\n  \
+hyperliquid --format json --select command,description schema orders",
+    )
+    .local()
+    .schema_command("hyperliquid schema")
+    .output(OutputContract::SchemaArrayOrObject)
+    .args(&[arg("command_path")
+        .describe("Optional command path to show a single schema.")
+        .resource_id("schema command path")]);
+
+    async fn run(inv: &Invocation, args: &SchemaArgs) -> Result<(), anyhow::Error> {
+        show(inv, &args.command_path)
     }
 }

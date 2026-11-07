@@ -122,7 +122,7 @@ pub struct ScaleArgs {
     pub total_size: Decimal,
 
     /// Number of limit orders to generate
-    #[arg(long = "orders")]
+    #[arg(id = "orders", long = "orders", value_name = "ORDER_COUNT")]
     pub order_count: usize,
 
     /// Time in force for generated limit orders

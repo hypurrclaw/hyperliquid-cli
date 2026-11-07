@@ -979,7 +979,7 @@
         "account",
         "set-default"
       ],
-      "confirmation": "prompt",
+      "confirmation": "none",
       "dangerous": true,
       "dry_run": "optional",
       "group": "wallet",

@@ -4,6 +4,9 @@ use tempfile::TempDir;
 use wiremock::matchers::{body_partial_json, body_string_contains, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+#[allow(dead_code)]
+pub mod legacy_accounts_fixture;
+
 pub const API_OVERRIDE_ENV: &str = "HYPERLIQUID_API_BASE_URL";
 pub const MAINNET_API_OVERRIDE_ENV: &str = "HYPERLIQUID_MAINNET_API_BASE_URL";
 pub const TESTNET_API_OVERRIDE_ENV: &str = "HYPERLIQUID_TESTNET_API_BASE_URL";

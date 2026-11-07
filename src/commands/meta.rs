@@ -1,17 +1,16 @@
 //! Raw exchange metadata command.
 
-use std::time::{Duration, Instant};
-
 use hypersdk::Decimal;
-use hypersdk::hypercore::{HttpClient, SpotMarket};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::command_context::CommandContext;
-use crate::commands::{RawSpotMarket, load_raw_spot_markets, map_api_error, raw_info_base_url};
+use crate::assets::{SpotListing, load_spot_markets};
+use crate::command_spec::{CliCommand, CommandSpec, NoArgs};
 use crate::errors::CliError;
+use crate::http_api::ApiClient;
+use crate::invocation::Invocation;
+use crate::output::TableData;
 use crate::output::format::thousands;
-use crate::output::{OutputFormat, TableData};
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct MetaSpotRow {
@@ -22,20 +21,8 @@ pub struct MetaSpotRow {
     pub base_sz_decimals: i64,
 }
 
-impl From<SpotMarket> for MetaSpotRow {
-    fn from(market: SpotMarket) -> Self {
-        Self {
-            symbol: market.symbol(),
-            index: market.index,
-            base: market.base().name.clone(),
-            quote: market.quote().name.clone(),
-            base_sz_decimals: market.base().sz_decimals,
-        }
-    }
-}
-
-impl From<RawSpotMarket> for MetaSpotRow {
-    fn from(market: RawSpotMarket) -> Self {
+impl From<SpotListing> for MetaSpotRow {
+    fn from(market: SpotListing) -> Self {
         Self {
             symbol: market.symbol,
             index: market.index,
@@ -179,12 +166,6 @@ impl TableData for MetaOutput {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct MetaResult {
-    pub output: MetaOutput,
-    pub elapsed: Duration,
-}
-
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 struct MetaAndAssetContexts(Value, Vec<Map<String, Value>>);
 
@@ -220,91 +201,36 @@ enum RawInfoRequest {
     PerpDexs,
 }
 
-/// Fetch exchange metadata: perpetual universe, spot universe, asset contexts, and DEXes.
-pub async fn query(client: &HttpClient) -> Result<MetaResult, anyhow::Error> {
-    let start = Instant::now();
-    let raw_meta_and_contexts = fetch_meta_and_asset_contexts(client).await?;
-    let spot_universe = load_spot_universe(client).await?;
-    let dexes = fetch_dexes(client).await?;
-    let output = raw_meta_and_contexts.into_output(spot_universe, dexes);
-
-    Ok(MetaResult {
-        output,
-        elapsed: start.elapsed(),
-    })
-}
-
-/// Fetch and render exchange metadata through a per-call output context.
-pub async fn show_with_context(context: &CommandContext<'_>) -> Result<(), anyhow::Error> {
-    let client = context
-        .hypercore_client()
-        .ok_or_else(|| anyhow::anyhow!("meta command requires a Hyperliquid HTTP client"))?;
-    let result = query(client).await?;
-    context.print(&result.output, result.elapsed);
+pub async fn show(inv: &Invocation) -> Result<(), anyhow::Error> {
+    let api = inv.remote()?.api();
+    let raw_meta_and_contexts = fetch_meta_and_asset_contexts(api).await?;
+    let spot_universe = load_spot_universe(api).await?;
+    let dexes = fetch_dexes(api).await?;
+    inv.print(&raw_meta_and_contexts.into_output(spot_universe, dexes));
     Ok(())
 }
 
-/// Fetch and render exchange metadata: perpetual universe, spot universe, asset contexts, and DEXes.
-pub async fn show(client: &HttpClient, format: OutputFormat) -> Result<(), anyhow::Error> {
-    let result = query(client).await?;
-    crate::output::print_data(&result.output, format, result.elapsed);
-    Ok(())
+async fn fetch_meta_and_asset_contexts(api: &ApiClient) -> Result<MetaAndAssetContexts, CliError> {
+    api.info(
+        &RawInfoRequest::MetaAndAssetCtxs,
+        "loading raw exchange metadata",
+    )
+    .await
 }
 
-async fn fetch_meta_and_asset_contexts(
-    client: &HttpClient,
-) -> Result<MetaAndAssetContexts, CliError> {
-    fetch_raw_info(client, &RawInfoRequest::MetaAndAssetCtxs).await
-}
-
-async fn fetch_dexes(client: &HttpClient) -> Result<Vec<DexRow>, CliError> {
-    let dexes: Vec<Option<RawPerpDex>> = fetch_raw_info(client, &RawInfoRequest::PerpDexs).await?;
+async fn fetch_dexes(api: &ApiClient) -> Result<Vec<DexRow>, CliError> {
+    let dexes: Vec<Option<RawPerpDex>> = api
+        .info(&RawInfoRequest::PerpDexs, "loading raw exchange metadata")
+        .await?;
     Ok(dexes.into_iter().flatten().map(DexRow::from).collect())
 }
 
-async fn fetch_raw_info<T: serde::de::DeserializeOwned>(
-    client: &HttpClient,
-    request: &RawInfoRequest,
-) -> Result<T, CliError> {
-    let mut api_url = raw_info_base_url(client)?;
-    api_url.set_path("/info");
-
-    let http_client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .tcp_nodelay(true)
-        .build()
-        .map_err(|err| CliError::Internal(anyhow::Error::new(err)))?;
-    let response = http_client
-        .post(api_url)
-        .json(request)
-        .send()
-        .await
-        .map_err(|err| map_api_error(anyhow::Error::new(err)))?;
-    let status = response.status();
-    let text = response
-        .text()
-        .await
-        .map_err(|err| map_api_error(anyhow::Error::new(err)))?;
-
-    if !status.is_success() {
-        return Err(map_api_error(anyhow::anyhow!("HTTP {status} body={text}")));
-    }
-
-    serde_json::from_str(&text).map_err(|err| {
-        CliError::Internal(anyhow::anyhow!(
-            "decode failed while loading raw exchange metadata: {err}; body={text}"
-        ))
-    })
-}
-
-async fn load_spot_universe(client: &HttpClient) -> Result<Vec<MetaSpotRow>, CliError> {
-    match client.spot().await {
-        Ok(markets) => Ok(markets.into_iter().map(MetaSpotRow::from).collect()),
-        Err(spot_err) => load_raw_spot_markets(client)
-            .await
-            .map(|markets| markets.into_iter().map(MetaSpotRow::from).collect())
-            .map_err(|_| map_api_error(spot_err)),
-    }
+async fn load_spot_universe(api: &ApiClient) -> Result<Vec<MetaSpotRow>, CliError> {
+    Ok(load_spot_markets(api)
+        .await?
+        .into_iter()
+        .map(MetaSpotRow::from)
+        .collect())
 }
 
 fn asset_name_from_value(value: &Value) -> Option<String> {
@@ -319,6 +245,23 @@ fn value_to_summary(value: &Value) -> Option<String> {
         Value::String(text) => Some(text.clone()),
         Value::Number(number) => Some(number.to_string()),
         _ => None,
+    }
+}
+
+pub struct Meta;
+
+impl CliCommand for Meta {
+    type Args = NoArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["meta"],
+        "market",
+        "Show raw exchange metadata",
+        "Show raw exchange metadata.",
+    );
+
+    async fn run(inv: &Invocation, _args: &NoArgs) -> Result<(), anyhow::Error> {
+        show(inv).await
     }
 }
 

@@ -4,6 +4,9 @@
 
 Command-line behavior:
 
+- `--dry-run` on a read-only command that does not preview (`wallet list`, `account ls`, `schema`) now fails with `--dry-run is only supported for mutating commands with preview support` (exit `13`), like every other such command, instead of running for real.
+- `hyperliquid schema` lists `tif` as `gtc, alo, ioc` and `orders bracket --entry` as the six values clap accepts. `account set-default` reports `confirmation: none` (it never prompts), and its help notes say so.
+- Errors for a bad `HYPERLIQUID_MAINNET_API_BASE_URL` or `HYPERLIQUID_TESTNET_API_BASE_URL` now name that variable. The update-check cache is written owner-only (0600). If a new wallet can't be recorded in the config and can't be removed from the vault either, the error says the wallet is still there. `wallet reset` no longer prints the plaintext-key warning for a file it is about to delete.
 - A group without an action (`hyperliquid orders`) and bare `hyperliquid` print help on stdout and exit `0`. `-h` and `--help` print the same help at every depth, and a closed pipe (`| head`) ends quietly.
 - `-v`/`--version` works at every depth. With JSON output it prints `{"version":"X"}`.
 - Added global `--non-interactive` and `--no-color`. `CI`, `HYPERLIQUID_AGENT`, JSON output, and `--payload-file -` never prompt. Boolean `HYPERLIQUID_*` variables are validated, and an invalid value exits `2`.
@@ -27,6 +30,7 @@ Errors:
 - Human errors start with `✗` on a styled terminal and `Error:` otherwise, followed by recovery commands when one applies.
 - Network failures name the host and cause (`Couldn't reach api.hyperliquid.xyz. Connection refused.`). A 5xx from the API is reported as an API failure, not a network problem. Rate limits say when to retry.
 - Reads retry up to twice on connect errors, timeouts, 5xx, and 429, honoring `Retry-After`. Mutations are never retried. A mutation whose result is unknown (timeout, reset, or 5xx after sending) fails with `reason: "unknown_outcome"` (exit `12`) and points to `orders open` and `account fills`.
+- Every Hyperliquid API read goes through one client, so `meta`, the raw `orders history` fallback and the raw spot-metadata fallback also retry transient failures and report a non-2xx reply as an API failure (`reason: "api_error"`) instead of `internal`. The `feedback` service and the release host classify a non-2xx reply the same way (`api_error`, or `rate_limited` for 429) instead of `network_error`. Retry notices (`Retrying automatically…`) appear only for a person at a terminal that may prompt, not for JSON, agent, CI, `--non-interactive` or `--payload-file -` runs. `account subaccounts` and `vaults get` read the exchange's `null` answer as an empty or missing result instead of matching decode-error text.
 - Exchange rejections are no longer misclassified as network failures because their text mentions "connection" or "timeout"; they exit `1` with `reason: "exchange_rejected"`.
 - Unknown assets suggest at most one close match, also in `data.suggestion`.
 - Remote text is stripped of bidi and zero-width characters and capped at 300 characters.

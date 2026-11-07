@@ -72,10 +72,37 @@ fn is_format_char(ch: char) -> bool {
     )
 }
 
+/// Raw remote text that has been sanitized and must be shown with
+/// [`UNTRUSTED_LABEL`].
+///
+/// The only constructor takes the raw remote string, so error variants that
+/// carry remote text cannot be built from unlabelled or unsanitized text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Untrusted(String);
+
+impl Untrusted {
+    #[must_use]
+    pub fn from_remote(raw: &str) -> Self {
+        Self(sanitize_untrusted_text(raw))
+    }
+
+    /// The sanitized text without the label.
+    #[must_use]
+    pub fn text(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for Untrusted {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{UNTRUSTED_LABEL} {}", self.0)
+    }
+}
+
 /// Return a consistently labelled representation of untrusted remote text.
 #[must_use]
 pub fn labelled_untrusted_text(input: &str) -> String {
-    format!("{UNTRUSTED_LABEL} {}", sanitize_untrusted_text(input))
+    Untrusted::from_remote(input).to_string()
 }
 
 fn strip_ansi_sequences(input: &str) -> String {
@@ -139,6 +166,14 @@ mod tests {
             labelled_untrusted_text(text),
             "[untrusted remote data] before after link"
         );
+    }
+
+    #[test]
+    fn untrusted_displays_label_and_keeps_sanitized_text() {
+        let untrusted = Untrusted::from_remote("\u{1b}[31mhello\u{1b}[0m\nworld");
+
+        assert_eq!(untrusted.text(), "hello world");
+        assert_eq!(untrusted.to_string(), "[untrusted remote data] hello world");
     }
 }
 

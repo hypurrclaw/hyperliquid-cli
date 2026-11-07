@@ -30,9 +30,9 @@ tasks:
       - cargo test
 
   contracts:
-    desc: Run command/schema/registry/dry-run characterization contract tests
+    desc: Run command/schema/registry/dry-run characterization contract tests (HYPERLIQUID_UPDATE_CONTRACTS=1 rewrites the fixtures)
     cmds:
-      - cargo test --test command_contracts --test schema_contracts --test registry_contracts --test dry_run_contracts --test output_contracts
+      - cargo test --test contract_fixtures --test command_contracts --test schema_contracts --test registry_contracts --test dry_run_contracts --test output_contracts
 
   build:
     desc: Build the release hyperliquid binary

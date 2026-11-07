@@ -3,16 +3,16 @@ use std::time::{Duration, Instant};
 use hypersdk::Address;
 use hypersdk::Decimal;
 use hypersdk::hypercore::Cloid;
-use hypersdk::hypercore::types::{
-    Action, BasicOrder, BatchCancel, BatchCancelCloid, Cancel, CancelByCloid, OrderResponseStatus,
-};
 use serde_json::json;
 
 use crate::commands::actions;
 use crate::errors::CliError;
-use crate::output::{self, OutputFormat, TableData};
+use crate::invocation::Invocation;
+use crate::output::TableData;
 use crate::response_sanitization::labelled_untrusted_text;
 
+use super::exchange::Placement;
+use super::live_order::LiveOrder;
 use super::planning::{
     CreateOrderSubmission, prepare_create_order_plan, resolve_trigger_prices,
     validate_tpsl_price_ordering,
@@ -65,7 +65,7 @@ pub fn validate_bracket_args(args: &BracketArgs) -> Result<(), CliError> {
 
 pub async fn bracket_dry_run_plan(
     client: &hypersdk::hypercore::HttpClient,
-    resolver: &crate::commands::AssetResolver,
+    resolver: &crate::assets::AssetResolver,
     args: &BracketArgs,
 ) -> Result<serde_json::Value, CliError> {
     validate_bracket_args(args)?;
@@ -84,15 +84,6 @@ pub async fn bracket_dry_run_plan(
         "entry_plan": entry,
         "protection_plan": protection,
     }))
-}
-
-/// A resting bracket entry tracked by OID and/or cloid.
-struct EntryTracking {
-    oid: Option<u64>,
-    cloid: Cloid,
-    asset: u32,
-    /// Latest known open size of the entry order.
-    open_size: Decimal,
 }
 
 /// The entry order of a bracket as the user can name it in a command.
@@ -120,12 +111,10 @@ impl EntryRef {
     }
 }
 
-impl EntryTracking {
-    fn entry(&self) -> EntryRef {
-        EntryRef {
-            oid: self.oid,
-            cloid: self.cloid,
-        }
+fn entry_ref(order: &LiveOrder) -> EntryRef {
+    EntryRef {
+        oid: order.oid,
+        cloid: order.cloid,
     }
 }
 
@@ -140,7 +129,6 @@ pub async fn bracket(
     context: OrderExecutionContext<'_>,
     args: &BracketArgs,
     vault_address: Option<Address>,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
     validate_bracket_args(args)?;
     if context.submission.require_mainnet_confirmation && !args.yes {
@@ -155,7 +143,9 @@ pub async fn bracket(
     let started = Instant::now();
     let cloid = super::generated_cloid(1)?;
     let entry_args = entry_create_args(args, Some(cloid));
-    let plan = prepare_create_order_plan(context.client, context.resolver, &entry_args).await?;
+    let plan =
+        prepare_create_order_plan(context.submission.api.sdk(), context.resolver, &entry_args)
+            .await?;
     let prepared = match plan.submission {
         CreateOrderSubmission::Single(prepared) => prepared,
         CreateOrderSubmission::NormalTpsl(_) => {
@@ -184,14 +174,13 @@ pub async fn bracket(
     )?;
     validate_tpsl_price_ordering(args.side.opposite(), est_tp, est_sl, "orders bracket")?;
 
-    let statuses =
-        place_prepared_single(context, prepared, &entry_args, vault_address, format).await?;
+    let statuses = place_prepared_single(context, prepared, &entry_args, vault_address).await?;
     let entry_status = statuses.into_iter().next().ok_or_else(|| {
         CliError::Internal(anyhow::anyhow!("bracket entry returned no order status"))
     })?;
 
-    let mut tracking = match entry_status {
-        OrderResponseStatus::Filled { total_sz, oid, .. } => {
+    let mut tracking = match Placement::classify(entry_status) {
+        Placement::Filled { total_sz, oid, .. } => {
             let entry = EntryRef {
                 oid: Some(oid),
                 cloid,
@@ -200,7 +189,6 @@ pub async fn bracket(
                 context,
                 args,
                 vault_address,
-                format,
                 started,
                 &entry,
                 total_sz,
@@ -208,23 +196,14 @@ pub async fn bracket(
             )
             .await;
         }
-        OrderResponseStatus::Resting { oid, .. } => EntryTracking {
-            oid: Some(oid),
+        // Accepted without an oid is tracked by cloid and polled like a resting entry.
+        Placement::Open { oid, .. } => LiveOrder {
+            oid,
             cloid,
             asset,
             open_size: requested_size,
         },
-        // Accepted without an oid. The exchange has not reported a fill, so the entry
-        // is tracked by cloid and polled like any other resting entry.
-        OrderResponseStatus::Success
-        | OrderResponseStatus::WaitingForTrigger
-        | OrderResponseStatus::WaitingForFill => EntryTracking {
-            oid: None,
-            cloid,
-            asset,
-            open_size: requested_size,
-        },
-        OrderResponseStatus::Error(err) => {
+        Placement::Rejected(err) => {
             return Err(CliError::Unsupported(format!(
                 "Couldn't place the bracket entry. Exchange said: {}",
                 labelled_untrusted_text(&err)
@@ -243,30 +222,29 @@ pub async fn bracket(
     let user = vault_address.unwrap_or_else(|| context.submission.signer.query_address());
     while started.elapsed() < timeout {
         tokio::time::sleep(Duration::from_millis(500)).await;
-        let open = match context.client.open_orders(user, None).await {
+        let open = match context.submission.api.sdk().open_orders(user, None).await {
             Ok(open) => open,
             Err(err) => {
                 return Err(report_unprotected(
                     args,
-                    &tracking.entry(),
+                    &entry_ref(&tracking),
                     "resting",
                     "Couldn't check it",
-                    &crate::commands::map_api_error(err),
-                    format,
+                    &crate::errors::from_sdk(err),
+                    context.submission.inv,
                     started,
                 ));
             }
         };
-        let open_size = entry_open_size(&open, &tracking);
+        let open_size = tracking.open_size_in(&open);
         if open_size <= Decimal::ZERO {
             let filled = requested_size - tracking.open_size;
             return arm_protection(
                 context,
                 args,
                 vault_address,
-                format,
                 started,
-                &tracking.entry(),
+                &entry_ref(&tracking),
                 filled,
                 "armed",
             )
@@ -280,11 +258,11 @@ pub async fn bracket(
     if let Err(err) = cancel_entry(context, &tracking, vault_address).await {
         return Err(report_unprotected(
             args,
-            &tracking.entry(),
+            &entry_ref(&tracking),
             "resting",
             "Couldn't cancel it after the entry timeout",
             &err,
-            format,
+            context.submission.inv,
             started,
         ));
     }
@@ -294,9 +272,8 @@ pub async fn bracket(
             context,
             args,
             vault_address,
-            format,
             started,
-            &tracking.entry(),
+            &entry_ref(&tracking),
             filled,
             "entry_cancelled_protected",
         )
@@ -304,7 +281,7 @@ pub async fn bracket(
     } else {
         let headline = format!(
             "Entry order {} timed out unfilled and was cancelled. No position was opened.",
-            tracking.entry().label()
+            entry_ref(&tracking).label()
         );
         let mut result = BracketOutput::result("entry_cancelled", args, "0".to_string(), started);
         result.problem = Some(BracketProblem {
@@ -312,7 +289,7 @@ pub async fn bracket(
             headline: headline.clone(),
             next_commands: Vec::new(),
         });
-        output::print_data(&result, format, started.elapsed());
+        context.submission.inv.print(&result);
         Err(CliError::PartialResults(headline).into())
     }
 }
@@ -326,7 +303,7 @@ fn report_unprotected(
     state: &str,
     failed_step: &str,
     cause: &CliError,
-    format: OutputFormat,
+    inv: &Invocation,
     started: Instant,
 ) -> anyhow::Error {
     let headline = format!(
@@ -358,7 +335,7 @@ fn report_unprotected(
         headline: headline.clone(),
         next_commands: next_commands.clone(),
     });
-    output::print_data(&result, format, started.elapsed());
+    inv.print(&result);
     let commands = next_commands
         .iter()
         .map(|command| format!("    {command}"))
@@ -372,7 +349,6 @@ async fn arm_protection(
     context: OrderExecutionContext<'_>,
     args: &BracketArgs,
     vault_address: Option<Address>,
-    format: OutputFormat,
     started: Instant,
     entry: &EntryRef,
     filled: Decimal,
@@ -389,7 +365,7 @@ async fn arm_protection(
             headline: headline.clone(),
             next_commands: vec!["hyperliquid orders open".to_string()],
         });
-        output::print_data(&result, format, started.elapsed());
+        context.submission.inv.print(&result);
         return Err(CliError::PartialResults(format!(
             "{headline}\n\nCheck what is live:\n    hyperliquid orders open"
         ))
@@ -399,7 +375,6 @@ async fn arm_protection(
         context,
         &protection_tpsl_args(args, Some(filled)),
         vault_address,
-        OutputFormat::Json,
         false,
     )
     .await
@@ -410,15 +385,16 @@ async fn arm_protection(
             "filled",
             "Couldn't place the take-profit and stop-loss",
             &crate::errors::from_anyhow(err),
-            format,
+            context.submission.inv,
             started,
         ));
     }
-    output::print_data(
-        &BracketOutput::result(status, args, filled.to_string(), started),
-        format,
-        started.elapsed(),
-    );
+    context.submission.inv.print(&BracketOutput::result(
+        status,
+        args,
+        filled.to_string(),
+        started,
+    ));
     Ok(())
 }
 
@@ -465,44 +441,16 @@ fn protection_tpsl_args(args: &BracketArgs, size: Option<Decimal>) -> TpslArgs {
     }
 }
 
-/// Open size of the tracked entry order, matched by OID or cloid only.
-fn entry_open_size(orders: &[BasicOrder], tracking: &EntryTracking) -> Decimal {
-    orders
-        .iter()
-        .filter(|order| {
-            tracking.oid.is_some_and(|oid| order.oid == oid)
-                || order.cloid.is_some_and(|cloid| cloid == tracking.cloid)
-        })
-        .map(|order| order.sz)
-        .fold(Decimal::ZERO, |total, size| total + size)
-}
-
 /// Cancel the remaining entry order so a timed-out bracket cannot fill
 /// unprotected later.
 async fn cancel_entry(
     context: OrderExecutionContext<'_>,
-    tracking: &EntryTracking,
+    tracking: &LiveOrder,
     vault_address: Option<Address>,
 ) -> Result<(), CliError> {
-    let action = match tracking.oid {
-        Some(oid) => Action::Cancel(BatchCancel {
-            cancels: vec![Cancel {
-                asset: tracking.asset as usize,
-                oid,
-            }],
-            fast: false,
-        }),
-        None => Action::CancelByCloid(BatchCancelCloid {
-            cancels: vec![CancelByCloid {
-                asset: tracking.asset,
-                cloid: tracking.cloid,
-            }],
-            fast: false,
-        }),
-    };
+    let action = tracking.cancel_prefer_oid();
     actions::send_l1_action_raw(
-        context.submission.api_base_url,
-        context.submission.chain,
+        context.submission.api,
         context.submission.signer,
         action,
         actions::nonce_now(),

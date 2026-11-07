@@ -17,7 +17,7 @@ graph TD
     Dispatch --> Handler[commands/*.rs handler]
     Handler --> Output[src/output/mod.rs<br/>pretty / table / json]
     Output --> Stdout[stdout]
-    Handler -->|error| ErrPath[src/errors.rs<br/>CliError + exit code]
+    Handler -->|error| ErrPath[src/errors/<br/>CliError + exit code]
 ```
 
 ## Global flags

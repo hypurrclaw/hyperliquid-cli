@@ -181,24 +181,9 @@ pub(crate) fn prepare_trailing_stop_plan(
     validate_trailing_stop_args(args)?;
     let retracement = retracement_from_args(args)?;
     let query = qualify_dex_asset(args.dex.as_deref(), &args.coin);
-    let ResolvedAsset::Perp {
-        name,
-        index,
-        dex,
-        sz_decimals,
-        ..
-    } = resolver.resolve_perp(&query)?
-    else {
-        return Err(CliError::Configuration(format!(
-            "orders trailing-stop supports perpetual markets only; {} is not a perpetual market",
-            args.coin
-        )));
-    };
-    let coin = dex
-        .as_ref()
-        .map(|dex| format!("{dex}:{name}"))
-        .unwrap_or(name);
-    let size = args.size.round_dp(sz_decimals);
+    let perp = resolver.resolve_perp(&query)?;
+    let coin = perp.display_name();
+    let size = args.size.round_dp(perp.sz_decimals);
     if size <= Decimal::ZERO {
         return Err(CliError::Configuration(format!(
             "size is too small for {coin}; rounds to zero"
@@ -206,7 +191,7 @@ pub(crate) fn prepare_trailing_stop_plan(
     }
     Ok(TrailingStopPlan {
         action: TrailingStop {
-            asset: index,
+            asset: perp.index,
             is_buy: args.side.is_buy(),
             sz: size,
             reduce_only: args.reduce_only,
@@ -240,18 +225,12 @@ pub async fn trailing_stop(
     resolver: &AssetResolver,
     args: &TrailingStopArgs,
     vault_address: Option<Address>,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
-    let start = Instant::now();
     context.signer.ensure_can_attempt_live_signing()?;
     let plan = prepare_trailing_stop_plan(resolver, args)?;
     if context.require_mainnet_confirmation
         && !args.yes
-        && !confirm_mainnet_trailing_stop(
-            &plan,
-            &ConsentTarget::new(context, vault_address, None),
-            format,
-        )?
+        && !confirm_mainnet_trailing_stop(&plan, &ConsentTarget::new(context, vault_address, None))?
     {
         return Err(CliError::Configuration(
             "Mainnet trailing stop confirmation required; trailing stop placement cancelled. Rerun with --yes for deliberate automation."
@@ -260,8 +239,7 @@ pub async fn trailing_stop(
         .into());
     }
     let response = actions::send_l1_action_raw(
-        context.api_base_url,
-        context.chain,
+        context.api,
         context.signer,
         Action::TrailingStop(plan.action.clone()),
         actions::nonce_now(),
@@ -271,24 +249,20 @@ pub async fn trailing_stop(
     .await?;
     let oid = parse_trailing_stop_response(&response)?;
 
-    output::print_data(
-        &TrailingStopOutput {
-            rows: vec![TrailingStopConfirmation {
-                oid,
-                coin: plan.coin.clone(),
-                side: plan.side.to_string(),
-                size: plan.size,
-                reduce_only: plan.reduce_only(),
-                retracement: retracement_json(&plan.retracement),
-                activation_px: plan.activation_px.map(|price| price.to_string()),
-                status: "waiting_for_trigger".to_string(),
-                retracement_label: retracement_label(&plan.retracement),
-            }],
-        },
-        format,
-        start.elapsed(),
-    );
-    if format == OutputFormat::Pretty {
+    context.inv.print(&TrailingStopOutput {
+        rows: vec![TrailingStopConfirmation {
+            oid,
+            coin: plan.coin.clone(),
+            side: plan.side.to_string(),
+            size: plan.size,
+            reduce_only: plan.reduce_only(),
+            retracement: retracement_json(&plan.retracement),
+            activation_px: plan.activation_px.map(|price| price.to_string()),
+            status: "waiting_for_trigger".to_string(),
+            retracement_label: retracement_label(&plan.retracement),
+        }],
+    });
+    if context.inv.format() == OutputFormat::Pretty {
         print_cancel_hint(oid, vault_address, args.on_behalf_of.as_deref());
     }
     Ok(())
@@ -333,7 +307,6 @@ fn parse_trailing_stop_response(response: &serde_json::Value) -> Result<u64, Cli
 fn confirm_mainnet_trailing_stop(
     plan: &TrailingStopPlan,
     target: &ConsentTarget<'_>,
-    format: OutputFormat,
 ) -> Result<bool, CliError> {
     let tracking = if plan.side.is_buy() {
         "lowest"
@@ -363,7 +336,6 @@ fn confirm_mainnet_trailing_stop(
         target,
         &details,
         &format!("Place this trailing stop on {}?", target.network()),
-        format,
     )
 }
 
@@ -428,7 +400,8 @@ impl TableData for TrailingStopOutput {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::commands::{AssetMetadata, PerpAsset};
+    use crate::assets::test_support::hip3_perp;
+    use crate::assets::{AssetMetadata, PerpAsset, SpotAsset};
     use clap::Parser;
 
     #[derive(Parser)]
@@ -455,7 +428,7 @@ mod tests {
                     sz_decimals: 5,
                     collateral: "USDC".to_string(),
                 },
-                PerpAsset::hip3("testdex", "HYPE", 11_100),
+                hip3_perp("testdex", "HYPE", 11_100),
             ],
             vec![SpotAsset {
                 symbol: "HYPE/USDC".to_string(),

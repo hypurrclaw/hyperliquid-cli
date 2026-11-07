@@ -4,7 +4,7 @@ use std::fmt;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use chrono::Utc;
 use clap::{Args, ValueEnum};
@@ -18,13 +18,20 @@ use hypersdk::hypercore::{Chain, Cloid, HttpClient, OidOrCloid, PriceTick};
 use hypersdk::{Address, Decimal};
 use serde::{Deserialize, Serialize};
 
-use crate::commands::{
-    AssetMetadata, AssetQuery, AssetResolver, PerpAsset, ResolvedAsset, SpotAsset, actions,
-    builder, load_raw_spot_markets_from_url, map_api_error, parse_asset_query,
+use crate::assets::asset_id::{
+    outcome_coin, parse_spot_coin_key, spot_coin_key, spot_internal_coin_key,
 };
+use crate::assets::{
+    AssetQuery, AssetResolver, Market, OutcomeAsset, parse_asset_query, qualify_dex_asset,
+};
+use crate::commands::{actions, builder};
+use crate::errors::from_sdk;
+
 use crate::errors::CliError;
-use crate::http_api::post_info_json;
+use crate::http_api::ApiClient;
 use crate::input_hardening::{FilePolicy, read_json_file};
+use crate::invocation::Invocation;
+use crate::mode::Mode;
 use crate::output::{self, OutputFormat, TableData};
 use crate::prompt;
 use crate::response_sanitization::labelled_untrusted_text;
@@ -39,12 +46,20 @@ const BPS_DENOMINATOR: i64 = 10_000;
 mod args;
 mod bracket;
 mod chase;
+pub mod cli;
+mod exchange;
 mod hip3;
+mod live_order;
 mod planning;
 mod queries;
 mod rendering;
 mod trailing_stop;
 mod validation;
+
+pub(super) use exchange::{
+    Placement, ensure_action_statuses_ok, modification_result_oid, order_statuses_from_response,
+    parse_order_statuses,
+};
 
 pub use bracket::{bracket, bracket_dry_run_plan, validate_bracket_args};
 pub use chase::{chase, chase_dry_run_plan};
@@ -70,13 +85,13 @@ pub use planning::{
 };
 #[cfg(test)]
 use planning::{build_position_tpsl_batch, prepare_normal_tpsl_batch, prepare_order};
-pub use queries::{history, open, open_snapshot, status, status_query};
+pub use queries::{history, open, open_snapshot, status};
 pub use rendering::OrderListOutput;
 use rendering::{
     CancelAllSummary, CancelAllSummaryOutput, CancelConfirmation, CancelConfirmationOutput,
     CancelLeg, CancelLegsOutput, ModifyConfirmation, ModifyConfirmationOutput, OrderConfirmation,
     OrderConfirmationOutput, OrderListRow, PartialBatchOutput, ScheduleCancelConfirmation,
-    ScheduleCancelOutput, TpslOrderConfirmation, TpslOrderConfirmationOutput, TpslResponseStatus,
+    ScheduleCancelOutput, TpslOrderConfirmation, TpslOrderConfirmationOutput,
     TwapCancelConfirmation, TwapCancelOutput, TwapCreateConfirmation, TwapCreateOutput,
 };
 pub use validation::{
@@ -101,6 +116,7 @@ struct PreparedOrder {
     warning: Option<String>,
     builder: Option<OrderBuilderFee>,
 }
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 struct OrderBuilderFee {
     b: String,
@@ -166,27 +182,6 @@ struct PreparedOrderBatch {
 }
 
 #[derive(Debug, Clone)]
-enum TradableAsset {
-    Perp {
-        name: String,
-        index: usize,
-        dex: Option<String>,
-        sz_decimals: u32,
-        collateral: String,
-    },
-    Spot {
-        symbol: String,
-        index: usize,
-        base_sz_decimals: u32,
-        quote: String,
-    },
-    Outcome {
-        notation: String,
-        asset_id: usize,
-    },
-}
-
-#[derive(Debug, Clone)]
 struct MidLookup {
     coin: String,
     dex: Option<String>,
@@ -218,28 +213,25 @@ impl OrderIdentifier {
 #[derive(Clone, Copy)]
 pub struct OrderExecutionContext<'a> {
     pub submission: OrderSubmissionContext<'a>,
-    pub client: &'a HttpClient,
     pub resolver: &'a AssetResolver,
 }
 
 #[derive(Clone, Copy)]
 pub struct OrderSubmissionContext<'a> {
-    pub api_base_url: &'a str,
-    pub chain: Chain,
+    pub inv: &'a Invocation,
+    pub api: &'a ApiClient,
     pub signer: &'a SelectedSigner,
     pub require_mainnet_confirmation: bool,
 }
 
-/// Place an order through hypersdk's authenticated `/exchange` flow.
 pub async fn create(
     context: OrderExecutionContext<'_>,
     args: &CreateArgs,
     vault_address: Option<Address>,
-    format: OutputFormat,
     emit_output: bool,
 ) -> Result<(), anyhow::Error> {
-    let start = Instant::now();
-    let plan = prepare_create_order_plan(context.client, context.resolver, args).await?;
+    let plan =
+        prepare_create_order_plan(context.submission.api.sdk(), context.resolver, args).await?;
     let user = vault_address.unwrap_or_else(|| context.submission.signer.query_address());
     match plan.submission {
         CreateOrderSubmission::NormalTpsl(prepared) => {
@@ -250,9 +242,9 @@ pub async fn create(
                 .unwrap_or_default();
             let helper = plan_hip3_helper(context, user, &coin, notional).await?;
             if context.submission.require_mainnet_confirmation && !args.yes {
-                warn_hip3_margin_helper(&helper, format)?;
+                warn_hip3_margin_helper(&helper)?;
                 let target = ConsentTarget::new(context.submission, vault_address, None);
-                if !confirm_mainnet_tpsl_batch(&prepared, &target, format)? {
+                if !confirm_mainnet_tpsl_batch(&prepared, &target)? {
                     return Err(CliError::Configuration(
                         "Mainnet TP/SL confirmation required; order placement cancelled. Rerun with --yes for deliberate automation."
                             .to_string(),
@@ -263,28 +255,25 @@ pub async fn create(
             execute_hip3_helper(context, user, &helper).await?;
 
             let statuses = place_tpsl_batch(
-                context.submission.api_base_url,
-                context.submission.chain,
+                context.submission.api,
                 context.submission.signer,
                 prepared.batch.clone(),
                 vault_address,
             )
             .await?;
             let rows = tpsl_confirmation_rows(&prepared, statuses)?;
-            finish_tpsl_batch(rows, format, start, emit_output)
+            finish_tpsl_batch(rows, context.submission.inv, emit_output)
         }
         CreateOrderSubmission::Single(prepared) => {
             let statuses =
-                place_prepared_single(context, prepared.clone(), args, vault_address, format)
-                    .await?;
+                place_prepared_single(context, prepared.clone(), args, vault_address).await?;
             let rows = statuses
                 .into_iter()
                 .map(|status| OrderConfirmation::from_status(&prepared, status))
                 .collect::<Result<Vec<_>, _>>()?;
             emit_order_output(
                 &OrderConfirmationOutput { rows },
-                format,
-                start.elapsed(),
+                context.submission.inv,
                 emit_output,
             );
             Ok(())
@@ -302,33 +291,20 @@ async fn plan_hip3_helper(
     let Some(dex) = hip3_dex_from_coin(coin, None) else {
         return Ok(None);
     };
-    plan_hip3_margin_transfer(
-        context.client,
-        context.submission.api_base_url,
-        user,
-        Some(dex.as_str()),
-        notional,
-    )
-    .await
+    plan_hip3_margin_transfer(context.submission.api, user, Some(dex.as_str()), notional).await
 }
 
 /// Disclose a planned HIP-3 margin helper transfer before order confirmation.
-fn warn_hip3_margin_helper(
-    helper: &Option<Hip3MarginPlan>,
-    format: OutputFormat,
-) -> Result<(), CliError> {
+fn warn_hip3_margin_helper(helper: &Option<Hip3MarginPlan>) -> Result<(), CliError> {
     if let Some(plan) = helper {
         let mut stderr = io::stderr();
         writeln!(
             stderr,
             "{}",
-            warning_prompt(
-                &format!(
-                    "This order requires a helper transfer of {} USDC from perp to dex:{} before placement.",
-                    plan.amount, plan.dest_dex
-                ),
-                format
-            )
+            prompt::warning(&format!(
+                "This order requires a helper transfer of {} USDC from perp to dex:{} before placement.",
+                plan.amount, plan.dest_dex
+            ))
         )
         .map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
     }
@@ -343,9 +319,8 @@ async fn execute_hip3_helper(
 ) -> Result<(), anyhow::Error> {
     if let Some(plan) = helper {
         execute_hip3_margin_transfer(
-            context.submission.api_base_url,
-            context.submission.chain,
-            context.client,
+            context.submission.inv.mode(),
+            context.submission.inv.remote()?,
             context.submission.signer,
             user,
             plan,
@@ -362,7 +337,6 @@ async fn place_prepared_single(
     prepared: PreparedOrder,
     args: &CreateArgs,
     vault_address: Option<Address>,
-    format: OutputFormat,
 ) -> Result<Vec<OrderResponseStatus>, anyhow::Error> {
     let user = vault_address.unwrap_or_else(|| context.submission.signer.query_address());
     let helper = plan_hip3_helper(
@@ -373,10 +347,10 @@ async fn place_prepared_single(
     )
     .await?;
     if context.submission.require_mainnet_confirmation && !args.yes {
-        warn_hip3_margin_helper(&helper, format)?;
+        warn_hip3_margin_helper(&helper)?;
         let target =
             ConsentTarget::new(context.submission, vault_address, prepared.builder.as_ref());
-        if !confirm_mainnet_order(&prepared, &target, format)? {
+        if !confirm_mainnet_order(&prepared, &target)? {
             return Err(CliError::Configuration(
                 "Mainnet order confirmation required; order placement cancelled. Rerun with --yes for deliberate automation."
                     .to_string(),
@@ -395,8 +369,7 @@ async fn place_prepared_single(
     };
     let statuses = if let Some(builder) = prepared.builder.clone() {
         place_builder_order_batch_raw(
-            context.submission.api_base_url,
-            context.submission.chain,
+            context.submission.api,
             context.submission.signer,
             batch,
             builder,
@@ -405,8 +378,7 @@ async fn place_prepared_single(
         .await?
     } else {
         place_order_batch_raw(
-            context.submission.api_base_url,
-            context.submission.chain,
+            context.submission.api,
             context.submission.signer,
             batch,
             vault_address,
@@ -416,18 +388,16 @@ async fn place_prepared_single(
     Ok(statuses)
 }
 
-/// Place a generated scale order batch.
 pub async fn scale(
     context: OrderExecutionContext<'_>,
     args: &ScaleArgs,
     vault_address: Option<Address>,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
-    let start = Instant::now();
-    let prepared = prepare_scale_batch(context.client, context.resolver, args).await?;
+    let prepared =
+        prepare_scale_batch(context.submission.api.sdk(), context.resolver, args).await?;
     if context.submission.require_mainnet_confirmation && !args.yes {
         let target = ConsentTarget::new(context.submission, vault_address, None);
-        if !confirm_mainnet_order_batch("scale", &prepared, &target, format)? {
+        if !confirm_mainnet_order_batch("scale", &prepared, &target)? {
             return Err(CliError::Configuration(
                 "Mainnet scale order confirmation required; order placement cancelled. Rerun with --yes for deliberate automation."
                     .to_string(),
@@ -437,24 +407,26 @@ pub async fn scale(
     }
 
     let rows = place_order_batch(context, prepared, vault_address).await?;
-    finish_order_batch(rows, format, start)
+    finish_order_batch(rows, context.submission.inv)
 }
 
-/// Place an explicit JSON order batch.
 pub async fn batch_create(
     context: OrderExecutionContext<'_>,
     args: &BatchCreateArgs,
     orders: Vec<BatchCreateOrder>,
     vault_address: Option<Address>,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
-    let start = Instant::now();
-    let plan =
-        prepare_batch_create_order_plan(context.client, context.resolver, args, orders).await?;
+    let plan = prepare_batch_create_order_plan(
+        context.submission.api.sdk(),
+        context.resolver,
+        args,
+        orders,
+    )
+    .await?;
     let prepared = plan.prepared;
     if context.submission.require_mainnet_confirmation && !args.yes {
         let target = ConsentTarget::new(context.submission, vault_address, None);
-        if !confirm_mainnet_order_batch("batch-create", &prepared, &target, format)? {
+        if !confirm_mainnet_order_batch("batch-create", &prepared, &target)? {
             return Err(CliError::Configuration(
                 "Mainnet batch order confirmation required; order placement cancelled. Rerun with --yes for deliberate automation."
                     .to_string(),
@@ -464,7 +436,7 @@ pub async fn batch_create(
     }
 
     let rows = place_order_batch(context, prepared, vault_address).await?;
-    finish_order_batch(rows, format, start)
+    finish_order_batch(rows, context.submission.inv)
 }
 
 async fn place_order_batch(
@@ -473,8 +445,7 @@ async fn place_order_batch(
     vault_address: Option<Address>,
 ) -> Result<Vec<OrderConfirmation>, CliError> {
     let statuses = place_order_batch_raw(
-        context.submission.api_base_url,
-        context.submission.chain,
+        context.submission.api,
         context.submission.signer,
         prepared.batch.clone(),
         vault_address,
@@ -493,21 +464,19 @@ async fn place_order_batch(
         .collect())
 }
 
-/// Place position-attached take-profit and/or stop-loss trigger orders.
 pub async fn tpsl(
     context: OrderExecutionContext<'_>,
     args: &TpslArgs,
     vault_address: Option<Address>,
-    format: OutputFormat,
     emit_output: bool,
 ) -> Result<(), anyhow::Error> {
-    let start = Instant::now();
     let user = vault_address.unwrap_or_else(|| context.submission.signer.query_address());
     let prepared =
-        prepare_position_tpsl_batch(context.client, context.resolver, user, args).await?;
+        prepare_position_tpsl_batch(context.submission.api.sdk(), context.resolver, user, args)
+            .await?;
     if context.submission.require_mainnet_confirmation && !args.yes {
         let target = ConsentTarget::new(context.submission, vault_address, None);
-        if !confirm_mainnet_tpsl_batch(&prepared, &target, format)? {
+        if !confirm_mainnet_tpsl_batch(&prepared, &target)? {
             return Err(CliError::Configuration(
                 "Mainnet TP/SL confirmation required; order placement cancelled. Rerun with --yes for deliberate automation."
                     .to_string(),
@@ -517,25 +486,19 @@ pub async fn tpsl(
     }
 
     let statuses = place_tpsl_batch(
-        context.submission.api_base_url,
-        context.submission.chain,
+        context.submission.api,
         context.submission.signer,
         prepared.batch.clone(),
         vault_address,
     )
     .await?;
     let rows = tpsl_confirmation_rows(&prepared, statuses)?;
-    finish_tpsl_batch(rows, format, start, emit_output)
+    finish_tpsl_batch(rows, context.submission.inv, emit_output)
 }
 
-fn emit_order_output(
-    data: &dyn TableData,
-    format: OutputFormat,
-    duration: Duration,
-    emit_output: bool,
-) {
+fn emit_order_output(data: &dyn TableData, inv: &Invocation, emit_output: bool) {
     if emit_output {
-        output::print_data(data, format, duration);
+        inv.print(data);
     }
 }
 
@@ -569,8 +532,7 @@ fn finish_with_failures(
     verb: &str,
     action: &str,
     failures: Vec<String>,
-    format: OutputFormat,
-    start: Instant,
+    inv: &Invocation,
 ) -> Result<(), anyhow::Error> {
     let total = legs.rows().len();
     let failed = failures.len();
@@ -588,70 +550,55 @@ fn finish_with_failures(
             plural(total, "order", "orders")
         ),
     };
-    output::print_data(&partial, format, start.elapsed());
+    inv.print(&partial);
     Err(partial.error().into())
 }
 
-/// Print a placed batch, or report its failed legs.
-fn finish_order_batch(
-    rows: Vec<OrderConfirmation>,
-    format: OutputFormat,
-    start: Instant,
-) -> Result<(), anyhow::Error> {
+fn finish_order_batch(rows: Vec<OrderConfirmation>, inv: &Invocation) -> Result<(), anyhow::Error> {
     let legs = OrderConfirmationOutput { rows };
     let failures = legs.rejection_errors();
     if failures.is_empty() {
-        output::print_data(&legs, format, start.elapsed());
+        inv.print(&legs);
         return Ok(());
     }
-    finish_with_failures(legs, "Placed", "place orders", failures, format, start)
+    finish_with_failures(legs, "Placed", "place orders", failures, inv)
 }
 
 /// Print a placed TP/SL batch, or report its failed legs. With `emit_output`
 /// off (bracket protection) a failed leg is returned as an error instead.
 fn finish_tpsl_batch(
     rows: Vec<TpslOrderConfirmation>,
-    format: OutputFormat,
-    start: Instant,
+    inv: &Invocation,
     emit_output: bool,
 ) -> Result<(), anyhow::Error> {
     let legs = TpslOrderConfirmationOutput { rows };
     let failures = legs.rejection_errors();
     if failures.is_empty() {
-        emit_order_output(&legs, format, start.elapsed(), emit_output);
+        emit_order_output(&legs, inv, emit_output);
         return Ok(());
     }
     if !emit_output {
         return Err(rejected_all("place TP/SL orders", &failures).into());
     }
-    finish_with_failures(
-        legs,
-        "Placed",
-        "place TP/SL orders",
-        failures,
-        format,
-        start,
-    )
+    finish_with_failures(legs, "Placed", "place TP/SL orders", failures, inv)
 }
 
-/// Cancel a single open order by exchange OID or client order ID.
 pub async fn cancel(
     context: OrderExecutionContext<'_>,
     user: Address,
     args: &CancelArgs,
     vault_address: Option<Address>,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
     context
         .submission
         .signer
         .ensure_can_attempt_live_signing()?;
-    let start = Instant::now();
-    let plan = prepare_cancel_order_plan(context.client, context.resolver, user, args).await?;
+    let plan =
+        prepare_cancel_order_plan(context.submission.api.sdk(), context.resolver, user, args)
+            .await?;
     let nonce = Utc::now().timestamp_millis() as u64;
     let response = actions::send_l1_action_raw(
-        context.submission.api_base_url,
-        context.submission.chain,
+        context.submission.api,
         context.submission.signer,
         plan.action,
         nonce,
@@ -662,41 +609,34 @@ pub async fn cancel(
     let statuses = order_statuses_from_response(response, "cancel")?;
 
     ensure_action_statuses_ok(&statuses, "cancel order")?;
-    output::print_data(
-        &CancelConfirmationOutput {
-            rows: vec![CancelConfirmation {
-                coin: plan.coin,
-                status: "cancelled".to_string(),
-                order_id: plan.order_id,
-                cloid: plan.cloid,
-            }],
-        },
-        format,
-        start.elapsed(),
-    );
+    context.submission.inv.print(&CancelConfirmationOutput {
+        rows: vec![CancelConfirmation {
+            coin: plan.coin,
+            status: "cancelled".to_string(),
+            order_id: plan.order_id,
+            cloid: plan.cloid,
+        }],
+    });
     Ok(())
 }
 
-/// Cancel all open orders, optionally filtered by coin.
 pub async fn cancel_all(
     context: OrderExecutionContext<'_>,
     user: Address,
     args: &CancelAllArgs,
     vault_address: Option<Address>,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
     context
         .submission
         .signer
         .ensure_can_attempt_live_signing()?;
-    let start = Instant::now();
-    let plan = prepare_cancel_all_orders_plan(context.client, context.resolver, user, args).await?;
+    let plan =
+        prepare_cancel_all_orders_plan(context.submission.api.sdk(), context.resolver, user, args)
+            .await?;
 
     if plan.cancelled_orders != 0 {
         let target = ConsentTarget::new(context.submission, vault_address, None);
-        if !args.yes
-            && !confirm_cancel_all(args.coin.as_deref(), plan.cancelled_orders, &target, format)?
-        {
+        if !args.yes && !confirm_cancel_all(args.coin.as_deref(), plan.cancelled_orders, &target)? {
             return Err(CliError::Configuration("cancel-all aborted".to_string()).into());
         }
     }
@@ -708,8 +648,7 @@ pub async fn cancel_all(
         };
         let nonce = Utc::now().timestamp_millis() as u64;
         let response = actions::send_l1_action_raw(
-            context.submission.api_base_url,
-            context.submission.chain,
+            context.submission.api,
             context.submission.signer,
             action,
             nonce,
@@ -733,8 +672,7 @@ pub async fn cancel_all(
                 "Cancelled",
                 "cancel all orders",
                 failures,
-                format,
-                start,
+                context.submission.inv,
             );
         }
         statuses.len()
@@ -742,37 +680,31 @@ pub async fn cancel_all(
         0
     };
 
-    output::print_data(
-        &CancelAllSummaryOutput {
-            rows: vec![CancelAllSummary {
-                coin: plan.summary_coin,
-                cancelled_orders,
-            }],
-        },
-        format,
-        start.elapsed(),
-    );
+    context.submission.inv.print(&CancelAllSummaryOutput {
+        rows: vec![CancelAllSummary {
+            coin: plan.summary_coin,
+            cancelled_orders,
+        }],
+    });
     Ok(())
 }
 
-/// Modify an existing order's price and/or size.
 pub async fn modify(
     context: OrderExecutionContext<'_>,
     user: Address,
     args: &ModifyArgs,
     vault_address: Option<Address>,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
     context
         .submission
         .signer
         .ensure_can_attempt_live_signing()?;
-    let start = Instant::now();
-    let plan = prepare_modify_order_plan(context.client, context.resolver, user, args).await?;
+    let plan =
+        prepare_modify_order_plan(context.submission.api.sdk(), context.resolver, user, args)
+            .await?;
     let nonce = Utc::now().timestamp_millis() as u64;
     let response = actions::send_l1_action_raw(
-        context.submission.api_base_url,
-        context.submission.chain,
+        context.submission.api,
         context.submission.signer,
         plan.action,
         nonce,
@@ -785,25 +717,18 @@ pub async fn modify(
     let mut confirmation = plan.confirmation;
     confirmation.order_id = modification_result_oid(&statuses).or(confirmation.order_id);
 
-    output::print_data(
-        &ModifyConfirmationOutput {
-            rows: vec![confirmation],
-        },
-        format,
-        start.elapsed(),
-    );
+    context.submission.inv.print(&ModifyConfirmationOutput {
+        rows: vec![confirmation],
+    });
     Ok(())
 }
 
-/// Create a TWAP order using Hyperliquid's signed TWAP exchange action.
 pub async fn twap_create(
     context: OrderSubmissionContext<'_>,
     resolver: &AssetResolver,
     args: &TwapCreateArgs,
     vault_address: Option<Address>,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
-    let start = Instant::now();
     context.signer.ensure_can_attempt_live_signing()?;
     let plan = prepare_twap_create_plan(resolver, args)?;
     if context.require_mainnet_confirmation
@@ -812,7 +737,6 @@ pub async fn twap_create(
             &plan.coin,
             args,
             &ConsentTarget::new(context, vault_address, None),
-            format,
         )?
     {
         return Err(CliError::Configuration(
@@ -822,8 +746,7 @@ pub async fn twap_create(
         .into());
     }
     let response = actions::send_raw_l1_json_action(
-        context.api_base_url,
-        context.chain,
+        context.api,
         context.signer,
         &plan.action,
         actions::RawL1ActionMetadata::new(actions::nonce_now()).with_vault_address(vault_address),
@@ -832,38 +755,30 @@ pub async fn twap_create(
     .await?;
     let twap_id = parse_twap_create_response(response)?;
 
-    output::print_data(
-        &TwapCreateOutput {
-            rows: vec![TwapCreateConfirmation {
-                coin: plan.coin,
-                side: plan.side,
-                size: plan.size,
-                duration_seconds: plan.duration_seconds,
-                duration_minutes: plan.duration_minutes,
-                status: "running".to_string(),
-                twap_id,
-            }],
-        },
-        format,
-        start.elapsed(),
-    );
+    context.inv.print(&TwapCreateOutput {
+        rows: vec![TwapCreateConfirmation {
+            coin: plan.coin,
+            side: plan.side,
+            size: plan.size,
+            duration_seconds: plan.duration_seconds,
+            duration_minutes: plan.duration_minutes,
+            status: "running".to_string(),
+            twap_id,
+        }],
+    });
     Ok(())
 }
 
-/// Cancel a TWAP order using Hyperliquid's signed TWAP cancel action.
 pub async fn twap_cancel(
     context: OrderSubmissionContext<'_>,
     resolver: &AssetResolver,
     args: &TwapCancelArgs,
     vault_address: Option<Address>,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
-    let start = Instant::now();
     context.signer.ensure_can_attempt_live_signing()?;
     let plan = prepare_twap_cancel_plan(resolver, args)?;
     let response = actions::send_raw_l1_json_action(
-        context.api_base_url,
-        context.chain,
+        context.api,
         context.signer,
         &plan.action,
         actions::RawL1ActionMetadata::new(actions::nonce_now()).with_vault_address(vault_address),
@@ -872,28 +787,21 @@ pub async fn twap_cancel(
     .await?;
     parse_twap_cancel_response(response)?;
 
-    output::print_data(
-        &TwapCancelOutput {
-            rows: vec![TwapCancelConfirmation {
-                coin: plan.coin,
-                status: "cancelled".to_string(),
-                twap_id: plan.twap_id,
-            }],
-        },
-        format,
-        start.elapsed(),
-    );
+    context.inv.print(&TwapCancelOutput {
+        rows: vec![TwapCancelConfirmation {
+            coin: plan.coin,
+            status: "cancelled".to_string(),
+            twap_id: plan.twap_id,
+        }],
+    });
     Ok(())
 }
 
-/// Schedule a dead man's switch cancel-all.
 pub async fn schedule_cancel(
     context: OrderSubmissionContext<'_>,
     args: &ScheduleCancelArgs,
     vault_address: Option<Address>,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
-    let start = Instant::now();
     context.signer.ensure_can_attempt_live_signing()?;
     let mut plan = prepare_schedule_cancel_plan(args, Utc::now())?;
     if context.require_mainnet_confirmation
@@ -901,7 +809,6 @@ pub async fn schedule_cancel(
         && !confirm_mainnet_schedule_cancel(
             &plan,
             &ConsentTarget::new(context, vault_address, None),
-            format,
         )?
     {
         return Err(CliError::Configuration(
@@ -916,8 +823,7 @@ pub async fn schedule_cancel(
     let nonce = actions::nonce_now();
     if plan.scheduled_at.is_some() {
         actions::send_l1_action_raw(
-            context.api_base_url,
-            context.chain,
+            context.api,
             context.signer,
             plan.action,
             nonce,
@@ -927,8 +833,7 @@ pub async fn schedule_cancel(
         .await?;
     } else {
         actions::send_raw_l1_json_action(
-            context.api_base_url,
-            context.chain,
+            context.api,
             context.signer,
             &ScheduleCancelRawAction {
                 action_type: "scheduleCancel",
@@ -940,169 +845,22 @@ pub async fn schedule_cancel(
         .await?;
     }
 
-    output::print_data(
-        &ScheduleCancelOutput {
-            rows: vec![ScheduleCancelConfirmation {
-                status: if plan.scheduled_at.is_some() {
-                    "scheduled".to_string()
-                } else {
-                    "cleared".to_string()
-                },
-                scheduled_time: plan.scheduled_at.as_ref().map(|value| value.to_rfc3339()),
-                scheduled_time_ms: plan
-                    .scheduled_at
-                    .as_ref()
-                    .map(|value| value.timestamp_millis() as u64),
-                in_seconds: plan.in_seconds,
-            }],
-        },
-        format,
-        start.elapsed(),
-    );
+    context.inv.print(&ScheduleCancelOutput {
+        rows: vec![ScheduleCancelConfirmation {
+            status: if plan.scheduled_at.is_some() {
+                "scheduled".to_string()
+            } else {
+                "cleared".to_string()
+            },
+            scheduled_time: plan.scheduled_at.as_ref().map(|value| value.to_rfc3339()),
+            scheduled_time_ms: plan
+                .scheduled_at
+                .as_ref()
+                .map(|value| value.timestamp_millis() as u64),
+            in_seconds: plan.in_seconds,
+        }],
+    });
     Ok(())
-}
-
-#[derive(serde::Deserialize)]
-struct SpotMetaTokenName {
-    name: String,
-    index: usize,
-}
-
-fn collateral_name_from_tokens(
-    token_names: &[SpotMetaTokenName],
-    collateral_token: Option<usize>,
-) -> String {
-    collateral_token
-        .and_then(|token| {
-            token_names
-                .iter()
-                .find(|candidate| candidate.index == token)
-                .or_else(|| token_names.get(token))
-        })
-        .map(|token| token.name.clone())
-        .unwrap_or_else(|| "USDC".to_string())
-}
-
-/// Load trading metadata directly from Hyperliquid's raw info endpoints.
-///
-/// This is used as a trading-command fallback when the full SDK market loader cannot decode
-/// ancillary metadata on a network. Order placement itself still goes through
-/// [`HttpClient::place`] for SDK signing and submission.
-pub async fn load_perp_resolver_from_api_base(
-    api_base_url: &str,
-) -> Result<AssetResolver, CliError> {
-    #[derive(serde::Deserialize)]
-    struct MetaResponse {
-        universe: Vec<MetaPerp>,
-        #[serde(rename = "collateralToken")]
-        collateral_token: Option<usize>,
-    }
-
-    #[derive(serde::Deserialize)]
-    struct MetaPerp {
-        name: String,
-        #[serde(rename = "szDecimals")]
-        sz_decimals: u32,
-    }
-
-    #[derive(serde::Deserialize)]
-    struct RawPerpDex {
-        name: String,
-    }
-
-    #[derive(serde::Deserialize)]
-    struct SpotMetaResponse {
-        tokens: Vec<SpotMetaTokenName>,
-    }
-
-    let token_names = post_info_json::<SpotMetaResponse>(
-        api_base_url,
-        &serde_json::json!({ "type": "spotMeta" }),
-        "loading spot token metadata",
-    )
-    .await
-    .map(|spot_meta| spot_meta.tokens)
-    .unwrap_or_default();
-    let collateral_name =
-        |collateral_token| collateral_name_from_tokens(&token_names, collateral_token);
-
-    let meta = post_info_json::<MetaResponse>(
-        api_base_url,
-        &serde_json::json!({ "type": "meta" }),
-        "loading perpetual metadata",
-    )
-    .await?;
-
-    let default_collateral = collateral_name(meta.collateral_token);
-
-    let mut perps = meta
-        .universe
-        .into_iter()
-        .enumerate()
-        .map(|(index, perp)| PerpAsset {
-            name: perp.name,
-            index,
-            dex: None,
-            sz_decimals: perp.sz_decimals,
-            collateral: default_collateral.clone(),
-        })
-        .collect::<Vec<_>>();
-
-    // Fallback metadata must mirror hypersdk's HIP-3 asset ID formula:
-    // 100_000 + dex_slot * 10_000 + market_index.
-    // See Hyperliquid docs: for-developers/api/asset-ids.
-    if let Ok(dexes) = post_info_json::<Vec<Option<RawPerpDex>>>(
-        api_base_url,
-        &serde_json::json!({ "type": "perpDexs" }),
-        "loading HIP-3 DEX metadata",
-    )
-    .await
-    {
-        for (dex_index, dex) in dexes.into_iter().enumerate() {
-            let Some(dex) = dex else { continue };
-            if let Ok(meta) = post_info_json::<MetaResponse>(
-                api_base_url,
-                &serde_json::json!({ "type": "meta", "dex": dex.name.clone() }),
-                "loading HIP-3 perpetual metadata",
-            )
-            .await
-            {
-                let prefix = format!("{}:", dex.name);
-                let collateral = collateral_name(meta.collateral_token);
-                perps.extend(meta.universe.into_iter().enumerate().map(|(index, perp)| {
-                    let name = perp
-                        .name
-                        .strip_prefix(&prefix)
-                        .unwrap_or(perp.name.as_str())
-                        .to_string();
-                    PerpAsset {
-                        name,
-                        index: 100_000 + dex_index * 10_000 + index,
-                        dex: Some(dex.name.clone()),
-                        sz_decimals: perp.sz_decimals,
-                        collateral: collateral.clone(),
-                    }
-                }));
-            }
-        }
-    }
-
-    let spots = load_raw_spot_markets_from_url(
-        reqwest::Url::parse(api_base_url)
-            .map_err(|err| CliError::Configuration(format!("invalid API base URL: {err}")))?,
-    )
-    .await?
-    .into_iter()
-    .map(|market| SpotAsset {
-        symbol: market.symbol,
-        index: market.index,
-        base: market.base,
-        quote: market.quote,
-        base_sz_decimals: u32::try_from(market.base_sz_decimals).unwrap_or_default(),
-    })
-    .collect();
-
-    Ok(AssetResolver::new(AssetMetadata::from_assets(perps, spots)))
 }
 
 fn order_builder_fee(
@@ -1309,7 +1067,7 @@ async fn lookup_position_for_tpsl(
     client
         .clearinghouse_state(user, dex)
         .await
-        .map_err(map_api_error)?
+        .map_err(from_sdk)?
         .asset_positions
         .into_iter()
         .find(|position| position.position.coin.eq_ignore_ascii_case(coin))
@@ -1338,7 +1096,7 @@ fn position_close_side_and_size(
 
 fn tpsl_confirmation_rows(
     prepared: &PreparedTpslBatch,
-    statuses: Vec<TpslResponseStatus>,
+    statuses: Vec<OrderResponseStatus>,
 ) -> Result<Vec<TpslOrderConfirmation>, CliError> {
     if statuses.len() != prepared.legs.len() {
         return Err(status_count_mismatch(statuses.len(), prepared.legs.len()));
@@ -1365,35 +1123,22 @@ fn status_count_mismatch(statuses: usize, orders: usize) -> CliError {
 }
 
 async fn place_tpsl_batch(
-    api_base_url: &str,
-    chain: Chain,
+    api: &ApiClient,
     signer: &SelectedSigner,
     batch: BatchOrder,
     vault_address: Option<Address>,
-) -> Result<Vec<TpslResponseStatus>, CliError> {
-    let response = actions::send_l1_action_raw(
-        api_base_url,
-        chain,
-        signer,
-        Action::Order(batch),
-        actions::nonce_now(),
-        vault_address,
-        "order placement failed",
-    )
-    .await?;
-    parse_tpsl_order_statuses(response)
+) -> Result<Vec<OrderResponseStatus>, CliError> {
+    place_order_batch_raw(api, signer, batch, vault_address).await
 }
 
 async fn place_order_batch_raw(
-    api_base_url: &str,
-    chain: Chain,
+    api: &ApiClient,
     signer: &SelectedSigner,
     batch: BatchOrder,
     vault_address: Option<Address>,
 ) -> Result<Vec<OrderResponseStatus>, CliError> {
     let response = actions::send_l1_action_raw(
-        api_base_url,
-        chain,
+        api,
         signer,
         Action::Order(batch),
         actions::nonce_now(),
@@ -1414,8 +1159,7 @@ struct BuilderOrderAction {
 }
 
 async fn place_builder_order_batch_raw(
-    api_base_url: &str,
-    chain: Chain,
+    api: &ApiClient,
     signer: &SelectedSigner,
     batch: BatchOrder,
     builder: OrderBuilderFee,
@@ -1431,8 +1175,7 @@ async fn place_builder_order_batch_raw(
         builder,
     };
     let response = actions::send_raw_l1_json_action(
-        api_base_url,
-        chain,
+        api,
         signer,
         &action,
         actions::RawL1ActionMetadata::new(actions::nonce_now()).with_vault_address(vault_address),
@@ -1442,62 +1185,16 @@ async fn place_builder_order_batch_raw(
     parse_order_statuses(response)
 }
 
-fn parse_order_statuses(response: serde_json::Value) -> Result<Vec<OrderResponseStatus>, CliError> {
-    if response.get("type").and_then(serde_json::Value::as_str) != Some("order") {
-        return Err(CliError::Internal(anyhow::anyhow!(
-            "order placement response had unexpected type: {response}"
-        )));
-    }
-    let statuses = response
-        .get("data")
-        .and_then(|data| data.get("statuses"))
-        .cloned()
-        .ok_or_else(|| {
-            CliError::Internal(anyhow::anyhow!(
-                "order placement response missing statuses: {response}"
-            ))
-        })?;
-    serde_json::from_value(statuses).map_err(|err| {
-        CliError::Internal(anyhow::anyhow!(
-            "order placement response decode failed: {err}; body={response}"
-        ))
-    })
-}
-
-fn parse_tpsl_order_statuses(
-    response: serde_json::Value,
-) -> Result<Vec<TpslResponseStatus>, CliError> {
-    if response.get("type").and_then(serde_json::Value::as_str) != Some("order") {
-        return Err(CliError::Internal(anyhow::anyhow!(
-            "order placement response had unexpected type: {response}"
-        )));
-    }
-    let statuses = response
-        .get("data")
-        .and_then(|data| data.get("statuses"))
-        .cloned()
-        .ok_or_else(|| {
-            CliError::Internal(anyhow::anyhow!(
-                "order placement response missing statuses: {response}"
-            ))
-        })?;
-    serde_json::from_value(statuses).map_err(|err| {
-        CliError::Internal(anyhow::anyhow!(
-            "order placement response decode failed: {err}; body={response}"
-        ))
-    })
-}
-
 async fn resolve_tradable_asset(
     client: &HttpClient,
     resolver: &AssetResolver,
     query: &str,
     args: &CreateArgs,
-) -> Result<TradableAsset, CliError> {
-    if let AssetQuery::Outcome(trimmed_notation) = parse_asset_query(&args.coin) {
+) -> Result<Market, CliError> {
+    if let AssetQuery::Outcome(notation) = parse_asset_query(&args.coin) {
         if args.dex.is_some() {
             return Err(CliError::Unsupported(format!(
-                "outcome notation '{trimmed_notation}' cannot be used with --dex; omit --dex for outcome orders"
+                "outcome notation '{notation}' cannot be used with --dex; omit --dex for outcome orders"
             )));
         }
         if args.order_type == CreateOrderType::Market {
@@ -1506,106 +1203,19 @@ async fn resolve_tradable_asset(
                     .to_string(),
             ));
         }
-        let notation = crate::commands::outcomes::parse_outcome_notation(&trimmed_notation)?;
-        let asset_id = crate::commands::outcomes::outcome_asset_id(notation.encoding)?;
-        let asset_id = usize::try_from(asset_id).map_err(|_| {
-            CliError::Unsupported("outcome asset id is outside supported bounds".to_string())
-        })?;
-        return Ok(TradableAsset::Outcome {
-            notation: trimmed_notation,
-            asset_id,
-        });
+        return Ok(Market::Outcome(OutcomeAsset::new(notation)));
     }
-    match resolver.resolve_perp(query) {
-        Ok(ResolvedAsset::Perp {
-            name,
-            index,
-            dex,
-            sz_decimals,
-            collateral,
-        }) => Ok(TradableAsset::Perp {
-            name,
-            index,
-            dex,
-            sz_decimals,
-            collateral,
-        }),
-        Ok(ResolvedAsset::Spot { .. }) => unreachable!("resolve_perp never returns spot assets"),
-        Err(perp_err) => {
-            if let AssetQuery::Hip3 { dex, token } = parse_asset_query(query) {
-                return match resolve_hip3_tradable_asset(client, query, &dex, &token).await {
-                    Ok(asset) => Ok(asset),
-                    Err(CliError::AssetNotFoundNoSuggestion { .. }) => Err(perp_err),
-                    Err(err) => Err(err),
-                };
-            }
-            if args.dex.is_some() {
-                return Err(perp_err);
-            }
-            match resolver.resolve_spot(&args.coin) {
-                Ok(ResolvedAsset::Spot {
-                    symbol,
-                    index,
-                    base_sz_decimals,
-                    quote,
-                    ..
-                }) => Ok(TradableAsset::Spot {
-                    symbol,
-                    index,
-                    base_sz_decimals,
-                    quote,
-                }),
-                Ok(ResolvedAsset::Perp { .. }) => unreachable!("resolve_spot never returns perps"),
-                Err(_) => Err(perp_err),
-            }
-        }
+
+    let perp_err = match resolver.resolve_perp_or_fetch(client, query).await {
+        Ok(perp) => return Ok(Market::Perp(perp)),
+        Err(err) => err,
+    };
+    if !matches!(parse_asset_query(query), AssetQuery::Hip3 { .. })
+        && let Ok(spot) = resolver.resolve_spot(query)
+    {
+        return Ok(Market::Spot(spot));
     }
-}
-
-async fn resolve_hip3_tradable_asset(
-    client: &HttpClient,
-    input: &str,
-    dex_name: &str,
-    token: &str,
-) -> Result<TradableAsset, CliError> {
-    let dex = client
-        .perp_dexes()
-        .await
-        .map_err(map_api_error)?
-        .into_iter()
-        .find(|dex| dex.name().eq_ignore_ascii_case(dex_name))
-        .ok_or_else(|| CliError::Unsupported(format!("Unknown DEX: {dex_name}")))?;
-    let canonical_dex_name = dex.name().to_string();
-    let prefix = format!("{canonical_dex_name}:");
-    let market = client
-        .perps_from(dex)
-        .await
-        .map_err(map_api_error)?
-        .into_iter()
-        .find(|market| {
-            let display_token = market.name.strip_prefix(&prefix).unwrap_or(&market.name);
-            display_token.eq_ignore_ascii_case(token) || market.name.eq_ignore_ascii_case(token)
-        })
-        .ok_or_else(|| CliError::AssetNotFoundNoSuggestion {
-            asset: input.to_string(),
-        })?;
-    let name = market
-        .name
-        .strip_prefix(&prefix)
-        .unwrap_or(market.name.as_str())
-        .to_string();
-
-    Ok(TradableAsset::Perp {
-        name,
-        index: market.index,
-        dex: Some(canonical_dex_name),
-        sz_decimals: u32::try_from(market.sz_decimals).unwrap_or_default(),
-        collateral: market.collateral.name,
-    })
-}
-
-fn spot_mid_key(asset_index: usize) -> String {
-    format!("@{}", asset_index.saturating_sub(10_000))
+    Err(perp_err.into())
 }
 
 fn market_trigger_price(args: &CreateArgs) -> Result<Decimal, CliError> {
@@ -1772,7 +1382,7 @@ async fn lookup_order(
     let order = client
         .order_status(user, identifier.to_status_identifier())
         .await
-        .map_err(map_api_error)?
+        .map_err(from_sdk)?
         .ok_or_else(|| CliError::Unsupported(format!("unknown order {}", identifier.display())))?;
     Ok(order.order)
 }
@@ -1782,33 +1392,16 @@ async fn asset_index_for_order(
     resolver: &AssetResolver,
     order: &BasicOrder,
 ) -> Result<usize, CliError> {
-    if let Some(asset) = parse_internal_asset_id(&order.coin) {
-        if let Some(spot_asset) = resolver.spot_asset_index_for_internal_id(asset) {
-            return Ok(spot_asset);
-        }
-        return Ok(asset);
+    if let Some(internal_id) = parse_spot_coin_key(&order.coin) {
+        return Ok(resolver
+            .spot_asset_index_for_internal_id(internal_id)
+            .unwrap_or(internal_id));
     }
 
-    if let AssetQuery::Outcome(notation) = parse_asset_query(&order.coin) {
-        let notation = crate::commands::outcomes::parse_outcome_notation(&notation)?;
-        let asset_id = crate::commands::outcomes::outcome_asset_id(notation.encoding)?;
-        return usize::try_from(asset_id).map_err(|_| {
-            CliError::Unsupported("outcome asset id is outside supported bounds".to_string())
-        });
-    }
-
-    match resolver.resolve(&order.coin) {
-        Ok(ResolvedAsset::Perp { index, .. } | ResolvedAsset::Spot { index, .. }) => Ok(index),
-        Err(err) => match parse_asset_query(&order.coin) {
-            AssetQuery::Hip3 { dex, token } => {
-                match resolve_hip3_tradable_asset(client, &order.coin, &dex, &token).await? {
-                    TradableAsset::Perp { index, .. } => Ok(index),
-                    TradableAsset::Spot { .. } | TradableAsset::Outcome { .. } => Err(err),
-                }
-            }
-            _ => Err(err),
-        },
-    }
+    resolver
+        .resolve_or_fetch(client, &order.coin)
+        .await?
+        .asset_index()
 }
 
 fn filter_orders_by_coin(orders: Vec<BasicOrder>, coin: Option<&str>) -> Vec<BasicOrder> {
@@ -1829,97 +1422,23 @@ fn resolve_cancel_all_coin_filter(
     let Some(coin) = coin else {
         return Ok(None);
     };
-    if let AssetQuery::Outcome(notation) = parse_asset_query(coin) {
-        let notation = crate::commands::outcomes::parse_outcome_notation(&notation)?;
-        return Ok(Some(format!("#{}", notation.encoding)));
+    if let Some(internal_id) = parse_spot_coin_key(coin) {
+        return Ok(Some(spot_internal_coin_key(internal_id)));
     }
 
-    if let Some(asset) = parse_internal_asset_id(coin) {
-        return Ok(Some(format!("@{asset}")));
-    }
-
-    let query = qualify_dex_asset(dex, coin);
+    let query = match parse_asset_query(coin) {
+        AssetQuery::Outcome(_) => coin.to_string(),
+        _ => qualify_dex_asset(dex, coin),
+    };
     match resolver.resolve(&query) {
-        Ok(ResolvedAsset::Perp { name, dex, .. }) => {
-            Ok(Some(dex.map(|dex| format!("{dex}:{name}")).unwrap_or(name)))
-        }
-        Ok(ResolvedAsset::Spot { index, .. }) => Ok(Some(spot_mid_key(index))),
+        Ok(Market::Perp(perp)) => Ok(Some(perp.display_name())),
+        Ok(Market::Spot(spot)) => Ok(Some(spot_coin_key(spot.index))),
+        Ok(Market::Outcome(outcome)) => Ok(Some(outcome_coin(outcome.parse()?.encoding))),
         Err(err) => match parse_asset_query(&query) {
             AssetQuery::Hip3 { dex, token } => Ok(Some(format!("{dex}:{token}"))),
-            _ => Err(err),
+            _ => Err(err.into()),
         },
     }
-}
-
-fn parse_internal_asset_id(input: &str) -> Option<usize> {
-    input
-        .trim()
-        .strip_prefix('@')
-        .and_then(|value| value.parse::<usize>().ok())
-}
-
-fn qualify_dex_asset(dex: Option<&str>, coin: &str) -> String {
-    match dex {
-        Some(dex) if !coin.contains(':') => format!("{dex}:{coin}"),
-        _ => coin.to_string(),
-    }
-}
-
-fn order_statuses_from_response(
-    response: serde_json::Value,
-    action: &'static str,
-) -> Result<Vec<OrderResponseStatus>, CliError> {
-    #[derive(Deserialize)]
-    struct StatusesResponse {
-        statuses: Vec<OrderResponseStatus>,
-    }
-
-    #[derive(Deserialize)]
-    #[serde(tag = "type", content = "data", rename_all = "camelCase")]
-    enum TaggedResponse {
-        Cancel(StatusesResponse),
-        Order(StatusesResponse),
-    }
-
-    if let Ok(parsed) = serde_json::from_value::<StatusesResponse>(response.clone()) {
-        return Ok(parsed.statuses);
-    }
-
-    serde_json::from_value::<TaggedResponse>(response)
-        .map(|parsed| match parsed {
-            TaggedResponse::Cancel(data) | TaggedResponse::Order(data) => data.statuses,
-        })
-        .map_err(|err| {
-            CliError::Internal(anyhow::anyhow!(
-                "{action}: unexpected response shape: {err}"
-            ))
-        })
-}
-
-/// Fail on the first rejected status, with the exchange text sanitized and
-/// labelled. `action` completes "Couldn't ...", such as `cancel order`.
-fn ensure_action_statuses_ok(
-    statuses: &[OrderResponseStatus],
-    action: &str,
-) -> Result<usize, CliError> {
-    for status in statuses {
-        if let OrderResponseStatus::Error(err) = status {
-            return Err(rendering::status_error(action, err));
-        }
-    }
-    Ok(statuses.len())
-}
-
-fn modification_result_oid(statuses: &[OrderResponseStatus]) -> Option<u64> {
-    statuses.iter().find_map(|status| match status {
-        OrderResponseStatus::Resting { oid, .. } | OrderResponseStatus::Filled { oid, .. } => {
-            Some(*oid)
-        }
-        OrderResponseStatus::Success
-        | OrderResponseStatus::WaitingForTrigger
-        | OrderResponseStatus::WaitingForFill
-        | OrderResponseStatus::Error(_) => None,
-    })
 }
 
 fn order_type_placement(
@@ -1997,7 +1516,6 @@ fn confirm_cancel_all(
     coin: Option<&str>,
     count: usize,
     target: &ConsentTarget<'_>,
-    format: OutputFormat,
 ) -> Result<bool, CliError> {
     let scope = coin.map(|coin| format!("{coin} ")).unwrap_or_default();
     let question = format!(
@@ -2005,13 +1523,12 @@ fn confirm_cancel_all(
         plural(count, "order", "orders"),
         target.network()
     );
-    ask_confirmation(target, &[], &question, format)
+    ask_confirmation(target, &[], &question)
 }
 
 fn confirm_mainnet_schedule_cancel(
     plan: &ScheduleCancelPlan,
     target: &ConsentTarget<'_>,
-    format: OutputFormat,
 ) -> Result<bool, CliError> {
     let question = if let Some(scheduled_at) = plan.scheduled_at.as_ref() {
         format!(
@@ -2022,14 +1539,14 @@ fn confirm_mainnet_schedule_cancel(
     } else {
         format!("Clear scheduled cancel-all on {}?", target.network())
     };
-    ask_confirmation(target, &[], &question, format)
+    ask_confirmation(target, &[], &question)
 }
 
 async fn market_mid_price(client: &HttpClient, lookup: &MidLookup) -> Result<Decimal, CliError> {
     let mids = client
         .all_mids(lookup.dex.clone())
         .await
-        .map_err(map_api_error)?;
+        .map_err(from_sdk)?;
     mids.get(&lookup.coin).copied().ok_or_else(|| {
         CliError::Unavailable(format!(
             "mid price for {} was not available. Retry after market data refresh.",
@@ -2068,7 +1585,6 @@ fn market_limit_price(
 fn confirm_mainnet_order(
     prepared: &PreparedOrder,
     target: &ConsentTarget<'_>,
-    format: OutputFormat,
 ) -> Result<bool, CliError> {
     let amount = prepared
         .amount
@@ -2095,13 +1611,12 @@ fn confirm_mainnet_order(
         reduce_only
     )];
     if let Some(slippage_warning) = &prepared.warning {
-        details.push(warning_prompt(slippage_warning, format));
+        details.push(prompt::warning(slippage_warning));
     }
     ask_confirmation(
         target,
         &details,
         &format!("Place this order on {}?", target.network()),
-        format,
     )
 }
 
@@ -2109,7 +1624,6 @@ fn confirm_mainnet_order_batch(
     label: &str,
     prepared: &PreparedOrderBatch,
     target: &ConsentTarget<'_>,
-    format: OutputFormat,
 ) -> Result<bool, CliError> {
     let count = prepared.legs.len();
     let orders = plural(count, "order", "orders");
@@ -2117,14 +1631,12 @@ fn confirm_mainnet_order_batch(
         target,
         &[format!("Orders: {count} {label} {orders}")],
         &format!("Submit {count} {label} {orders} on {}?", target.network()),
-        format,
     )
 }
 
 fn confirm_mainnet_tpsl_batch(
     prepared: &PreparedTpslBatch,
     target: &ConsentTarget<'_>,
-    format: OutputFormat,
 ) -> Result<bool, CliError> {
     let parent = prepared
         .legs
@@ -2156,14 +1668,13 @@ fn confirm_mainnet_tpsl_batch(
     let mut details = vec![summary];
     for leg in &prepared.legs {
         if let Some(warning) = &leg.warning {
-            details.push(warning_prompt(warning, format));
+            details.push(prompt::warning(warning));
         }
     }
     ask_confirmation(
         target,
         &details,
         &format!("Place this TP/SL batch on {}?", target.network()),
-        format,
     )
 }
 
@@ -2171,7 +1682,6 @@ fn confirm_mainnet_twap(
     coin: &str,
     args: &TwapCreateArgs,
     target: &ConsentTarget<'_>,
-    format: OutputFormat,
 ) -> Result<bool, CliError> {
     let details = [format!(
         "TWAP: {} {} {} over {} seconds",
@@ -2181,12 +1691,12 @@ fn confirm_mainnet_twap(
         target,
         &details,
         &format!("Create this TWAP on {}?", target.network()),
-        format,
     )
 }
 
 /// Target facts every consent preview shows before the question.
 struct ConsentTarget<'a> {
+    mode: &'a Mode,
     chain: Chain,
     signer: &'a SelectedSigner,
     vault_address: Option<Address>,
@@ -2200,7 +1710,8 @@ impl<'a> ConsentTarget<'a> {
         builder: Option<&'a OrderBuilderFee>,
     ) -> Self {
         Self {
-            chain: submission.chain,
+            mode: submission.inv.mode(),
+            chain: submission.api.chain(),
             signer: submission.signer,
             vault_address,
             builder,
@@ -2241,25 +1752,15 @@ fn ask_confirmation(
     target: &ConsentTarget<'_>,
     details: &[String],
     question: &str,
-    format: OutputFormat,
 ) -> Result<bool, CliError> {
-    prompt::ensure_can_prompt("--yes")?;
+    prompt::ensure_can_prompt(target.mode, "--yes")?;
     let mut stderr = io::stderr();
     for line in target.preview_lines().iter().chain(details) {
         writeln!(stderr, "{line}").map_err(|err| CliError::Internal(anyhow::anyhow!(err)))?;
     }
-    prompt::confirm(&warning_prompt(question, format), "--yes")
+    prompt::confirm_warning(target.mode, question, "--yes")
 }
 
-fn warning_prompt(prompt: &str, format: OutputFormat) -> String {
-    if format == OutputFormat::Pretty {
-        output::colors::yellow(prompt)
-    } else {
-        prompt.to_string()
-    }
-}
-
-/// Pick the singular or plural noun for `count`.
 pub(crate) fn plural<'a>(count: usize, singular: &'a str, plural: &'a str) -> &'a str {
     if count == 1 { singular } else { plural }
 }
@@ -2267,7 +1768,8 @@ pub(crate) fn plural<'a>(count: usize, singular: &'a str, plural: &'a str) -> &'
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::commands::{AssetMetadata, AssetResolver, PerpAsset, SpotAsset};
+    use crate::assets::test_support::hip3_perp;
+    use crate::assets::{AssetMetadata, PerpAsset, SpotAsset};
 
     fn resolver() -> AssetResolver {
         AssetResolver::new(AssetMetadata::from_assets(
@@ -2279,7 +1781,7 @@ mod tests {
                     sz_decimals: 5,
                     collateral: "USDC".to_string(),
                 },
-                PerpAsset::hip3("testdex", "HYPE", 11_100),
+                hip3_perp("testdex", "HYPE", 11_100),
             ],
             vec![SpotAsset {
                 symbol: "HYPE/USDC".to_string(),
@@ -2423,42 +1925,6 @@ mod tests {
         assert_eq!(prepared.legs[0].coin, "testdex:HYPE");
         assert!(matches!(prepared.batch.grouping, OrderGrouping::NormalTpsl));
         assert_eq!(json["grouping"], "normalTpsl");
-    }
-
-    #[test]
-    fn fallback_collateral_name_prefers_token_indices_over_positions() {
-        let tokens = vec![
-            SpotMetaTokenName {
-                name: "USDC".to_string(),
-                index: 0,
-            },
-            SpotMetaTokenName {
-                name: "WRONG".to_string(),
-                index: 1,
-            },
-            SpotMetaTokenName {
-                name: "USDH".to_string(),
-                index: 42,
-            },
-        ];
-
-        assert_eq!(collateral_name_from_tokens(&tokens, Some(42)), "USDH");
-    }
-
-    #[test]
-    fn fallback_collateral_name_falls_back_to_token_position() {
-        let tokens = vec![
-            SpotMetaTokenName {
-                name: "USDC".to_string(),
-                index: 0,
-            },
-            SpotMetaTokenName {
-                name: "USDH".to_string(),
-                index: 42,
-            },
-        ];
-
-        assert_eq!(collateral_name_from_tokens(&tokens, Some(1)), "USDH");
     }
 
     #[test]
@@ -2768,13 +2234,13 @@ mod tests {
         args.coin = "HYPE/USDC".to_string();
         args.order_type = CreateOrderType::StopLimit;
         args.trigger_price = Some(Decimal::from(48_000));
-        let asset = ResolvedAsset::Spot {
+        let asset = Market::Spot(SpotAsset {
             symbol: "HYPE/USDC".to_string(),
             index: 11_035,
             base: "HYPE".to_string(),
             quote: "USDC".to_string(),
             base_sz_decimals: 2,
-        };
+        });
 
         let err = validate_create_resolved_asset(&args, &asset).unwrap_err();
 
@@ -2791,13 +2257,13 @@ mod tests {
         args.coin = "HYPE/USDC".to_string();
         args.builder = Some("0x1111111111111111111111111111111111111111".to_string());
         args.builder_fee_rate = Some("0.01%".to_string());
-        let asset = ResolvedAsset::Spot {
+        let asset = Market::Spot(SpotAsset {
             symbol: "HYPE/USDC".to_string(),
             index: 11_035,
             base: "HYPE".to_string(),
             quote: "USDC".to_string(),
             base_sz_decimals: 2,
-        };
+        });
 
         let err = validate_create_resolved_asset(&args, &asset).unwrap_err();
 
@@ -2921,44 +2387,6 @@ mod tests {
 
         assert_eq!(err.exit_code(), 2);
         assert!(err.to_string().contains("price must be positive"));
-    }
-
-    #[test]
-    fn signed_exchange_user_state_rejections_are_not_internal_errors() {
-        let err = actions::map_exchange_error(
-            "User or API Wallet 0x1111111111111111111111111111111111111111 does not exist."
-                .to_string(),
-            "order placement failed",
-        );
-
-        assert_eq!(err.exit_code(), 13);
-        assert!(err.to_string().contains("order placement failed"));
-        assert!(err.to_string().contains("does not exist"));
-    }
-
-    #[test]
-    fn tpsl_response_parser_accepts_waiting_children() {
-        let response = serde_json::json!({
-            "type": "order",
-            "data": {
-                "statuses": [
-                    {"resting": {"oid": 12345}},
-                    "waitingForFill",
-                    "waitingForTrigger"
-                ]
-            }
-        });
-
-        let statuses = parse_tpsl_order_statuses(response).unwrap();
-
-        assert!(matches!(
-            statuses.as_slice(),
-            [
-                TpslResponseStatus::Resting { oid: 12345 },
-                TpslResponseStatus::WaitingForFill,
-                TpslResponseStatus::WaitingForTrigger
-            ]
-        ));
     }
 
     #[test]

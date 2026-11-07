@@ -1,17 +1,23 @@
-//! Authentication and signer resolution.
+//! Signer selection: which key signs an authenticated action.
+//!
+//! One precedence, written once in [`resolve_signer`]:
+//! `--ows-signer` > private key (flag, env or legacy config) > `--keystore` >
+//! `--account` > the default wallet.
 
-use std::path::Path;
+use std::path::PathBuf;
 
 use hypersdk::Address;
 use hypersdk::hypercore::PrivateKeySigner;
+use ows_lib::types::WalletInfo;
 
-use crate::db::AccountStore;
 use crate::errors::CliError;
+use crate::legacy_accounts::{LegacyAccount, LegacyAccounts};
+use crate::mode::Mode;
+use crate::ows::signing::OwsSigningConfig;
+use crate::ows::vault::{HyperliquidAccount, Vault};
+use crate::settings::{Settings, env};
 use crate::signing::SelectedSigner;
 pub use crate::signing::SignerSource;
-
-/// Environment variable that supplies the `--keystore` password without argv exposure.
-pub const KEYSTORE_PASSWORD_ENV: &str = "HYPERLIQUID_KEYSTORE_PASSWORD";
 
 #[derive(Debug, Clone)]
 pub struct ResolvedSigner {
@@ -44,8 +50,68 @@ impl ResolvedSigner {
         self.selected_signer.source()
     }
 
+    #[must_use]
+    pub fn ows_wallet_name(&self) -> Option<&str> {
+        self.selected_signer.ows_wallet_name()
+    }
+
     pub fn local_private_key(&self) -> Result<&PrivateKeySigner, CliError> {
         self.selected_signer.private_key_signer()
+    }
+}
+
+/// The signer inputs of one run.
+#[derive(Debug, Clone, Default)]
+pub struct SignerSelection {
+    pub ows: Option<String>,
+    pub private_key: Option<String>,
+    pub keystore: Option<PathBuf>,
+    pub keystore_password: Option<String>,
+    pub account: Option<String>,
+}
+
+impl SignerSelection {
+    /// Gather the run's signer inputs.
+    ///
+    /// `--ows-signer` and `--account` name a wallet explicitly, so an ambient
+    /// private key (`HYPERLIQUID_PRIVATE_KEY` or the legacy config key) must not
+    /// override them: the key is not even read when either is set.
+    pub fn from_flags(
+        settings: &Settings,
+        cli_private_key: Option<&str>,
+        keystore: Option<PathBuf>,
+        keystore_password: Option<String>,
+        account: Option<String>,
+        ows: Option<String>,
+    ) -> Result<Self, CliError> {
+        let private_key = if account.is_some() || ows.is_some() {
+            None
+        } else {
+            settings.private_key(cli_private_key)?
+        };
+        Ok(Self {
+            ows,
+            private_key,
+            keystore,
+            keystore_password,
+            account,
+        })
+    }
+
+    /// Whether nothing names a signer, so the default wallet applies.
+    #[must_use]
+    pub fn picks_default(&self) -> bool {
+        self.ows.is_none()
+            && self.private_key.is_none()
+            && self.keystore.is_none()
+            && self.account.is_none()
+    }
+
+    /// Whether the signer is a vault wallet found by `--ows-signer` or by default,
+    /// as opposed to one named through `--account`.
+    #[must_use]
+    pub fn names_wallet_directly(&self) -> bool {
+        self.ows.is_some() || self.picks_default()
     }
 }
 
@@ -60,47 +126,14 @@ pub fn signer_private_key_hex(signer: &PrivateKeySigner) -> String {
 }
 
 pub fn resolve_signer(
-    resolved_private_key: Option<&str>,
-    keystore_path: Option<&Path>,
-    keystore_password: Option<&str>,
+    selection: &SignerSelection,
+    settings: &Settings,
+    mode: &Mode,
 ) -> Result<ResolvedSigner, anyhow::Error> {
-    resolve_signer_with_account(resolved_private_key, keystore_path, keystore_password, None)
-}
-
-pub fn resolve_signer_with_account(
-    resolved_private_key: Option<&str>,
-    keystore_path: Option<&Path>,
-    keystore_password: Option<&str>,
-    account_selector: Option<&str>,
-) -> Result<ResolvedSigner, anyhow::Error> {
-    resolve_signer_with_account_and_ows(
-        resolved_private_key,
-        keystore_path,
-        keystore_password,
-        account_selector,
-        None,
-    )
-}
-
-pub fn resolve_signer_with_account_and_ows(
-    resolved_private_key: Option<&str>,
-    keystore_path: Option<&Path>,
-    keystore_password: Option<&str>,
-    account_selector: Option<&str>,
-    ows_selector: Option<&str>,
-) -> Result<ResolvedSigner, anyhow::Error> {
-    if let Some(selector) = ows_selector {
-        let ows = crate::ows::resolve_selector(selector)?;
-        let signing_config = crate::ows::OwsSigningConfig::with_vault_path(
-            ows.selector().to_string(),
-            ows.wallet().map(|wallet| wallet.wallet_id().to_string()),
-            ows.address(),
-            ows.vault_path().cloned(),
-        );
-        return Ok(ResolvedSigner::new(SelectedSigner::ows(signing_config)));
+    if let Some(selector) = selection.ows.as_deref() {
+        return Ok(resolve_ows_flag(selector, settings)?);
     }
-
-    if let Some(private_key) = resolved_private_key {
+    if let Some(private_key) = selection.private_key.as_deref() {
         let signer = parse_private_key(private_key)?;
         let query_address = signer.address();
         return Ok(ResolvedSigner::new(SelectedSigner::local_private_key(
@@ -109,111 +142,143 @@ pub fn resolve_signer_with_account_and_ows(
             query_address,
         )));
     }
-
-    if let Some(path) = keystore_path {
-        let env_password = std::env::var(KEYSTORE_PASSWORD_ENV)
-            .ok()
-            .filter(|value| !value.is_empty());
-        let password = keystore_password
-            .or(env_password.as_deref())
+    if let Some(path) = selection.keystore.as_deref() {
+        let password = selection
+            .keystore_password
+            .clone()
+            .or_else(|| settings.keystore_password())
             .ok_or_else(|| {
                 CliError::InvalidAuth(format!(
-                    "keystore password is required with --keystore; set {KEYSTORE_PASSWORD_ENV} or pass --keystore-password"
+                    "keystore password is required with --keystore; set {} or pass --keystore-password",
+                    env::KEYSTORE_PASSWORD
                 ))
             })?;
-        return Ok(resolve_keystore_signer(path, password)?);
+        let signer = PrivateKeySigner::decrypt_keystore(path, &password)
+            .map_err(|err| CliError::InvalidAuth(format!("failed to decrypt keystore: {err}")))?;
+        let query_address = signer.address();
+        return Ok(ResolvedSigner::new(SelectedSigner::local_private_key(
+            signer,
+            SignerSource::Keystore,
+            query_address,
+        )));
     }
-
-    if let Some(selector) = account_selector {
-        return resolve_stored_account_signer(selector);
+    if let Some(selector) = selection.account.as_deref() {
+        return resolve_account(selector, settings, mode);
     }
-
-    resolve_stored_default_signer()
+    resolve_default(settings, mode)
 }
 
-pub fn resolve_stored_account_signer(selector: &str) -> Result<ResolvedSigner, anyhow::Error> {
-    // Try OWS first: selector may be an OWS wallet name or id.
-    let vault_path = crate::ows::ows_vault_path();
-    match crate::ows::resolve_ows_wallet_selector(selector, vault_path.as_deref()) {
-        Ok(crate::ows::ResolvedOwsSelector::Wallet {
-            wallet, address, ..
-        }) => {
-            let signing_config = crate::ows::OwsSigningConfig::with_vault_path(
-                wallet.name.clone(),
-                Some(wallet.id.clone()),
-                address,
-                vault_path.clone(),
-            );
-            return Ok(ResolvedSigner::new(SelectedSigner::ows(signing_config)));
+fn ows_signer(
+    selector: String,
+    wallet: &WalletInfo,
+    account: &HyperliquidAccount,
+    vault: Vault,
+) -> ResolvedSigner {
+    ResolvedSigner::new(SelectedSigner::ows(OwsSigningConfig::for_wallet(
+        selector,
+        wallet,
+        account.address,
+        vault,
+    )))
+}
+
+/// `--ows-signer`: a vault wallet by name or id, or a raw address that can only
+/// preview. A raw address never matches a vault wallet here, unlike `--account`.
+fn resolve_ows_flag(selector: &str, settings: &Settings) -> Result<ResolvedSigner, CliError> {
+    let selector = selector.trim();
+    if selector.is_empty() {
+        return Err(CliError::Configuration(
+            "--ows-signer requires a non-empty selector".to_string(),
+        ));
+    }
+    if let Ok(address) = selector.parse::<Address>() {
+        return Ok(ResolvedSigner::new(SelectedSigner::ows(
+            OwsSigningConfig::address_only(selector.to_string(), address),
+        )));
+    }
+    let vault = Vault::from_settings(settings);
+    let wallet = vault.get(selector)?;
+    let account = Vault::hyperliquid_account(&wallet)?;
+    Ok(ows_signer(selector.to_string(), &wallet, &account, vault))
+}
+
+/// A vault wallet named by `--account`: by name or id, or by its Hyperliquid
+/// address (compared case-insensitively). `Ok(None)` for an address no wallet owns.
+fn find_vault_account(
+    vault: &Vault,
+    selector: &str,
+) -> Result<Option<(WalletInfo, HyperliquidAccount)>, CliError> {
+    if selector.parse::<Address>().is_ok() {
+        // A vault that can't be listed reads as "no wallet owns this address".
+        for wallet in vault.list().unwrap_or_default() {
+            if let Ok(account) = Vault::hyperliquid_account(&wallet)
+                && account.address_text.eq_ignore_ascii_case(selector)
+            {
+                return Ok(Some((wallet, account)));
+            }
         }
-        Ok(crate::ows::ResolvedOwsSelector::RawAddress { .. }) => {
-            // Raw addresses can't sign — fall through to legacy store.
+        return Ok(None);
+    }
+    let wallet = vault.get(selector)?;
+    let account = Vault::hyperliquid_account(&wallet)?;
+    Ok(Some((wallet, account)))
+}
+
+fn resolve_account(
+    selector: &str,
+    settings: &Settings,
+    mode: &Mode,
+) -> Result<ResolvedSigner, anyhow::Error> {
+    let vault = Vault::from_settings(settings);
+    match find_vault_account(&vault, selector) {
+        Ok(Some((wallet, account))) => {
+            return Ok(ows_signer(wallet.name.clone(), &wallet, &account, vault));
         }
-        Err(ref e) if matches!(e, CliError::OwsWalletNotFound { .. }) => {
-            // Wallet not found in OWS vault — fall through to legacy store.
+        Ok(None) | Err(CliError::OwsWalletNotFound { .. } | CliError::OwsNoChainAccount { .. }) => {
         }
-        Err(ref e) if matches!(e, CliError::OwsNoChainAccount { .. }) => {
-            // No Hyperliquid account — fall through to legacy store.
-        }
-        Err(e) => return Err(e.into()),
+        Err(err) => return Err(err.into()),
     }
 
-    // Fallback: legacy SQLite account store.
-    let Some(store) = AccountStore::open_existing_default()? else {
+    let Some(store) = LegacyAccounts::open_default(settings, mode)? else {
         return Err(account_selector_not_found(selector).into());
     };
     let account = store
         .account_by_selector(selector)?
         .ok_or_else(|| account_selector_not_found(selector))?;
-    let private_key = store.decrypt_account_private_key(&account)?;
-    let signer = parse_private_key(&private_key)?;
-    let query_address = account_query_address(&account)?;
-    Ok(ResolvedSigner::new(SelectedSigner::local_private_key(
-        signer,
-        SignerSource::StoredAccount {
-            alias: account.alias,
-        },
-        query_address,
-    )))
+    legacy_signer(&store, account)
 }
 
-pub fn resolve_stored_default_signer() -> Result<ResolvedSigner, anyhow::Error> {
-    // Try OWS default wallet first.
-    let vault_path = crate::ows::ows_vault_path();
-    let config = crate::config::load_config()?;
-    let default_wallet_id = config.as_ref().and_then(|c| c.default_wallet_id.as_deref());
-    match crate::ows::resolve_default_ows_wallet(default_wallet_id, vault_path.as_deref()) {
+fn resolve_default(settings: &Settings, mode: &Mode) -> Result<ResolvedSigner, anyhow::Error> {
+    let vault = Vault::from_settings(settings);
+    match vault.default_wallet(settings.default_wallet_id()?) {
         Ok(wallet) => {
-            let (_address_str, address) = crate::ows::hyperliquid_address_from_wallet(&wallet)
-                .map_err(|err| CliError::InvalidAuth(err.to_string()))?;
-            let signing_config = crate::ows::OwsSigningConfig::with_vault_path(
-                wallet.name.clone(),
-                Some(wallet.id.clone()),
-                address,
-                vault_path.clone(),
-            );
-            return Ok(ResolvedSigner::new(SelectedSigner::ows(signing_config)));
+            let account = Vault::hyperliquid_account(&wallet)?;
+            return Ok(ows_signer(wallet.name.clone(), &wallet, &account, vault));
         }
-        Err(ref e)
-            if matches!(e, CliError::OwsWalletNotFound { .. })
-                || matches!(e, CliError::OwsNoChainAccount { .. })
-                || matches!(e, CliError::AuthRequired) =>
-        {
-            // No matching OWS wallet — fall through to legacy store.
-        }
-        Err(e) => return Err(e.into()),
+        Err(
+            CliError::OwsWalletNotFound { .. }
+            | CliError::OwsNoChainAccount { .. }
+            | CliError::AuthRequired,
+        ) => {}
+        Err(err) => return Err(err.into()),
     }
 
-    // Fallback: legacy SQLite account store.
-    let Some(store) = AccountStore::open_existing_default()? else {
+    let Some(store) = LegacyAccounts::open_default(settings, mode)? else {
         return Err(CliError::AuthRequired.into());
     };
     let account = store
         .default_or_first_account()?
         .ok_or(CliError::AuthRequired)?;
-    let private_key = store.decrypt_account_private_key(&account)?;
+    legacy_signer(&store, account)
+}
+
+fn legacy_signer(
+    store: &LegacyAccounts,
+    account: LegacyAccount,
+) -> Result<ResolvedSigner, anyhow::Error> {
+    let private_key = store.decrypt_private_key(&account)?;
     let signer = parse_private_key(&private_key)?;
-    let query_address = account_query_address(&account)?;
+    let query_address = account.query_address()?;
     Ok(ResolvedSigner::new(SelectedSigner::local_private_key(
         signer,
         SignerSource::StoredAccount {
@@ -223,128 +288,281 @@ pub fn resolve_stored_default_signer() -> Result<ResolvedSigner, anyhow::Error> 
     )))
 }
 
-pub fn account_selector_not_found(selector: &str) -> CliError {
+pub(crate) fn account_selector_not_found(selector: &str) -> CliError {
     CliError::Unsupported(format!(
         "account selector '{selector}' was not found as an address, alias, or id"
     ))
 }
 
-pub fn resolve_keystore_signer(
-    keystore_path: &Path,
-    password: &str,
-) -> Result<ResolvedSigner, CliError> {
-    let signer = PrivateKeySigner::decrypt_keystore(keystore_path, password)
-        .map_err(|err| CliError::InvalidAuth(format!("failed to decrypt keystore: {err}")))?;
-    let query_address = signer.address();
-    Ok(ResolvedSigner::new(SelectedSigner::local_private_key(
-        signer,
-        SignerSource::Keystore,
-        query_address,
-    )))
-}
+/// The address an account selector stands for in data lookups: the address itself,
+/// a vault wallet's Hyperliquid address, or a legacy account's query address.
+///
+/// Unlike signing, a vault that errors or holds no matching wallet falls through
+/// to the legacy store instead of failing.
+pub(crate) fn lookup_account_address(
+    selector: &str,
+    settings: &Settings,
+    mode: &Mode,
+) -> Result<Address, anyhow::Error> {
+    let trimmed = selector.trim();
+    if let Ok(address) = trimmed.parse::<Address>() {
+        return Ok(address);
+    }
 
-fn account_query_address(account: &crate::db::Account) -> Result<Address, CliError> {
-    let raw = account
-        .master_address
-        .as_deref()
-        .unwrap_or(account.address.as_str());
-    raw.parse::<Address>().map_err(|_| {
-        CliError::Internal(anyhow::anyhow!(
-            "stored account '{}' has invalid query address {}",
-            account.alias,
-            raw
+    if trimmed.starts_with("0x") {
+        return Err(CliError::Unsupported(format!(
+            "Invalid address: {trimmed}; expected a 0x-prefixed 40-hex-character (20-byte) string"
         ))
-    })
+        .into());
+    }
+
+    let vault = Vault::from_settings(settings);
+    if let Ok(wallet) = vault.get(trimmed)
+        && let Ok(account) = Vault::hyperliquid_account(&wallet)
+    {
+        return Ok(account.address);
+    }
+
+    let Some(store) = LegacyAccounts::open_default(settings, mode)? else {
+        return Err(account_selector_not_found(trimmed).into());
+    };
+    let account = store
+        .account_by_selector(trimmed)?
+        .ok_or_else(|| account_selector_not_found(trimmed))?;
+    Ok(account.query_address()?)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::AccountStore;
+    use crate::config::Config;
+    use crate::ows::vault::test_support::import_test_wallet;
+    use crate::settings::EnvSource;
     use tempfile::TempDir;
 
+    fn resolve(
+        selection: &SignerSelection,
+        settings: &Settings,
+    ) -> Result<ResolvedSigner, anyhow::Error> {
+        resolve_signer(selection, settings, &Mode::default())
+    }
+
     const KEY: &str = "0x0000000000000000000000000000000000000000000000000000000000000009";
+    const RAW_OWS_ADDRESS: &str = "0x0000000000000000000000000000000000000001";
+
+    fn vault_settings(vault: &TempDir, config: Option<Config>) -> Settings {
+        Settings::detached(
+            EnvSource::fixed([(env::OWS_VAULT_PATH, vault.path().to_str().unwrap())]),
+            config,
+        )
+    }
+
+    fn selection() -> SignerSelection {
+        SignerSelection::default()
+    }
 
     #[test]
     fn parses_private_key_and_derives_address() {
         let signer = parse_private_key(KEY).unwrap();
         assert!(signer.address().to_string().starts_with("0x"));
-    }
-
-    #[test]
-    fn invalid_private_key_maps_to_auth_error() {
-        let err = parse_private_key("not-a-key").unwrap_err();
-        assert_eq!(err.exit_code(), 10);
-    }
-
-    #[test]
-    fn signer_private_key_hex_roundtrips() {
-        let signer = parse_private_key(KEY).unwrap();
         assert_eq!(signer_private_key_hex(&signer), KEY);
     }
 
     #[test]
-    fn stored_default_account_can_be_decrypted_and_parsed() {
-        let tmp = TempDir::new().unwrap();
-        let mut store =
-            AccountStore::open(tmp.path().join("accounts.db"), tmp.path().join("key")).unwrap();
-        let signer = parse_private_key(KEY).unwrap();
-        let account = store
-            .add_account(
-                "main",
-                &signer.address().to_string(),
-                KEY,
-                "api-wallet",
-                true,
-            )
-            .unwrap();
-        let decrypted = store.decrypt_account_private_key(&account).unwrap();
-        assert_eq!(
-            parse_private_key(&decrypted).unwrap().address(),
-            signer.address()
-        );
+    fn invalid_private_key_maps_to_auth_error() {
+        assert_eq!(parse_private_key("not-a-key").unwrap_err().exit_code(), 10);
     }
 
     #[test]
-    fn resolved_signer_converts_to_selected_signer_without_changing_identity() {
-        let signer = parse_private_key(KEY).unwrap();
-        let address = signer.address();
-        let resolved = ResolvedSigner::new(SelectedSigner::local_private_key(
-            signer,
-            SignerSource::StoredAccount {
-                alias: "main".to_string(),
+    fn ows_flag_beats_every_other_source_and_raw_address_cannot_sign() {
+        let vault = TempDir::new().unwrap();
+        let resolved = resolve(
+            &SignerSelection {
+                ows: Some(RAW_OWS_ADDRESS.to_string()),
+                private_key: Some(KEY.to_string()),
+                keystore: Some(PathBuf::from("/nonexistent")),
+                account: Some("main".to_string()),
+                ..selection()
             },
-            address,
-        ));
+            &vault_settings(&vault, None),
+        )
+        .unwrap();
 
-        let selected = resolved.selected_signer();
+        assert_eq!(resolved.address().to_string(), RAW_OWS_ADDRESS);
+        assert_eq!(resolved.query_address(), resolved.address());
+        assert!(matches!(resolved.source(), SignerSource::Ows { .. }));
+        assert!(resolved.local_private_key().is_err());
+        assert_eq!(resolved.ows_wallet_name(), None);
+    }
 
-        assert_eq!(selected.address(), address);
-        assert_eq!(selected.query_address(), address);
+    #[test]
+    fn ows_flag_does_not_match_a_vault_wallet_by_address_but_account_does() {
+        let vault = TempDir::new().unwrap();
+        let wallet = import_test_wallet(vault.path(), "main");
+        let account = Vault::hyperliquid_account(&wallet).unwrap();
+        let settings = vault_settings(&vault, None);
+
+        let by_flag = resolve(
+            &SignerSelection {
+                ows: Some(account.address_text.clone()),
+                ..selection()
+            },
+            &settings,
+        )
+        .unwrap();
+        assert!(
+            by_flag
+                .selected_signer()
+                .ensure_can_attempt_live_signing()
+                .is_err()
+        );
+
+        let by_account = resolve(
+            &SignerSelection {
+                account: Some(account.address_text.to_lowercase()),
+                ..selection()
+            },
+            &settings,
+        )
+        .unwrap();
+        assert!(
+            by_account
+                .selected_signer()
+                .ensure_can_attempt_live_signing()
+                .is_ok()
+        );
+        assert_eq!(by_account.address(), account.address);
+        assert_eq!(by_account.ows_wallet_name(), Some("main"));
         assert_eq!(
-            selected.source(),
-            &crate::signing::SignerSource::StoredAccount {
-                alias: "main".to_string(),
+            by_account.source(),
+            &SignerSource::Ows {
+                selector: "main".to_string()
             }
         );
     }
 
     #[test]
-    fn resolves_experimental_ows_signer() {
-        let resolved = resolve_signer_with_account_and_ows(
-            None,
-            None,
-            None,
-            None,
-            Some("0x0000000000000000000000000000000000000001"),
+    fn ows_flag_resolves_wallet_by_name_and_keeps_the_selector() {
+        let vault = TempDir::new().unwrap();
+        let wallet = import_test_wallet(vault.path(), "main");
+        let resolved = resolve(
+            &SignerSelection {
+                ows: Some(format!(" {} ", wallet.id)),
+                ..selection()
+            },
+            &vault_settings(&vault, None),
         )
         .unwrap();
 
+        assert_eq!(resolved.ows_wallet_name(), Some("main"));
         assert_eq!(
-            resolved.address().to_string(),
-            "0x0000000000000000000000000000000000000001"
+            resolved.source(),
+            &SignerSource::Ows {
+                selector: wallet.id.clone()
+            }
         );
-        assert_eq!(resolved.query_address(), resolved.address());
-        assert!(matches!(resolved.source(), SignerSource::Ows { .. }));
+    }
+
+    #[test]
+    fn empty_ows_selector_is_a_configuration_error() {
+        let vault = TempDir::new().unwrap();
+        let err = resolve(
+            &SignerSelection {
+                ows: Some("  ".to_string()),
+                ..selection()
+            },
+            &vault_settings(&vault, None),
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("--ows-signer requires"));
+    }
+
+    #[test]
+    fn private_key_beats_keystore() {
+        let vault = TempDir::new().unwrap();
+        let resolved = resolve(
+            &SignerSelection {
+                private_key: Some(KEY.to_string()),
+                keystore: Some(PathBuf::from("/nonexistent")),
+                ..selection()
+            },
+            &vault_settings(&vault, None),
+        )
+        .unwrap();
+        assert_eq!(resolved.source(), &SignerSource::PrivateKey);
+        assert_eq!(
+            resolved.local_private_key().unwrap().address(),
+            resolved.address()
+        );
+    }
+
+    #[test]
+    fn keystore_requires_a_password() {
+        let vault = TempDir::new().unwrap();
+        let err = resolve(
+            &SignerSelection {
+                keystore: Some(PathBuf::from("/nonexistent")),
+                ..selection()
+            },
+            &vault_settings(&vault, None),
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains(env::KEYSTORE_PASSWORD));
+        assert_eq!(
+            err.downcast_ref::<CliError>().map(CliError::exit_code),
+            Some(10)
+        );
+    }
+
+    #[test]
+    fn default_is_the_configured_wallet_or_the_only_wallet() {
+        let vault = TempDir::new().unwrap();
+        let first = import_test_wallet(vault.path(), "first");
+
+        let only = resolve(&selection(), &vault_settings(&vault, None)).unwrap();
+        assert_eq!(only.ows_wallet_name(), Some("first"));
+
+        import_test_wallet(vault.path(), "second");
+        let config = Config {
+            default_wallet_id: Some(first.id.clone()),
+            ..Config::default()
+        };
+        let configured = resolve(&selection(), &vault_settings(&vault, Some(config))).unwrap();
+        assert_eq!(configured.ows_wallet_name(), Some("first"));
+
+        let err = resolve(&selection(), &vault_settings(&vault, None)).unwrap_err();
+        assert!(err.to_string().contains("holds 2 wallets"));
+    }
+
+    #[test]
+    fn selection_ignores_ambient_key_when_a_wallet_is_named() {
+        let settings = Settings::detached(EnvSource::fixed([(env::PRIVATE_KEY, KEY)]), None);
+        let named = SignerSelection::from_flags(
+            &settings,
+            None,
+            None,
+            None,
+            Some("main".to_string()),
+            None,
+        )
+        .unwrap();
+        assert_eq!(named.private_key, None);
+        assert!(!named.picks_default());
+
+        let ambient = SignerSelection::from_flags(&settings, None, None, None, None, None).unwrap();
+        assert_eq!(ambient.private_key.as_deref(), Some(KEY));
+        assert!(!ambient.names_wallet_directly());
+
+        let bare = SignerSelection::from_flags(
+            &Settings::detached(EnvSource::fixed::<&str, &str>([]), None),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(bare.picks_default());
+        assert!(bare.names_wallet_directly());
     }
 }

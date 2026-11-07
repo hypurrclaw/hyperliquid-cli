@@ -1,7 +1,6 @@
 use super::planning::create_has_tpsl_legs;
 use super::*;
 
-/// Validate `orders create` arguments before network placement or signer resolution.
 pub fn validate_create_args(args: &CreateArgs) -> Result<(), CliError> {
     if let Some(cloid) = args.cloid.as_deref() {
         parse_cloid(cloid)?;
@@ -58,7 +57,6 @@ pub fn validate_create_args(args: &CreateArgs) -> Result<(), CliError> {
     Ok(())
 }
 
-/// Validate `orders scale` arguments before auth or network submission.
 pub fn validate_scale_args(args: &ScaleArgs) -> Result<(), CliError> {
     validate_positive(Some(args.start_price), "start-price")?;
     validate_positive(Some(args.end_price), "end-price")?;
@@ -82,7 +80,6 @@ pub fn validate_scale_args(args: &ScaleArgs) -> Result<(), CliError> {
     Ok(())
 }
 
-/// Validate `orders batch-create` arguments before auth or network submission.
 pub fn validate_batch_create_args(args: &BatchCreateArgs) -> Result<(), CliError> {
     if args.orders_file.as_os_str().is_empty() {
         return Err(CliError::Configuration(
@@ -92,7 +89,6 @@ pub fn validate_batch_create_args(args: &BatchCreateArgs) -> Result<(), CliError
     Ok(())
 }
 
-/// Read and validate a batch-create file before signer resolution.
 pub fn read_validated_batch_create_orders(
     args: &BatchCreateArgs,
 ) -> Result<Vec<BatchCreateOrder>, CliError> {
@@ -105,7 +101,6 @@ pub fn read_validated_batch_create_orders(
     Ok(orders)
 }
 
-/// Validate `orders tpsl` arguments before auth or network submission.
 pub fn validate_tpsl_args(args: &TpslArgs) -> Result<(), CliError> {
     if let Some(cloid) = args.cloid.as_deref() {
         parse_cloid(cloid)?;
@@ -138,12 +133,8 @@ pub fn validate_tpsl_args(args: &TpslArgs) -> Result<(), CliError> {
     }
 }
 
-/// Validate asset-specific `orders create` constraints once metadata resolution is available.
-pub fn validate_create_resolved_asset(
-    args: &CreateArgs,
-    asset: &ResolvedAsset,
-) -> Result<(), CliError> {
-    if matches!(asset, ResolvedAsset::Spot { .. }) {
+pub fn validate_create_resolved_asset(args: &CreateArgs, asset: &Market) -> Result<(), CliError> {
+    if matches!(asset, Market::Spot(_)) {
         reject_spot_buy_builder_fee(args)?;
         reject_spot_margin_mode(args.margin_mode)?;
         reject_spot_reduce_only(args)?;
@@ -154,7 +145,6 @@ pub fn validate_create_resolved_asset(
     Ok(())
 }
 
-/// Validate `orders modify` arguments before network placement or signer resolution.
 pub fn validate_modify_args(args: &ModifyArgs) -> Result<(), CliError> {
     parse_modify_identifier(args)?;
     validate_positive(args.price, "price")?;
@@ -168,7 +158,6 @@ pub fn validate_modify_args(args: &ModifyArgs) -> Result<(), CliError> {
     Ok(())
 }
 
-/// Validate `orders twap-create` arguments before auth or network submission.
 pub fn validate_twap_create_args(args: &TwapCreateArgs) -> Result<(), CliError> {
     validate_positive(Some(args.size), "size")?;
     if args.duration < 300 {
@@ -279,24 +268,6 @@ fn reject_spot_margin_mode(margin_mode: Option<MarginModeArg>) -> Result<(), Cli
         )));
     }
     Ok(())
-}
-
-#[allow(dead_code)]
-fn incompatible_price_size_flags(args: &CreateArgs) -> &'static str {
-    match (
-        args.price.is_some(),
-        args.trigger_price.is_some(),
-        args.size.is_some(),
-    ) {
-        (true, true, true) => "--price, --trigger-price, and --size",
-        (true, true, false) => "--price and --trigger-price",
-        (true, false, true) => "--price and --size",
-        (false, true, true) => "--trigger-price and --size",
-        (true, false, false) => "--price",
-        (false, true, false) => "--trigger-price",
-        (false, false, true) => "--size",
-        (false, false, false) => "--price/--trigger-price/--size",
-    }
 }
 
 pub(super) fn reject_spot_reduce_only(args: &CreateArgs) -> Result<(), CliError> {

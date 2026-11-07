@@ -1,69 +1,43 @@
 //! Referral status and set-referrer commands.
 
-use std::time::Instant;
-
+use clap::Args;
 use hypersdk::Address;
 use hypersdk::hypercore::Chain;
 use serde::Serialize;
 
+use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, NoArgs, OwsSupport, Risk, arg};
 use crate::commands::actions;
+use crate::commands::support::print_signed_dry_run;
 use crate::dry_run::ActionReversibility;
 use crate::errors::CliError;
-use crate::http_api::post_info_json;
-use crate::output::{self, OutputFormat, TableData};
+use crate::invocation::Invocation;
+use crate::output::TableData;
+use crate::settings::Settings;
 use crate::signing::SelectedSigner;
-
-/// Compile-time default referral code captured from the build environment.
-///
-/// Set `HYPERLIQUID_DEFAULT_REFERRAL_CODE` while building the binary to bake in
-/// a default referral code. A runtime env var with the same name still overrides
-/// this value. Empty by default in the upstream repo, meaning no mainnet default.
-pub const DEFAULT_REFERRAL_CODE: &str = match option_env!("HYPERLIQUID_DEFAULT_REFERRAL_CODE") {
-    Some(code) => code,
-    None => "",
-};
 
 /// Resolve the default referral code.
 ///
-/// Priority:
-/// 1. `HYPERLIQUID_DEFAULT_REFERRAL_CODE` runtime env var (trimmed)
-/// 2. Config file `default_referral_code`
-/// 3. Build-time `HYPERLIQUID_DEFAULT_REFERRAL_CODE`
-/// 4. On testnet: built-in `"TESTNET"` fallback
-/// 5. On mainnet: returns `None` (caller should require an explicit code)
-pub fn resolve_default_referral_code(is_testnet: bool) -> Result<Option<String>, CliError> {
-    let config = crate::config::load_config()
-        .map_err(|err| CliError::Configuration(format!("failed to load config: {err}")))?;
-    Ok(resolve_default_referral_code_from_config(
-        is_testnet,
-        config.as_ref(),
-    ))
+/// Priority: `HYPERLIQUID_DEFAULT_REFERRAL_CODE`, the config file
+/// `default_referral_code`, the build-time default, then `TESTNET` on testnet.
+/// On mainnet `None` means the caller should require an explicit code.
+pub fn resolve_default_referral_code(
+    settings: &Settings,
+    is_testnet: bool,
+) -> Result<Option<String>, CliError> {
+    settings.default_referral_code(is_testnet)
 }
 
-pub fn resolve_default_referral_code_from_config(
+/// The referral code setup and wallet creation offer. Skips the config file and
+/// rejects a code that wouldn't be accepted by `referral set`.
+pub fn suggested_default_referral_code(
+    settings: &Settings,
     is_testnet: bool,
-    config: Option<&crate::config::Config>,
-) -> Option<String> {
-    if let Ok(code) = std::env::var("HYPERLIQUID_DEFAULT_REFERRAL_CODE") {
-        let code = code.trim().to_string();
-        if !code.is_empty() {
-            return Some(code);
-        }
+) -> Result<Option<String>, anyhow::Error> {
+    let code = settings.suggested_default_referral_code(is_testnet);
+    if let Some(code) = code.as_deref() {
+        validate_referral_code(code)?;
     }
-    if let Some(code) = config
-        .and_then(|config| config.default_referral_code.as_deref())
-        .map(str::trim)
-        .filter(|code| !code.is_empty())
-    {
-        return Some(code.to_string());
-    }
-    if !DEFAULT_REFERRAL_CODE.is_empty() {
-        return Some(DEFAULT_REFERRAL_CODE.to_string());
-    }
-    if is_testnet {
-        return Some("TESTNET".to_string());
-    }
-    None
+    Ok(code)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -203,39 +177,34 @@ struct RegisterReferrerAction<'a> {
 }
 
 /// Query referral status for the authenticated user.
-pub async fn status(
-    api_base_url: &str,
-    user: Address,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let start = Instant::now();
+pub async fn status(inv: &Invocation, user: Address) -> Result<(), anyhow::Error> {
     let user = user.to_string();
-    let raw = post_info(
-        api_base_url,
-        &ReferralInfoRequest {
-            request_type: "referral",
-            user: &user,
-        },
-    )
-    .await?;
-    let output = referral_status_from_value(user, &raw);
-    output::print_data(&output, format, start.elapsed());
+    let raw = inv
+        .remote()?
+        .api()
+        .info::<serde_json::Value>(
+            &ReferralInfoRequest {
+                request_type: "referral",
+                user: &user,
+            },
+            "",
+        )
+        .await?;
+    inv.print(&referral_status_from_value(user, &raw));
     Ok(())
 }
 
 /// Set the authenticated user's referrer code.
 pub async fn set(
-    api_base_url: &str,
-    chain: Chain,
+    inv: &Invocation,
     signer: &SelectedSigner,
     code: &str,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
     validate_referral_code(code)?;
-    let start = Instant::now();
+    let remote = inv.remote()?;
+    let chain = remote.chain();
     actions::send_raw_l1_json_action(
-        api_base_url,
-        chain,
+        remote.api(),
         signer,
         &SetReferrerAction {
             action_type: "setReferrer",
@@ -246,38 +215,33 @@ pub async fn set(
     )
     .await?;
 
-    output::print_data(
-        &ReferralSetOutput {
-            row: ReferralSetConfirmation {
-                action: "set-referrer".to_string(),
-                status: "submitted".to_string(),
-                network: chain.to_string(),
-                signer: signer.address().to_string(),
-                query_address: signer.query_address().to_string(),
-                code: code.to_string(),
-                reversibility: format_reversibility(ReferralActionKind::Set.reversibility())
-                    .to_string(),
-            },
+    inv.print(&ReferralSetOutput {
+        row: ReferralSetConfirmation {
+            action: "set-referrer".to_string(),
+            status: "submitted".to_string(),
+            network: chain.to_string(),
+            signer: signer.address().to_string(),
+            query_address: signer.query_address().to_string(),
+            code: code.to_string(),
+            reversibility: (ReferralActionKind::Set.reversibility())
+                .as_str()
+                .to_string(),
         },
-        format,
-        start.elapsed(),
-    );
+    });
     Ok(())
 }
 
 /// Register/create a referral code for the authenticated user.
 pub async fn register(
-    api_base_url: &str,
-    chain: Chain,
+    inv: &Invocation,
     signer: &SelectedSigner,
     code: &str,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
     validate_referrer_code(code)?;
-    let start = Instant::now();
+    let remote = inv.remote()?;
+    let chain = remote.chain();
     actions::send_raw_l1_json_action(
-        api_base_url,
-        chain,
+        remote.api(),
         signer,
         &RegisterReferrerAction {
             action_type: "registerReferrer",
@@ -288,22 +252,19 @@ pub async fn register(
     )
     .await?;
 
-    output::print_data(
-        &ReferralSetOutput {
-            row: ReferralSetConfirmation {
-                action: "register-referrer".to_string(),
-                status: "submitted".to_string(),
-                network: chain.to_string(),
-                signer: signer.address().to_string(),
-                query_address: signer.query_address().to_string(),
-                code: code.to_string(),
-                reversibility: format_reversibility(ReferralActionKind::Register.reversibility())
-                    .to_string(),
-            },
+    inv.print(&ReferralSetOutput {
+        row: ReferralSetConfirmation {
+            action: "register-referrer".to_string(),
+            status: "submitted".to_string(),
+            network: chain.to_string(),
+            signer: signer.address().to_string(),
+            query_address: signer.query_address().to_string(),
+            code: code.to_string(),
+            reversibility: (ReferralActionKind::Register.reversibility())
+                .as_str()
+                .to_string(),
         },
-        format,
-        start.elapsed(),
-    );
+    });
     Ok(())
 }
 
@@ -392,13 +353,6 @@ fn validate_code(code: &str, max_len: usize, label: &str) -> Result<(), CliError
     Ok(())
 }
 
-async fn post_info(
-    api_base_url: &str,
-    request: &impl Serialize,
-) -> Result<serde_json::Value, CliError> {
-    post_info_json(api_base_url, request, "").await
-}
-
 fn string_field(raw: &serde_json::Value, field: &str) -> Option<String> {
     raw.get(field)
         .and_then(serde_json::Value::as_str)
@@ -409,32 +363,145 @@ fn display_optional(value: &Option<String>) -> String {
     value.clone().unwrap_or_else(|| "None".to_string())
 }
 
-fn format_reversibility(reversibility: ActionReversibility) -> &'static str {
-    match reversibility {
-        ActionReversibility::Reversible => "reversible",
-        ActionReversibility::PartiallyReversible => "partially_reversible",
-        ActionReversibility::Irreversible => "irreversible",
+pub const GROUP: GroupSpec =
+    GroupSpec::new(&["referral"], "Manage referral codes").aliases(&["referrals"]);
+
+#[derive(Args, Debug, Clone)]
+pub struct ReferralSetArgs {
+    /// Referral code to apply (defaults to TESTNET for testnet verification)
+    pub code: Option<String>,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct ReferralRegisterArgs {
+    /// Referral code to create. Hyperliquid currently caps referrer codes at 20 characters.
+    pub code: String,
+}
+
+pub struct ReferralSet;
+
+impl CliCommand for ReferralSet {
+    type Args = ReferralSetArgs;
+
+    const SPEC: CommandSpec = CommandSpec::signed(
+        &["referral", "set"],
+        "referral",
+        "Set a referral code",
+        "Set referral code.",
+    )
+    .args(&[arg("code")
+        .describe("Referral code. Optional on testnet.")
+        .resource_id("referral code")]);
+
+    async fn run(inv: &Invocation, args: &ReferralSetArgs) -> Result<(), anyhow::Error> {
+        let code = args.code.as_deref();
+
+        let owned_default: Option<String>;
+        let code: &str = match code {
+            Some(code) => code,
+            None => {
+                let remote = inv.remote()?;
+                owned_default = resolve_default_referral_code(
+                    remote.settings(),
+                    remote.network().is_testnet(),
+                )?;
+                match owned_default.as_deref() {
+                    Some(default_code) => default_code,
+                    None => {
+                        return Err(CliError::Unsupported(
+                        "referral code is required; pass CODE explicitly, set HYPERLIQUID_DEFAULT_REFERRAL_CODE, or use --testnet"
+                            .to_string(),
+                    )
+                    .into());
+                    }
+                }
+            }
+        };
+        validate_referral_code(code)?;
+        if inv.dry_run() {
+            let signer_context = inv.resolve_signer().ok();
+            return print_signed_dry_run(
+                inv,
+                "referral set",
+                "set_referral_code",
+                ReferralActionKind::Set.reversibility(),
+                referral_dry_run_value(
+                    inv.remote()?.chain(),
+                    signer_context.as_ref().map(|resolved| resolved.address()),
+                    signer_context
+                        .as_ref()
+                        .map(|resolved| resolved.query_address()),
+                    code,
+                    ReferralActionKind::Set,
+                ),
+            );
+        }
+        let resolved = inv.resolve_signer()?;
+        let signer = resolved.selected_signer();
+        set(inv, &signer, code).await
     }
 }
 
-#[cfg(test)]
-fn env_guard() -> impl Drop {
-    use std::sync::Mutex;
-    use std::sync::OnceLock;
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    let mutex = LOCK.get_or_init(|| Mutex::new(()));
-    let guard = mutex.lock().unwrap();
-    struct EnvRestore {
-        _guard: std::sync::MutexGuard<'static, ()>,
-    }
-    impl Drop for EnvRestore {
-        fn drop(&mut self) {
-            unsafe {
-                std::env::remove_var("HYPERLIQUID_DEFAULT_REFERRAL_CODE");
-            }
+pub struct ReferralRegister;
+
+impl CliCommand for ReferralRegister {
+    type Args = ReferralRegisterArgs;
+
+    const SPEC: CommandSpec = CommandSpec::signed(
+        &["referral", "register"],
+        "referral",
+        "Register your own referral code",
+        "Register/create your own referral code.",
+    )
+    .args(&[arg("code").resource_id("referrer code")]);
+
+    async fn run(inv: &Invocation, args: &ReferralRegisterArgs) -> Result<(), anyhow::Error> {
+        let code = args.code.as_str();
+
+        validate_referrer_code(code)?;
+        if inv.dry_run() {
+            let signer_context = inv.resolve_signer().ok();
+            return print_signed_dry_run(
+                inv,
+                "referral register",
+                "register_referrer_code",
+                ReferralActionKind::Register.reversibility(),
+                referral_dry_run_value(
+                    inv.remote()?.chain(),
+                    signer_context.as_ref().map(|resolved| resolved.address()),
+                    signer_context
+                        .as_ref()
+                        .map(|resolved| resolved.query_address()),
+                    code,
+                    ReferralActionKind::Register,
+                ),
+            );
         }
+        let resolved = inv.resolve_signer()?;
+        let signer = resolved.selected_signer();
+        register(inv, &signer, code).await
     }
-    EnvRestore { _guard: guard }
+}
+
+pub struct ReferralStatus;
+
+impl CliCommand for ReferralStatus {
+    type Args = NoArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["referral", "status"],
+        "referral",
+        "Show referral status",
+        "Show referral status for the configured signer.",
+    )
+    .risk(Risk::AccountState)
+    .ows(OwsSupport::ExperimentalFeatureGated)
+    .auth(true);
+
+    async fn run(inv: &Invocation, _args: &NoArgs) -> Result<(), anyhow::Error> {
+        let user = inv.resolve_signer()?.query_address();
+        status(inv, user).await
+    }
 }
 
 #[cfg(test)]
@@ -517,53 +584,22 @@ mod tests {
     }
 
     #[test]
-    fn resolve_default_referral_returns_testnet_fallback() {
-        let _guard = env_guard();
-        unsafe {
-            std::env::remove_var("HYPERLIQUID_DEFAULT_REFERRAL_CODE");
-        }
+    fn suggested_referral_code_is_validated() {
+        let settings = |code: &str| {
+            Settings::detached(
+                crate::settings::EnvSource::fixed([(
+                    crate::settings::env::DEFAULT_REFERRAL_CODE,
+                    code.to_string(),
+                )]),
+                None,
+            )
+        };
         assert_eq!(
-            resolve_default_referral_code_from_config(true, None),
-            Some("TESTNET".to_string())
+            suggested_default_referral_code(&settings("  GOOD  "), false)
+                .unwrap()
+                .as_deref(),
+            Some("GOOD")
         );
-    }
-
-    #[test]
-    fn resolve_default_referral_returns_none_on_mainnet_without_defaults() {
-        let _guard = env_guard();
-        unsafe {
-            std::env::remove_var("HYPERLIQUID_DEFAULT_REFERRAL_CODE");
-        }
-        assert_eq!(resolve_default_referral_code_from_config(false, None), None);
-    }
-
-    #[test]
-    fn resolve_default_referral_prefers_env_var() {
-        let _guard = env_guard();
-        unsafe {
-            std::env::remove_var("HYPERLIQUID_DEFAULT_REFERRAL_CODE");
-            std::env::set_var("HYPERLIQUID_DEFAULT_REFERRAL_CODE", "MYCODE");
-        }
-        assert_eq!(
-            resolve_default_referral_code_from_config(false, None),
-            Some("MYCODE".to_string())
-        );
-        assert_eq!(
-            resolve_default_referral_code_from_config(true, None),
-            Some("MYCODE".to_string())
-        );
-    }
-
-    #[test]
-    fn resolve_default_referral_trims_env_var() {
-        let _guard = env_guard();
-        unsafe {
-            std::env::remove_var("HYPERLIQUID_DEFAULT_REFERRAL_CODE");
-            std::env::set_var("HYPERLIQUID_DEFAULT_REFERRAL_CODE", "  CODE  ");
-        }
-        assert_eq!(
-            resolve_default_referral_code_from_config(false, None),
-            Some("CODE".to_string())
-        );
+        assert!(suggested_default_referral_code(&settings("bad code!"), false).is_err());
     }
 }

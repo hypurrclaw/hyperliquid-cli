@@ -1,10 +1,8 @@
 mod support;
 
 use futures::stream;
-use hyperliquid_cli::output;
-use hyperliquid_cli::watch::{
-    SubscribeEventKind, stream_subscription_events, subscription_event_matches,
-};
+use hyperliquid_cli::output::JsonRenderOptions;
+use hyperliquid_cli::stream::{StreamBounds, SubscribeTarget, stream_subscription_events};
 use hypersdk::Address;
 use hypersdk::hypercore::{
     BookLevel, Candle, Fill, FillDirection, Incoming, L2Book, NonUserCancel, OrderStatus,
@@ -13,29 +11,19 @@ use hypersdk::hypercore::{
 };
 use predicates::prelude::*;
 use rust_decimal::Decimal;
-use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 use support::{API_OVERRIDE_ENV, FORMAT_ENV, IsolatedHome, mount_override_healthcheck};
 use wiremock::MockServer;
 
 const WATCH_MAX_TICKS_ENV: &str = "HYPERLIQUID_WATCH_MAX_TICKS";
 const SUBSCRIBE_MAX_EVENTS_ENV: &str = "HYPERLIQUID_SUBSCRIBE_MAX_EVENTS";
-static JSON_OPTIONS_TEST_LOCK: Mutex<()> = Mutex::new(());
 
-struct JsonOptionsTestGuard {
-    _guard: MutexGuard<'static, ()>,
+fn bounds(max_items: Option<usize>, idle: Option<Duration>) -> StreamBounds {
+    StreamBounds { max_items, idle }
 }
 
-impl Drop for JsonOptionsTestGuard {
-    fn drop(&mut self) {
-        output::set_json_options_with_limit(None, false, None);
-    }
-}
-
-fn json_options_test_guard() -> JsonOptionsTestGuard {
-    let guard = JSON_OPTIONS_TEST_LOCK.lock().unwrap();
-    output::set_json_options_with_limit(None, false, None);
-    JsonOptionsTestGuard { _guard: guard }
+fn matcher(target: SubscribeTarget) -> impl Fn(&Incoming) -> bool {
+    move |message| target.matches(message)
 }
 
 async fn mock_all_mids_server() -> MockServer {
@@ -323,18 +311,17 @@ fn subscribe_json_rejects_invalid_env_bound_for_agents() {
 
 #[tokio::test]
 async fn fake_subscribe_stream_applies_select_to_subscription_lines() {
-    let _guard = json_options_test_guard();
-    output::set_json_options_with_limit(Some("type,subscription"), false, None);
+    let options = JsonRenderOptions::from_cli(Some("type,subscription"), false, None);
     let mut events = stream::iter([WsEvent::Message(all_mids_message())]);
     let mut output_bytes = Vec::new();
 
     stream_subscription_events(
         "allMids(None)",
-        Some(0),
-        None,
-        |message| subscription_event_matches(SubscribeEventKind::AllMids, message),
+        bounds(Some(0), None),
+        matcher(SubscribeTarget::all_mids()),
         &mut events,
         &mut output_bytes,
+        &options,
     )
     .await
     .unwrap();
@@ -347,23 +334,21 @@ async fn fake_subscribe_stream_applies_select_to_subscription_lines() {
             "subscription": "allMids(None)"
         })
     );
-    output::set_json_options_with_limit(None, false, None);
 }
 
 #[tokio::test]
 async fn fake_subscribe_stream_limits_nested_all_mids_payload() {
-    let _guard = json_options_test_guard();
-    output::set_json_options_with_limit(None, false, Some(2));
+    let options = JsonRenderOptions::from_cli(None, false, Some(2));
     let mut events = stream::iter([WsEvent::Message(many_mids_message())]);
     let mut output_bytes = Vec::new();
 
     stream_subscription_events(
         "allMids(None)",
-        Some(1),
-        None,
-        |message| subscription_event_matches(SubscribeEventKind::AllMids, message),
+        bounds(Some(1), None),
+        matcher(SubscribeTarget::all_mids()),
         &mut events,
         &mut output_bytes,
+        &options,
     )
     .await
     .unwrap();
@@ -374,12 +359,10 @@ async fn fake_subscribe_stream_limits_nested_all_mids_payload() {
     assert_eq!(lines[1]["subscription"], "allMids(None)");
     let mids = lines[1]["data"]["data"]["mids"].as_object().unwrap();
     assert_eq!(mids.len(), 2);
-    output::set_json_options_with_limit(None, false, None);
 }
 
 #[tokio::test]
 async fn fake_subscribe_stream_emits_matching_event_envelopes() {
-    let _guard = json_options_test_guard();
     let mut events = stream::iter([
         WsEvent::Connected,
         WsEvent::Message(all_mids_message()),
@@ -389,11 +372,11 @@ async fn fake_subscribe_stream_emits_matching_event_envelopes() {
 
     stream_subscription_events(
         "trades(BTC)",
-        Some(1),
-        None,
-        |message| subscription_event_matches(SubscribeEventKind::Trades, message),
+        bounds(Some(1), None),
+        matcher(SubscribeTarget::trades("BTC".to_string())),
         &mut events,
         &mut output,
+        &JsonRenderOptions::default(),
     )
     .await
     .unwrap();
@@ -410,17 +393,16 @@ async fn fake_subscribe_stream_emits_matching_event_envelopes() {
 
 #[tokio::test]
 async fn fake_subscribe_stream_ignores_non_matching_events_until_close() {
-    let _guard = json_options_test_guard();
     let mut events = stream::iter([WsEvent::Message(all_mids_message())]);
     let mut output = Vec::new();
 
     let result = stream_subscription_events(
         "trades(BTC)",
-        Some(1),
-        None,
-        |message| subscription_event_matches(SubscribeEventKind::Trades, message),
+        bounds(Some(1), None),
+        matcher(SubscribeTarget::trades("BTC".to_string())),
         &mut events,
         &mut output,
+        &JsonRenderOptions::default(),
     )
     .await;
 
@@ -434,7 +416,6 @@ async fn fake_subscribe_stream_ignores_non_matching_events_until_close() {
 
 #[tokio::test]
 async fn fake_subscribe_stream_max_events_counts_only_emitted_events() {
-    let _guard = json_options_test_guard();
     let mut events = stream::iter([
         WsEvent::Message(trades_message()),
         WsEvent::Message(all_mids_message()),
@@ -446,11 +427,11 @@ async fn fake_subscribe_stream_max_events_counts_only_emitted_events() {
 
     stream_subscription_events(
         "trades(BTC)",
-        Some(2),
-        None,
-        |message| subscription_event_matches(SubscribeEventKind::Trades, message),
+        bounds(Some(2), None),
+        matcher(SubscribeTarget::trades("BTC".to_string())),
         &mut events,
         &mut output,
+        &JsonRenderOptions::default(),
     )
     .await
     .unwrap();
@@ -468,7 +449,6 @@ async fn fake_subscribe_stream_max_events_counts_only_emitted_events() {
 
 #[tokio::test]
 async fn fake_subscribe_stream_marks_reconnect_with_one_stream_gap_warning() {
-    let _guard = json_options_test_guard();
     let mut events = stream::iter([
         WsEvent::Connected,
         WsEvent::Message(trades_message()),
@@ -481,11 +461,11 @@ async fn fake_subscribe_stream_marks_reconnect_with_one_stream_gap_warning() {
 
     stream_subscription_events(
         "trades(BTC)",
-        Some(2),
-        None,
-        |message| subscription_event_matches(SubscribeEventKind::Trades, message),
+        bounds(Some(2), None),
+        matcher(SubscribeTarget::trades("BTC".to_string())),
         &mut events,
         &mut output,
+        &JsonRenderOptions::default(),
     )
     .await
     .unwrap();
@@ -503,8 +483,7 @@ async fn fake_subscribe_stream_marks_reconnect_with_one_stream_gap_warning() {
 
 #[tokio::test]
 async fn fake_subscribe_stream_gap_warning_survives_select_projection() {
-    let _guard = json_options_test_guard();
-    output::set_json_options_with_limit(Some("data"), false, None);
+    let options = JsonRenderOptions::from_cli(Some("data"), false, None);
     let mut events = stream::iter([
         WsEvent::Disconnected,
         WsEvent::Connected,
@@ -514,11 +493,11 @@ async fn fake_subscribe_stream_gap_warning_survives_select_projection() {
 
     stream_subscription_events(
         "trades(BTC)",
-        Some(1),
-        None,
-        |message| subscription_event_matches(SubscribeEventKind::Trades, message),
+        bounds(Some(1), None),
+        matcher(SubscribeTarget::trades("BTC".to_string())),
         &mut events,
         &mut output,
+        &options,
     )
     .await
     .unwrap();
@@ -623,17 +602,16 @@ async fn watch_mids_sigterm_exits_143_with_complete_json_lines() {
 
 #[tokio::test]
 async fn fake_subscribe_stream_closed_stream_behavior_is_deterministic() {
-    let _guard = json_options_test_guard();
     let mut events = stream::iter([]);
     let mut output = Vec::new();
 
     let result = stream_subscription_events(
         "allMids(None)",
-        Some(1),
-        None,
-        |message| subscription_event_matches(SubscribeEventKind::AllMids, message),
+        bounds(Some(1), None),
+        matcher(SubscribeTarget::all_mids()),
         &mut events,
         &mut output,
+        &JsonRenderOptions::default(),
     )
     .await;
 
@@ -648,17 +626,16 @@ async fn fake_subscribe_stream_closed_stream_behavior_is_deterministic() {
 
 #[tokio::test]
 async fn fake_subscribe_stream_max_zero_emits_only_subscribed_envelope() {
-    let _guard = json_options_test_guard();
     let mut events = stream::iter([WsEvent::Message(all_mids_message())]);
     let mut output = Vec::new();
 
     stream_subscription_events(
         "allMids(None)",
-        Some(0),
-        None,
-        |message| subscription_event_matches(SubscribeEventKind::AllMids, message),
+        bounds(Some(0), None),
+        matcher(SubscribeTarget::all_mids()),
         &mut events,
         &mut output,
+        &JsonRenderOptions::default(),
     )
     .await
     .unwrap();
@@ -670,18 +647,17 @@ async fn fake_subscribe_stream_max_zero_emits_only_subscribed_envelope() {
 
 #[tokio::test]
 async fn fake_subscribe_stream_idle_timeout_bounds_quiet_max_events() {
-    let _guard = json_options_test_guard();
     let mut events = stream::pending();
     let mut output = Vec::new();
     let started = Instant::now();
 
     let result = stream_subscription_events(
         "trades(BTC)",
-        Some(1),
-        Some(Duration::from_millis(5)),
-        |message| subscription_event_matches(SubscribeEventKind::Trades, message),
+        bounds(Some(1), Some(Duration::from_millis(5))),
+        matcher(SubscribeTarget::trades("BTC".to_string())),
         &mut events,
         &mut output,
+        &JsonRenderOptions::default(),
     )
     .await;
 
@@ -699,7 +675,6 @@ async fn fake_subscribe_stream_idle_timeout_bounds_quiet_max_events() {
 
 #[tokio::test]
 async fn fake_fills_subscribe_stream_ignores_non_fill_user_events_before_fill() {
-    let _guard = json_options_test_guard();
     let mut events = stream::iter([
         WsEvent::Message(user_events_funding_message()),
         WsEvent::Message(user_events_liquidation_message()),
@@ -711,11 +686,11 @@ async fn fake_fills_subscribe_stream_ignores_non_fill_user_events_before_fill() 
 
     stream_subscription_events(
         "userFills(0x0202020202020202020202020202020202020202)",
-        Some(1),
-        None,
-        |message| subscription_event_matches(SubscribeEventKind::Fills, message),
+        bounds(Some(1), None),
+        matcher(SubscribeTarget::fills(Address::ZERO)),
         &mut events,
         &mut output,
+        &JsonRenderOptions::default(),
     )
     .await
     .unwrap();
@@ -730,32 +705,50 @@ async fn fake_fills_subscribe_stream_ignores_non_fill_user_events_before_fill() 
 
 #[test]
 fn subscription_event_matchers_cover_all_subscribe_wiring() {
-    for (kind, matching_message) in [
-        (SubscribeEventKind::Trades, trades_message()),
-        (SubscribeEventKind::Orderbook, orderbook_message()),
-        (SubscribeEventKind::Candles, candle_message()),
-        (SubscribeEventKind::AllMids, all_mids_message()),
-        (SubscribeEventKind::OrderUpdates, order_updates_message()),
-        (SubscribeEventKind::Fills, user_fills_message()),
+    for (name, target, matching_message) in [
+        (
+            "trades",
+            SubscribeTarget::trades("BTC".to_string()),
+            trades_message(),
+        ),
+        (
+            "orderbook",
+            SubscribeTarget::orderbook("BTC".to_string()),
+            orderbook_message(),
+        ),
+        (
+            "candles",
+            SubscribeTarget::candles("BTC".to_string(), "1m".to_string()),
+            candle_message(),
+        ),
+        ("all_mids", SubscribeTarget::all_mids(), all_mids_message()),
+        (
+            "order_updates",
+            SubscribeTarget::order_updates(Address::ZERO),
+            order_updates_message(),
+        ),
+        (
+            "fills",
+            SubscribeTarget::fills(Address::ZERO),
+            user_fills_message(),
+        ),
     ] {
         assert!(
-            subscription_event_matches(kind, &matching_message),
-            "{kind:?} should match its corresponding WebSocket event"
+            target.matches(&matching_message),
+            "{name} should match its corresponding WebSocket event"
         );
         assert!(
-            !subscription_event_matches(kind, &Incoming::Ping),
-            "{kind:?} should ignore unrelated WebSocket events"
+            !target.matches(&Incoming::Ping),
+            "{name} should ignore unrelated WebSocket events"
         );
     }
 
-    assert!(subscription_event_matches(
-        SubscribeEventKind::Fills,
-        &user_events_fills_message()
-    ));
+    assert!(SubscribeTarget::fills(Address::ZERO).matches(&user_events_fills_message()));
 }
 
 #[test]
 fn fills_subscription_ignores_non_fill_user_event_variants() {
+    let target = SubscribeTarget::fills(Address::ZERO);
     for non_fill_message in [
         user_events_funding_message(),
         user_events_liquidation_message(),
@@ -763,7 +756,7 @@ fn fills_subscription_ignores_non_fill_user_event_variants() {
         user_events_unknown_message(),
     ] {
         assert!(
-            !subscription_event_matches(SubscribeEventKind::Fills, &non_fill_message),
+            !target.matches(&non_fill_message),
             "fills subscription should ignore non-fill user event: {non_fill_message:?}"
         );
     }

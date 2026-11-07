@@ -1,14 +1,18 @@
 //! Structured feedback submission command.
 
 use std::io::Read;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use clap::{ArgGroup, Args};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::errors::{self, CliError};
-use crate::output::{self, OutputFormat, TableData};
+use crate::command_spec::{CliCommand, CommandSpec, InputKind, Lifecycle, arg};
+use crate::errors::CliError;
+use crate::http_api;
+use crate::input_hardening::validate_input_path;
+use crate::invocation::Invocation;
+use crate::output::TableData;
 use crate::response_sanitization::labelled_untrusted_text;
 
 const BUILD_ENV_FEEDBACK_URL: &str = "HYPERLIQUID_FEEDBACK_URL";
@@ -99,8 +103,7 @@ impl TableData for FeedbackOutput {
     }
 }
 
-pub async fn submit(args: &FeedbackArgs, format: OutputFormat) -> Result<(), anyhow::Error> {
-    let start = Instant::now();
+pub async fn submit(inv: &Invocation, args: &FeedbackArgs) -> Result<(), anyhow::Error> {
     let endpoint = feedback_endpoint(args)?;
     let scenario = read_scenario(args)?;
     let contact = validate_contact(args.contact.as_deref())?;
@@ -134,18 +137,10 @@ pub async fn submit(args: &FeedbackArgs, format: OutputFormat) -> Result<(), any
         .map_err(|err| CliError::Unavailable(format!("failed to read feedback response: {err}")))?;
 
     if !status.is_success() {
-        if errors::http_response_indicates_rate_limit(status.as_u16(), &body) {
-            return Err(CliError::RateLimited.into());
-        }
-        return Err(CliError::Unavailable(format!(
-            "feedback service returned HTTP {status}. {}",
-            labelled_untrusted_text(&body)
-        ))
-        .into());
+        return Err(http_api::failed_reply(status, &body).into());
     }
 
-    let output = feedback_output_from_body(&body)?;
-    output::print_data(&output, format, start.elapsed());
+    inv.print(&feedback_output_from_body(&body)?);
     Ok(())
 }
 
@@ -339,6 +334,43 @@ fn env_guard() -> impl Drop {
         }
     }
     EnvRestore { _guard: guard }
+}
+
+pub struct Feedback;
+
+impl CliCommand for Feedback {
+    type Args = FeedbackArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["feedback"],
+        "system",
+        "Send structured CLI feedback as a scenario JSON object",
+        "Send structured CLI feedback as a scenario JSON object to the configured feedback service.",
+    )
+    .lifecycle(Lifecycle::LiveMutating)
+    .local()
+    .dry_run_refusal("--dry-run is not supported for feedback")
+    .one_of_required(&[&["scenario_json"], &["scenario_file"]])
+    .args(&[
+        arg("scenario_json").kind(InputKind::JsonObject).describe("Structured scenario JSON object describing the command, context, expected behavior, and actual behavior. May include agent_address, signer_address, or wallet_address for feedback rate-limit attribution. Mutually exclusive with scenario_file."),
+        arg("scenario_file").kind(InputKind::FilePath).describe("Path to a structured scenario JSON object, or '-' to read from stdin. Scenario may include agent_address, signer_address, or wallet_address for feedback rate-limit attribution. Mutually exclusive with scenario_json."),
+        arg("contact").kind(InputKind::Identifier),
+        arg("tags").kind(InputKind::Identifier),
+        arg("url").kind(InputKind::Url),
+    ]);
+
+    fn validate(args: &FeedbackArgs) -> Result<(), CliError> {
+        if let Some(path) = args.scenario_file.as_deref()
+            && path != "-"
+        {
+            validate_input_path(path)?;
+        }
+        Ok(())
+    }
+
+    async fn run(inv: &Invocation, args: &FeedbackArgs) -> Result<(), anyhow::Error> {
+        submit(inv, args).await
+    }
 }
 
 #[cfg(test)]

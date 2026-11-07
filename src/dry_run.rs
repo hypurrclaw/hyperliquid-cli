@@ -4,11 +4,9 @@
 //! small and internal-facing for now; command-family migrations can consume it
 //! later without forcing every signed action through one generic abstraction.
 
-use std::sync::OnceLock;
-
 use serde::Serialize;
 
-use crate::config::Network;
+use crate::network::Network;
 use crate::output::TableData;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -24,6 +22,18 @@ pub enum ActionReversibility {
     Reversible,
     PartiallyReversible,
     Irreversible,
+}
+
+impl ActionReversibility {
+    /// Snake-case label used in previews and receipt rows.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Reversible => "reversible",
+            Self::PartiallyReversible => "partially_reversible",
+            Self::Irreversible => "irreversible",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -103,6 +113,7 @@ impl DryRunSigningContext {
 pub struct DryRunEnvelope {
     command: String,
     details: serde_json::Value,
+    run_context: Option<DryRunRunContext>,
 }
 
 impl DryRunEnvelope {
@@ -111,6 +122,7 @@ impl DryRunEnvelope {
         Self {
             command: command.into(),
             details,
+            run_context: None,
         }
     }
 
@@ -161,24 +173,30 @@ impl DryRunEnvelope {
     }
 }
 
-/// Network and signer facts resolved once per run, added to every dry-run envelope.
+/// Network and signer facts for this run, added to a dry-run envelope.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct DryRunRunContext {
+pub struct DryRunRunContext {
     network: Network,
     signer: Option<Result<String, String>>,
 }
 
-static RUN_CONTEXT: OnceLock<DryRunRunContext> = OnceLock::new();
-
-/// Record the network and signer for this run's dry-run envelopes. Later calls are ignored.
-///
-/// `signer` is `None` for commands that don't sign. For signing commands pass the
-/// resolved address, or the reason it couldn't be resolved without prompting.
-pub fn init_run_context(network: Network, signer: Option<Result<String, String>>) {
-    let _ = RUN_CONTEXT.set(DryRunRunContext { network, signer });
+impl DryRunRunContext {
+    /// `signer` is `None` for commands that don't sign. For signing commands pass the
+    /// resolved address, or the reason it couldn't be resolved without prompting.
+    #[must_use]
+    pub fn new(network: Network, signer: Option<Result<String, String>>) -> Self {
+        Self { network, signer }
+    }
 }
 
 impl DryRunEnvelope {
+    /// Add the run's network and signer to what this envelope prints.
+    #[must_use]
+    pub fn with_run_context(mut self, context: Option<DryRunRunContext>) -> Self {
+        self.run_context = context;
+        self
+    }
+
     fn merged_object(
         &self,
         context: Option<&DryRunRunContext>,
@@ -279,11 +297,11 @@ impl TableData for DryRunEnvelope {
     }
 
     fn rows(&self) -> Vec<Vec<String>> {
-        self.rows_for(RUN_CONTEXT.get())
+        self.rows_for(self.run_context.as_ref())
     }
 
     fn to_json_value(&self) -> serde_json::Value {
-        serde_json::Value::Object(self.merged_object(RUN_CONTEXT.get()))
+        serde_json::Value::Object(self.merged_object(self.run_context.as_ref()))
     }
 }
 

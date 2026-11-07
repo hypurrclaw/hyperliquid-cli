@@ -5,14 +5,17 @@
 /// - `hyperliquid perps get <COIN>` — get details for a specific perpetual market
 use clap::Args;
 use hypersdk::Decimal;
-use hypersdk::hypercore::{HttpClient, PerpMarket};
+use hypersdk::hypercore::PerpMarket;
 use serde::Serialize;
-use std::time::{Duration, Instant};
 
-use crate::command_context::CommandContext;
-use crate::commands::{AssetQuery, AssetResolver, ResolvedAsset, map_api_error, parse_asset_query};
+use crate::assets::{
+    AssetQuery, find_perp_dex, load_hip3_market, parse_asset_query, qualify_dex_asset,
+};
+use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, InputKind, arg};
 use crate::errors::CliError;
-use crate::output::{OutputFormat, TableData};
+use crate::errors::from_sdk;
+use crate::invocation::Invocation;
+use crate::output::TableData;
 
 #[derive(Args, Debug)]
 pub struct PerpsListArgs {
@@ -73,37 +76,38 @@ impl PerpMarketsOutput {
     }
 }
 
+const PERP_MARKET_HEADERS: &[&str] = &[
+    "Name",
+    "Index",
+    "Max Leverage",
+    "Sz Decimals",
+    "Collateral",
+    "Isolated",
+    "Tick Size @ Price 1",
+];
+
+fn perp_market_cells(market: &PerpMarketRow) -> Vec<String> {
+    vec![
+        market.name.clone(),
+        market.index.to_string(),
+        format!("{}x", market.max_leverage),
+        market.sz_decimals.to_string(),
+        market.collateral.clone(),
+        market.isolated_margin.to_string(),
+        market
+            .tick_size_at_price_1
+            .clone()
+            .unwrap_or_else(|| "n/a".to_string()),
+    ]
+}
+
 impl TableData for PerpMarketsOutput {
     fn headers(&self) -> Vec<&str> {
-        vec![
-            "Name",
-            "Index",
-            "Max Leverage",
-            "Sz Decimals",
-            "Collateral",
-            "Isolated",
-            "Tick Size @ Price 1",
-        ]
+        PERP_MARKET_HEADERS.to_vec()
     }
 
     fn rows(&self) -> Vec<Vec<String>> {
-        self.markets
-            .iter()
-            .map(|market| {
-                vec![
-                    market.name.clone(),
-                    market.index.to_string(),
-                    format!("{}x", market.max_leverage),
-                    market.sz_decimals.to_string(),
-                    market.collateral.clone(),
-                    market.isolated_margin.to_string(),
-                    market
-                        .tick_size_at_price_1
-                        .clone()
-                        .unwrap_or_else(|| "n/a".to_string()),
-                ]
-            })
-            .collect()
+        self.markets.iter().map(perp_market_cells).collect()
     }
 
     fn to_json_value(&self) -> serde_json::Value {
@@ -130,19 +134,11 @@ impl PerpMarketDetailsOutput {
 
 impl TableData for PerpMarketDetailsOutput {
     fn headers(&self) -> Vec<&str> {
-        vec![
-            "Name",
-            "Index",
-            "Max Leverage",
-            "Sz Decimals",
-            "Collateral",
-            "Isolated",
-            "Tick Size @ Price 1",
-        ]
+        PERP_MARKET_HEADERS.to_vec()
     }
 
     fn rows(&self) -> Vec<Vec<String>> {
-        PerpMarketsOutput::new(vec![self.market.clone()]).rows()
+        vec![perp_market_cells(&self.market)]
     }
 
     fn to_json_value(&self) -> serde_json::Value {
@@ -150,131 +146,44 @@ impl TableData for PerpMarketDetailsOutput {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PerpMarketsResult {
-    pub output: PerpMarketsOutput,
-    pub elapsed: Duration,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PerpMarketDetailsResult {
-    pub output: PerpMarketDetailsOutput,
-    pub elapsed: Duration,
-}
-
-/// Fetch perpetual markets, optionally from a HIP-3 DEX.
-pub async fn list_query(
-    client: &HttpClient,
-    args: &PerpsListArgs,
-) -> Result<PerpMarketsResult, anyhow::Error> {
-    let start = Instant::now();
+pub async fn list(inv: &Invocation, args: &PerpsListArgs) -> Result<(), anyhow::Error> {
+    let client = inv.remote()?.api().sdk();
     let markets = if let Some(dex_name) = args.dex.as_deref() {
-        let dex = find_dex(client, dex_name).await?;
-        client.perps_from(dex).await.map_err(map_api_error)?
+        let dex = find_perp_dex(client, dex_name).await?;
+        client.perps_from(dex).await.map_err(from_sdk)?
     } else {
-        client.perps().await.map_err(map_api_error)?
+        client.perps().await.map_err(from_sdk)?
     };
     let markets = markets.into_iter().map(PerpMarketRow::from).collect();
-    let output = PerpMarketsOutput::new(markets);
-
-    Ok(PerpMarketsResult {
-        output,
-        elapsed: start.elapsed(),
-    })
-}
-
-/// Fetch and render perpetual markets through a per-call output context.
-pub async fn list_with_context(
-    context: &CommandContext<'_>,
-    args: &PerpsListArgs,
-) -> Result<(), anyhow::Error> {
-    let client = context
-        .hypercore_client()
-        .ok_or_else(|| anyhow::anyhow!("perps list command requires a Hyperliquid HTTP client"))?;
-    let result = list_query(client, args).await?;
-    context.print(&result.output, result.elapsed);
-    Ok(())
-}
-
-/// Fetch and render perpetual markets, optionally from a HIP-3 DEX.
-pub async fn list(
-    client: &HttpClient,
-    args: &PerpsListArgs,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let result = list_query(client, args).await?;
-    crate::output::print_data(&result.output, format, result.elapsed);
+    inv.print(&PerpMarketsOutput::new(markets));
     Ok(())
 }
 
 /// Resolve, fetch, and render one perpetual market.
-pub async fn get(
-    client: &HttpClient,
-    resolver: &AssetResolver,
-    coin: &str,
-    dex: Option<&str>,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let result = get_query(client, resolver, coin, dex).await?;
-    crate::output::print_data(&result.output, format, result.elapsed);
-    Ok(())
-}
-
-/// Resolve and fetch one perpetual market.
-pub async fn get_query(
-    client: &HttpClient,
-    resolver: &AssetResolver,
-    coin: &str,
-    dex: Option<&str>,
-) -> Result<PerpMarketDetailsResult, anyhow::Error> {
-    let start = Instant::now();
-    let query = qualify_dex_asset(dex, coin);
+pub async fn get(inv: &Invocation, args: &PerpsGetArgs) -> Result<(), anyhow::Error> {
+    let client = inv.remote()?.api().sdk();
+    let resolver = inv.asset_resolver().await?;
+    let query = qualify_dex_asset(args.dex.as_deref(), &args.coin);
     let market = if let AssetQuery::Hip3 {
         dex: dex_name,
         token,
     } = parse_asset_query(&query)
     {
-        let dex = find_dex(client, &dex_name).await?;
-        let prefixed = format!("{dex_name}:");
-        client
-            .perps_from(dex)
-            .await
-            .map_err(map_api_error)?
-            .into_iter()
-            .find(|market| {
-                let display_token = market.name.strip_prefix(&prefixed).unwrap_or(&market.name);
-                display_token.eq_ignore_ascii_case(&token)
-                    || market.name.eq_ignore_ascii_case(&token)
-            })
-            .map(PerpMarketRow::from)
+        load_hip3_market(client, &dex_name, &token)
+            .await?
+            .map(|(_, market)| PerpMarketRow::from(market))
             .ok_or_else(|| CliError::AssetNotFoundNoSuggestion {
                 asset: query.clone(),
             })?
     } else {
-        let resolved = resolver.resolve_perp(&query)?;
-        let (resolved_name, resolved_index, resolved_dex) = match resolved {
-            ResolvedAsset::Perp {
-                name, index, dex, ..
-            } => (name, index, dex),
-            ResolvedAsset::Spot { .. } => {
-                return Err(CliError::AssetNotFoundNoSuggestion {
-                    asset: coin.to_string(),
-                }
-                .into());
-            }
-        };
-
-        let markets = if let Some(dex_name) = resolved_dex.as_deref() {
-            let dex = find_dex(client, dex_name).await?;
-            client.perps_from(dex).await.map_err(map_api_error)?
-        } else {
-            client.perps().await.map_err(map_api_error)?
-        };
-
-        markets
+        let resolved = resolver.resolve_perp(&query).map_err(CliError::from)?;
+        client
+            .perps()
+            .await
+            .map_err(from_sdk)?
             .into_iter()
             .find(|market| {
-                market.index == resolved_index || market.name.eq_ignore_ascii_case(&resolved_name)
+                market.index == resolved.index || market.name.eq_ignore_ascii_case(&resolved.name)
             })
             .map(PerpMarketRow::from)
             .ok_or_else(|| CliError::AssetNotFoundNoSuggestion {
@@ -282,29 +191,59 @@ pub async fn get_query(
             })?
     };
 
-    Ok(PerpMarketDetailsResult {
-        output: PerpMarketDetailsOutput::new(market),
-        elapsed: start.elapsed(),
-    })
+    inv.print(&PerpMarketDetailsOutput::new(market));
+    Ok(())
 }
 
-async fn find_dex(
-    client: &HttpClient,
-    dex_name: &str,
-) -> Result<hypersdk::hypercore::Dex, CliError> {
-    client
-        .perp_dexes()
-        .await
-        .map_err(map_api_error)?
-        .into_iter()
-        .find(|dex| dex.name().eq_ignore_ascii_case(dex_name))
-        .ok_or_else(|| CliError::Unsupported(format!("Unknown DEX: {dex_name}")))
+pub const GROUP: GroupSpec =
+    GroupSpec::new(&["perps"], "Query perpetual markets").aliases(&["perp"]);
+
+pub struct PerpsList;
+
+impl CliCommand for PerpsList {
+    type Args = PerpsListArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["perps", "list"],
+        "market",
+        "List all perpetual markets",
+        "List perpetual markets.",
+    )
+    .cli_aliases(&["ls"])
+    .args(&[arg("dex")
+        .kind(InputKind::VenueSelector)
+        .describe("HIP-3 DEX name.")
+        .resource_id("dex")]);
+
+    async fn run(inv: &Invocation, args: &PerpsListArgs) -> Result<(), anyhow::Error> {
+        list(inv, args).await
+    }
 }
 
-fn qualify_dex_asset(dex: Option<&str>, coin: &str) -> String {
-    match dex {
-        Some(dex) if !coin.contains(':') => format!("{dex}:{coin}"),
-        _ => coin.to_string(),
+pub struct PerpsGet;
+
+impl CliCommand for PerpsGet {
+    type Args = PerpsGetArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["perps", "get"],
+        "market",
+        "Get details for a specific perpetual market",
+        "Get details for a perpetual market.",
+    )
+    .args(&[
+        arg("coin")
+            .kind(InputKind::MarketSymbol)
+            .describe("Perpetual coin, for example BTC.")
+            .resource_id("coin"),
+        arg("dex")
+            .kind(InputKind::VenueSelector)
+            .describe("HIP-3 DEX name.")
+            .resource_id("dex"),
+    ]);
+
+    async fn run(inv: &Invocation, args: &PerpsGetArgs) -> Result<(), anyhow::Error> {
+        get(inv, args).await
     }
 }
 

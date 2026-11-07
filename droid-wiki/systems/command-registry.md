@@ -1,6 +1,6 @@
 # Command registry
 
-`hyperliquid-cli` keeps a typed inventory of every command — what it does, what risk it carries, whether it supports dry-run, whether it accepts a raw payload, and what confirmation gating applies. That inventory drives the `hyperliquid schema` agent surface and is the parity layer for a gradual migration away from the legacy clap-only dispatch in `src/main.rs`.
+`hyperliquid-cli` keeps a typed inventory of every command — what it does, what risk it carries, whether it supports dry-run, whether it accepts a raw payload, and what confirmation gating applies. That inventory drives the `hyperliquid schema` agent surface, the `Notes:` block in help, and the policy pipeline every command runs through. It is generated from the clap tree plus each command's `CommandSpec`; nothing is written by hand per command.
 
 ## Purpose
 
@@ -12,14 +12,14 @@
 
 | File | Purpose |
 |------|---------|
-| `src/command_catalog.json` | Editable JSON catalog (~3,491 lines). The source of truth in Phase 1. |
-| `src/command_registry.rs` | `CommandRegistry::from_embedded_catalog()` parses the catalog into typed `CommandContract` records. |
-| `src/command_metadata.rs` | `CatalogCommandMetadata` and `CatalogArgMetadata` shape; argument normalization. |
-| `src/command_handlers.rs` | `HandlerBinding` enum that points each catalog entry at its runtime handler. |
+| `src/command_spec.rs` | `CliCommand` (clap `Args`, `CommandSpec`, `run`), `ArgSpec`, `GroupSpec`, `Entry`, and the clap tree builder. |
+| `src/commands/mod.rs` | `entries()` registers every command (help order) with one line; `groups()` names the groups. |
+| `src/command_registry.rs` | `CommandRegistry::get()` builds the typed `CommandContract` records from the clap tree and each `CommandSpec`. |
+| `src/cli_runtime.rs` | The one pipeline: validate, stream bounds, payload, dry-run, confirmation, API override, run. |
 | `src/commands/schema.rs` | Renders `CommandContract` records for `hyperliquid schema`. |
 | `docs/registry-rollout-policy.md` | Stage gates for registry-routed live execution. |
 
-`CommandRegistry::load()` is the single entry point; it embeds the catalog with `include_str!` so the binary ships with the catalog baked in.
+Each domain module owns its commands: the `Args` struct, `const SPEC: CommandSpec` (risk, dry-run, confirmation, testnet behavior, stream bound, input kinds, schema descriptions) and `run` live together. `CommandRegistry::get()` builds the registry once.
 
 ## CommandContract shape
 
@@ -41,24 +41,12 @@ CommandContract {
     transport:      Vec<Transport>
     ows_signer:     OwsSupport
     output_contract:OutputContract
-    handler:        HandlerBinding
     one_of_required:Vec<Vec<String>>
     inputs:         Vec<InputContract>
 }
 ```
 
 Agents that build live execution paths should consult schema metadata over README prose. Per `AGENTS.md`, "when schema metadata disagrees with README prose or examples, agents should treat schema `input_kind`, risk, dry-run, and confirmation metadata as authoritative."
-
-## Phase 1 authority decision
-
-`src/command_registry.rs` exports a constant that documents the current rollout phase:
-
-```rust
-pub const PHASE1_AUTHORITY_DECISION: &str =
-    "Phase 1 keeps src/command_catalog.json as the editable catalog and emits CLI schemas from CommandRegistry until the registry becomes the source file.";
-```
-
-This is intentionally inert at runtime. It exists so that PR reviewers, schema characterization tests, and the registry rollout gates have a single string to assert on.
 
 ## Rollout policy
 
@@ -88,6 +76,6 @@ Schema output is JSON with the snake_case fields above. Agents typically use the
 
 ## Entry points for modification
 
-- To add a new command: add an entry to `src/command_catalog.json`, register a `HandlerBinding` in `src/command_handlers.rs`, and wire the clap subcommand in `src/main.rs`/`src/cli_runtime.rs`. Update characterization tests via `HYPERLIQUID_UPDATE_CONTRACTS=1 task contracts`.
-- To change a command's risk or dry-run policy: edit `command_catalog.json` and rerun `task contracts`.
+- To add a new command: implement `CliCommand` in its domain module (`Args`, `SPEC`, `run`) and add one `Entry::of::<..>()` line to `commands::entries` in `src/commands/mod.rs`. Update characterization fixtures via `HYPERLIQUID_UPDATE_CONTRACTS=1 cargo test --test contract_fixtures`.
+- To change a command's risk or dry-run policy: edit its `SPEC` and regenerate the fixtures the same way.
 - To migrate a family to registry-routed execution: follow `docs/registry-rollout-policy.md` step-by-step and add the rollback declaration in the child issue.

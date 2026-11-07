@@ -1,10 +1,8 @@
-use hypersdk::hypercore::HttpClient;
 use hypersdk::{Address, Decimal};
 use serde::{Deserialize, Serialize};
 
-use crate::commands::raw_info_base_url;
 use crate::errors::CliError;
-use crate::http_api::post_info_json;
+use crate::http_api::ApiClient;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -32,27 +30,16 @@ struct UserRequest {
 }
 
 pub(crate) async fn user_spot_balances_raw(
-    client: &HttpClient,
-    user: Address,
-) -> Result<Vec<RawSpotBalance>, CliError> {
-    let api_url = raw_info_base_url(client)?;
-    user_spot_balances_raw_from_url(api_url.as_str(), user).await
-}
-
-pub(crate) async fn user_spot_balances_raw_from_url(
-    api_base_url: &str,
+    api: &ApiClient,
     user: Address,
 ) -> Result<Vec<RawSpotBalance>, CliError> {
     let request = UserRequest {
         request_type: "spotClearinghouseState",
         user,
     };
-    let state = post_info_json::<RawSpotClearinghouseState>(
-        api_base_url,
-        &request,
-        "loading user spot balances",
-    )
-    .await?;
+    let state = api
+        .info::<RawSpotClearinghouseState>(&request, "loading user spot balances")
+        .await?;
     Ok(state.balances)
 }
 

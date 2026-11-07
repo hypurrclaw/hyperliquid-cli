@@ -2,38 +2,24 @@ mod contract_support;
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use hyperliquid_cli::command_registry::{
-    CommandRegistry, ConfirmationPolicy, DryRunPolicy, Lifecycle, OutputContract, RawPayloadPolicy,
-    Risk,
+use hyperliquid_cli::command_registry::CommandRegistry;
+use hyperliquid_cli::command_spec::{
+    ConfirmationPolicy, DryRunPolicy, Lifecycle, OutputContract, RawPayloadPolicy, Risk,
 };
 use serde_json::{Value, json};
 
-use contract_support::{assert_json_fixture, command_path, schema_all};
-
-#[test]
-fn typed_registry_snapshot_matches_characterization_fixture() {
-    let registry = CommandRegistry::load().unwrap();
-
-    assert_json_fixture(
-        "registry_inventory.json",
-        &json!({
-            "characterization": true,
-            "review_required_to_update": true,
-            "commands": registry.entries(),
-        }),
-    );
-}
+use contract_support::{command_path, schema_all};
 
 #[test]
 fn registry_inventory_matches_schema_contracts() {
-    let registry = CommandRegistry::load().unwrap();
+    let registry = CommandRegistry::get();
     let schemas = schema_all();
     let schemas_by_path = schemas
         .iter()
         .map(|schema| (command_path(schema), schema))
         .collect::<BTreeMap<_, _>>();
     let registry_paths = registry
-        .entries()
+        .commands()
         .iter()
         .map(|command| command.command_key())
         .collect::<BTreeSet<_>>();
@@ -41,7 +27,7 @@ fn registry_inventory_matches_schema_contracts() {
 
     assert_eq!(registry_paths, schema_paths);
 
-    for command in registry.entries() {
+    for command in registry.commands() {
         let command_key = command.command_key();
         let schema = schemas_by_path
             .get(&command_key)
@@ -82,11 +68,10 @@ fn registry_inventory_matches_schema_contracts() {
 
 #[test]
 fn registry_explicitly_classifies_critical_command_classes() {
-    let registry = CommandRegistry::load().unwrap();
+    let registry = CommandRegistry::get();
 
     let orders_create = registry.find_path(&["orders", "create"]).unwrap();
     assert!(orders_create.dangerous);
-    assert!(!orders_create.handler.is_in_process_safe());
     assert_eq!(orders_create.risk, Risk::FundsMovement);
     assert_eq!(orders_create.dry_run, DryRunPolicy::Optional);
     assert_eq!(orders_create.raw_payload, RawPayloadPolicy::DryRunOnly);
@@ -111,44 +96,6 @@ fn registry_explicitly_classifies_critical_command_classes() {
         OutputContract::BoundedNdjsonStream
     );
     assert!(!subscribe.transport.is_empty());
-
-    let status = registry.find_path(&["status"]).unwrap();
-    assert!(status.handler.is_in_process_safe());
-
-    let meta = registry.find_path(&["meta"]).unwrap();
-    assert!(meta.handler.is_in_process_safe());
-
-    for path in [
-        &["book"][..],
-        &["mids"][..],
-        &["candles"][..],
-        &["spread"][..],
-        &["funding"][..],
-        &["perps", "list"][..],
-        &["perps", "get"][..],
-        &["spot", "list"][..],
-        &["spot", "get"][..],
-        &["account", "fills"][..],
-        &["account", "fees"][..],
-        &["account", "rate-limit"][..],
-        &["account", "orders"][..],
-        &["account", "portfolio"][..],
-        &["account", "subaccounts"][..],
-        &["account", "portfolio-history"][..],
-        &["account", "ledger"][..],
-        &["account", "funding"][..],
-        &["account", "twap-history"][..],
-        &["account", "twap-fills"][..],
-        &["account", "abstraction"][..],
-    ] {
-        assert!(
-            registry
-                .find_path(path)
-                .unwrap()
-                .handler
-                .is_in_process_safe()
-        );
-    }
 
     for path in [
         &["setup"][..],
@@ -254,7 +201,7 @@ fn registry_explicitly_classifies_critical_command_classes() {
 
 #[test]
 fn authenticated_reads_do_not_inherit_mutating_preview_policy() {
-    let registry = CommandRegistry::load().unwrap();
+    let registry = CommandRegistry::get();
 
     for path in [
         &["api-wallet", "list"][..],

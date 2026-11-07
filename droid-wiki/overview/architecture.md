@@ -35,7 +35,7 @@ graph TD
 | Command registry | `src/command_registry.rs`, `src/command_metadata.rs` | Typed `CommandContract` loaded from the catalog; emits schema for agents |
 | Command handlers | `src/commands/` | 23 domain modules + the `orders/` planning/rendering/validation sub-tree |
 | Output system | `src/output/mod.rs` (1,379 lines) | `OutputFormat` enum, JSON projection, ANSI colors, error routing |
-| Error system | `src/errors.rs` (738 lines) | `CliError` variants with structured exit codes |
+| Error system | `src/errors/` | `CliError` variants with structured exit codes |
 | Auth / signing | `src/auth.rs`, `src/signing.rs`, `src/resolvers.rs` | Resolves a `SelectedSigner` from private key, keystore, stored account, or OWS selector |
 | OWS wallet backend | `src/ows.rs` (963 lines) | Vault path discovery, wallet selection, EIP-712 signing through `ows-lib` |
 | Account storage | `src/db.rs` (1,159 lines) | SQLite with AES-256-GCM encryption; OS-keychain-backed key material |

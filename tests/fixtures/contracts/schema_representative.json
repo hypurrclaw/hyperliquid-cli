@@ -124,8 +124,8 @@
           "description": "Time in force: gtc, ioc, or alo.",
           "enum_values": [
             "gtc",
-            "ioc",
-            "alo"
+            "alo",
+            "ioc"
           ],
           "id": "tif",
           "input_kind": null,
@@ -407,8 +407,8 @@
             "description": "Time in force: gtc, ioc, or alo.",
             "enum": [
               "gtc",
-              "ioc",
-              "alo"
+              "alo",
+              "ioc"
             ],
             "type": "string"
           },

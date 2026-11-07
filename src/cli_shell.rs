@@ -1,72 +1,26 @@
 //! Command-line shell around the clap tree: parsing, help and usage-error
 //! rendering, panic handling, and output-format resolution.
 //!
-//! `main.rs` declares the commands and boots the process; everything that
-//! decides how the command line is presented to people and agents lives here.
+//! `main.rs` declares the global options and boots the process; the commands
+//! come from `commands::entries`; everything that decides how the command line
+//! is presented to people and agents lives here.
 
-use super::*;
+use std::ffi::OsString;
+use std::io::Write;
+use std::sync::OnceLock;
+
 use clap::parser::ValueSource;
-use std::io::{IsTerminal, Write};
+use clap::{ArgMatches, CommandFactory, FromArgMatches};
+use hyperliquid_cli::command_registry::{CommandContract, CommandRegistry};
+use hyperliquid_cli::command_spec::{ConfirmationPolicy, DryRunPolicy, Entry, Lifecycle, Risk};
+use hyperliquid_cli::commands;
+use hyperliquid_cli::errors;
+use hyperliquid_cli::output;
+
+use crate::{Cli, GLOBAL_OPTIONS};
 
 const ENV_FORMAT: &str = "HYPERLIQUID_FORMAT";
 const REPORT_URL: &str = "https://github.com/hypurrclaw/hyperliquid-cli/issues/new";
-
-/// Top-level commands in help order: market data, trading, accounts and
-/// wallets, funds, streaming, then tools.
-const ROOT_ORDER: &[&str] = &[
-    "perps",
-    "spot",
-    "asset",
-    "outcomes",
-    "book",
-    "mids",
-    "candles",
-    "spread",
-    "funding",
-    "search",
-    "status",
-    "meta",
-    "orders",
-    "buy",
-    "sell",
-    "outcome-buy",
-    "outcome-sell",
-    "positions",
-    "account",
-    "wallet",
-    "api-wallet",
-    "subaccount",
-    "builder",
-    "referral",
-    "staking",
-    "vault",
-    "borrowlend",
-    "prio",
-    "transfer",
-    "subscribe",
-    "watch",
-    "schema",
-    "setup",
-    "feedback",
-    "update",
-];
-
-/// Hidden alternate spellings for groups. A singular name behaves like its plural.
-const GROUP_ALIASES: &[(&str, &str)] = &[
-    ("perps", "perp"),
-    ("asset", "assets"),
-    ("outcomes", "outcome"),
-    ("orders", "order"),
-    ("positions", "position"),
-    ("transfer", "transfers"),
-    ("wallet", "wallets"),
-    ("account", "accounts"),
-    ("subaccount", "subaccounts"),
-    ("api-wallet", "api-wallets"),
-    ("vault", "vaults"),
-    ("builder", "builders"),
-    ("referral", "referrals"),
-];
 
 pub(super) static PANIC_COMMAND: OnceLock<String> = OnceLock::new();
 
@@ -79,9 +33,18 @@ pub(crate) struct Confirmation {
     pub given: bool,
 }
 
+/// The command the line selected, with its args parsed.
+pub(super) struct Selected {
+    pub(super) entry: &'static Entry,
+    /// The matches of the selected command itself.
+    pub(super) matches: ArgMatches,
+    pub(super) bound: Box<dyn hyperliquid_cli::command_spec::Bound>,
+}
+
 pub(super) struct ParsedCli {
     pub(super) cli: Cli,
     pub(super) registry_path: Option<Vec<String>>,
+    pub(super) selected: Option<Selected>,
     /// `--format` was given on the command line (not env or a default).
     pub(super) explicit_format: bool,
     pub(super) confirmation: Confirmation,
@@ -98,12 +61,41 @@ where
     let explicit_format = matches.value_source("format") == Some(ValueSource::CommandLine);
     let confirmation = confirmation_from_matches(&matches);
     let cli = Cli::from_arg_matches(&matches)?;
+    let selected = match registry_path.as_deref() {
+        Some(path) => {
+            let entry = commands::entries()
+                .iter()
+                .find(|entry| entry.spec.path == path)
+                .ok_or_else(|| {
+                    clap::Error::raw(
+                        clap::error::ErrorKind::InvalidSubcommand,
+                        format!("command '{}' is not registered", path.join(" ")),
+                    )
+                })?;
+            let leaf = leaf_matches(&matches);
+            Some(Selected {
+                entry,
+                bound: entry.bind(leaf)?,
+                matches: leaf.clone(),
+            })
+        }
+        None => None,
+    };
     Ok(ParsedCli {
         cli,
         registry_path,
+        selected,
         explicit_format,
         confirmation,
     })
+}
+
+fn leaf_matches(matches: &ArgMatches) -> &ArgMatches {
+    let mut leaf = matches;
+    while let Some((_, subcommand)) = leaf.subcommand() {
+        leaf = subcommand;
+    }
+    leaf
 }
 
 fn command_registry_path_from_matches(matches: &ArgMatches) -> Option<Vec<String>> {
@@ -119,11 +111,7 @@ fn command_registry_path_from_matches(matches: &ArgMatches) -> Option<Vec<String
 /// Read `--yes` from the matched command itself, so the answer can't drift
 /// from the options the command actually defines.
 fn confirmation_from_matches(matches: &ArgMatches) -> Confirmation {
-    let mut leaf = matches;
-    while let Some((_, subcommand)) = leaf.subcommand() {
-        leaf = subcommand;
-    }
-    match leaf.try_get_one::<bool>("yes") {
+    match leaf_matches(matches).try_get_one::<bool>("yes") {
         Ok(Some(given)) => Confirmation {
             supported: true,
             given: *given,
@@ -134,11 +122,11 @@ fn confirmation_from_matches(matches: &ArgMatches) -> Confirmation {
 
 // ── Command tree ────────────────────────────────────────────────────────
 
-/// The clap command tree with the pieces derive can't express: one help style
-/// at every depth, `-v`, task-ordered top-level commands, aliases, and help
-/// text filled from the command catalog.
+/// The clap command tree: the global options, `-v`, and the registered commands
+/// with help text filled from the command registry and notes on every command
+/// that changes state.
 fn build_command() -> clap::Command {
-    let registry = CommandRegistry::load().ok();
+    let registry = CommandRegistry::get();
     let mut command = Cli::command()
         .arg(
             clap::Arg::new("help")
@@ -159,77 +147,19 @@ fn build_command() -> clap::Command {
                 .help("Print version")
                 .help_heading(GLOBAL_OPTIONS),
         );
-
-    let names: Vec<String> = command
-        .get_subcommands()
-        .map(|sub| sub.get_name().to_string())
-        .collect();
-    for name in names {
-        let order = ROOT_ORDER
-            .iter()
-            .position(|candidate| *candidate == name)
-            .unwrap_or(ROOT_ORDER.len());
-        let aliases: Vec<&'static str> = GROUP_ALIASES
-            .iter()
-            .filter(|(group, _)| *group == name)
-            .map(|(_, alias)| *alias)
-            .collect();
-        let path = vec![name.clone()];
-        command = command.mut_subcommand(&name, |sub| {
-            let mut sub = sub.display_order(order);
-            for alias in aliases {
-                sub = sub.alias(alias);
-            }
-            decorate_command(sub, &path, registry.as_ref())
-        });
-    }
-    let shared_help: Vec<(String, String)> = command
-        .find_subcommand("orders")
-        .and_then(|orders| orders.find_subcommand("create"))
-        .map(|create| {
-            create
-                .get_arguments()
-                .filter_map(|arg| {
-                    arg.get_help()
-                        .map(|help| (arg.get_id().to_string(), help.to_string()))
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    inherit_option_help(command, &shared_help)
-}
-
-/// Order options shared by `buy`, `sell`, `orders chase`, and others have the
-/// same meaning everywhere. Give each the help text `orders create` defines
-/// when the catalog and the command itself have none.
-fn inherit_option_help(mut command: clap::Command, shared: &[(String, String)]) -> clap::Command {
-    let undocumented: Vec<String> = command
-        .get_arguments()
-        .filter(|arg| arg.get_help().is_none() && arg.get_long_help().is_none())
-        .map(|arg| arg.get_id().to_string())
-        .collect();
-    for id in undocumented {
-        if let Some((_, help)) = shared.iter().find(|(shared_id, _)| *shared_id == id) {
-            let help = help.clone();
-            command = command.mut_arg(&id, |arg| arg.help(help));
-        }
-    }
-    let children: Vec<String> = command
-        .get_subcommands()
-        .map(|sub| sub.get_name().to_string())
-        .collect();
-    for child in children {
-        command = command.mut_subcommand(&child, |sub| inherit_option_help(sub, shared));
+    for sub in commands::command_tree().get_subcommands() {
+        let path = vec![sub.get_name().to_string()];
+        command = command.subcommand(decorate_command(sub.clone(), &path, registry));
     }
     command
 }
 
-/// Add `ls`/`list` aliases, fill missing option help from the catalog, and
-/// append catalog-derived notes to commands that change state.
+/// Fill missing option help from the registry and append registry-derived notes
+/// to commands that change state.
 fn decorate_command(
     mut command: clap::Command,
     path: &[String],
-    registry: Option<&CommandRegistry>,
+    registry: &CommandRegistry,
 ) -> clap::Command {
     let children: Vec<String> = command
         .get_subcommands()
@@ -242,14 +172,8 @@ fn decorate_command(
             command.mut_subcommand(&child, |sub| decorate_command(sub, &child_path, registry));
     }
 
-    match command.get_name() {
-        "list" => command = command.alias("ls"),
-        "ls" => command = command.alias("list"),
-        _ => {}
-    }
-
     let path_refs: Vec<&str> = path.iter().map(String::as_str).collect();
-    let Some(contract) = registry.and_then(|registry| registry.find_path(&path_refs)) else {
+    let Some(contract) = registry.find_path(&path_refs) else {
         return command;
     };
 
@@ -259,12 +183,7 @@ fn decorate_command(
         .map(|arg| arg.get_id().to_string())
         .collect();
     for id in undocumented {
-        let description = contract
-            .inputs
-            .iter()
-            .find(|input| input.id == id)
-            .and_then(|input| input.description.as_deref());
-        if let Some(description) = description {
+        if let Some(description) = contract.arg_description(&id) {
             let help = description.trim_end_matches('.').to_string();
             command = command.mut_arg(&id, |arg| arg.help(help));
         }
@@ -316,7 +235,7 @@ fn command_notes(contract: &CommandContract, has_yes: bool) -> Option<String> {
             "  Confirmation: none. It runs as soon as you invoke it.".to_string()
         }
     });
-    if cli_runtime::TESTNET_UNPROMPTED_COMMANDS.contains(&contract.command_key().as_str()) {
+    if contract.spec.testnet_unprompted {
         lines.push(
             "  Testnet: with --testnet this command doesn't prompt and runs as soon as you invoke it."
                 .to_string(),
@@ -466,7 +385,7 @@ fn error_format(matches: Option<&ArgMatches>) -> output::OutputFormat {
         Some(Err(_)) => return output::OutputFormat::Json,
         None => {}
     }
-    if hyperliquid_cli::mode::agent_env() || !std::io::stdout().is_terminal() {
+    if output::terminal::agent_env() || !output::terminal::stdout_is_terminal() {
         output::OutputFormat::Json
     } else {
         output::OutputFormat::Pretty
@@ -625,16 +544,16 @@ fn env_output_format() -> Option<Result<output::OutputFormat, errors::CliError>>
 /// An explicit `--format` wins over everything. Otherwise `HYPERLIQUID_FORMAT`,
 /// then JSON for agents and non-terminal stdout, then the option's default.
 pub(super) fn resolve_output_format(
-    explicit_format: bool,
+    env: &output::terminal::OutputEnv,
     cli_format: output::OutputFormat,
 ) -> Result<output::OutputFormat, errors::CliError> {
-    if explicit_format {
+    if env.explicit_format {
         return Ok(cli_format);
     }
     if let Some(format) = env_output_format() {
         return format;
     }
-    if hyperliquid_cli::mode::agent_env() || !std::io::stdout().is_terminal() {
+    if env.agent || !env.stdout_tty {
         return Ok(output::OutputFormat::Json);
     }
     Ok(cli_format)
@@ -654,9 +573,6 @@ fn parse_env_output_format(raw: &str) -> Result<output::OutputFormat, errors::Cl
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli_runtime::{
-        command_accepts_mutating_preview, command_contract_for_path, command_uses_api,
-    };
 
     /// Split an example line into words, honoring single and double quotes.
     fn split_command_line(line: &str) -> Vec<String> {
@@ -749,7 +665,7 @@ mod tests {
 
     #[test]
     fn every_state_changing_command_documents_its_risk() {
-        let registry = CommandRegistry::load().unwrap();
+        let registry = CommandRegistry::get();
         let root = build_command();
         let mut checked = 0;
         visit_commands(&root, &mut Vec::new(), &mut |command, path| {
@@ -804,18 +720,6 @@ mod tests {
             }
         });
         assert!(missing.is_empty(), "options without help: {missing:?}");
-    }
-
-    #[test]
-    fn root_commands_are_all_ordered() {
-        let root = build_command();
-        for sub in root.get_subcommands() {
-            assert!(
-                ROOT_ORDER.contains(&sub.get_name()),
-                "{} is missing from ROOT_ORDER",
-                sub.get_name()
-            );
-        }
     }
 
     #[test]
@@ -1005,7 +909,7 @@ mod tests {
     }
 
     #[test]
-    fn cli_command_paths_resolve_to_registry_contracts() {
+    fn cli_command_paths_resolve_to_registered_commands() {
         for (argv, expected_path) in [
             (
                 &["hyperliquid", "api-wallet", "list"][..],
@@ -1030,46 +934,56 @@ mod tests {
                 &["hyperliquid", "subscribe", "fills"][..],
                 "subscribe fills",
             ),
+            (
+                &["hyperliquid", "account", "abstraction"][..],
+                "account abstraction",
+            ),
+            (
+                &[
+                    "hyperliquid",
+                    "account",
+                    "abstraction",
+                    "set",
+                    "--mode",
+                    "disabled",
+                ][..],
+                "account abstraction set",
+            ),
         ] {
             let parsed = try_parse_cli_from(argv.iter().copied()).unwrap();
-            let contract = command_contract_for_path(parsed.registry_path.as_deref())
-                .unwrap()
-                .unwrap_or_else(|| panic!("missing registry contract for {argv:?}"));
-
-            assert_eq!(contract.command_key(), expected_path);
+            let selected = parsed
+                .selected
+                .unwrap_or_else(|| panic!("no command selected for {argv:?}"));
+            assert_eq!(selected.entry.spec.key(), expected_path);
+            assert!(
+                CommandRegistry::get()
+                    .find_path(&expected_path.split(' ').collect::<Vec<_>>())
+                    .is_some(),
+                "{expected_path} is not in the registry"
+            );
         }
     }
 
     #[test]
-    fn cli_policy_uses_registry_mutating_preview_and_api_contracts() {
-        let api_wallet_list = command_contract_for_path(
-            try_parse_cli_from(["hyperliquid", "api-wallet", "list"])
+    fn dry_run_and_api_policy_come_from_the_spec() {
+        let spec = |argv: &[&str]| {
+            try_parse_cli_from(argv.iter().copied())
                 .unwrap()
-                .registry_path
-                .as_deref(),
-        )
-        .unwrap();
-        assert!(!command_accepts_mutating_preview(api_wallet_list.as_ref()));
-        assert!(command_uses_api(api_wallet_list.as_ref()));
+                .selected
+                .unwrap()
+                .entry
+                .spec
+        };
+        let api_wallet_list = spec(&["hyperliquid", "api-wallet", "list"]);
+        assert_ne!(api_wallet_list.dry_run, DryRunPolicy::Optional);
+        assert!(api_wallet_list.uses_api());
 
-        let orders_cancel = command_contract_for_path(
-            try_parse_cli_from(["hyperliquid", "orders", "cancel", "123"])
-                .unwrap()
-                .registry_path
-                .as_deref(),
-        )
-        .unwrap();
-        assert!(command_accepts_mutating_preview(orders_cancel.as_ref()));
-        assert!(command_uses_api(orders_cancel.as_ref()));
+        let orders_cancel = spec(&["hyperliquid", "orders", "cancel", "123"]);
+        assert_eq!(orders_cancel.dry_run, DryRunPolicy::Optional);
+        assert!(orders_cancel.uses_api());
 
-        let wallet_show = command_contract_for_path(
-            try_parse_cli_from(["hyperliquid", "wallet", "show"])
-                .unwrap()
-                .registry_path
-                .as_deref(),
-        )
-        .unwrap();
-        assert!(!command_accepts_mutating_preview(wallet_show.as_ref()));
-        assert!(!command_uses_api(wallet_show.as_ref()));
+        let wallet_show = spec(&["hyperliquid", "wallet", "show"]);
+        assert_ne!(wallet_show.dry_run, DryRunPolicy::Optional);
+        assert!(!wallet_show.uses_api());
     }
 }

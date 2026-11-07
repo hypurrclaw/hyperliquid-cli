@@ -1,21 +1,22 @@
 //! Vault public queries and authenticated vault transfers.
 
-use std::time::{Duration, Instant};
-
 use clap::{Args, ValueEnum};
 use hypersdk::hypercore::api::VaultTransfer;
 use hypersdk::hypercore::types::{Action, LeverageType};
-use hypersdk::hypercore::{AssetPosition, Chain, HttpClient};
+use hypersdk::hypercore::{AssetPosition, Chain};
 use hypersdk::{Address, Decimal};
-use rust_decimal::prelude::ToPrimitive;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::commands::{actions, map_api_error};
+use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, InputKind, arg};
+use crate::commands::actions;
+use crate::commands::support::print_signed_dry_run;
 use crate::dry_run::ActionReversibility;
 use crate::errors::CliError;
-use crate::http_api::post_info_json;
-use crate::output::{self, OutputFormat, TableData};
+use crate::errors::from_sdk;
+use crate::http_api::ApiClient;
+use crate::invocation::Invocation;
+use crate::output::{self, TableData};
 use crate::signing::SelectedSigner;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -230,12 +231,6 @@ struct VaultTransferOutput {
     row: VaultTransferConfirmation,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct VaultQueryResult<T> {
-    pub output: T,
-    pub elapsed: Duration,
-}
-
 impl TableData for VaultDetailsOutput {
     fn headers(&self) -> Vec<&str> {
         vec![
@@ -425,78 +420,29 @@ impl TableData for VaultTransferOutput {
 }
 
 /// Get vault details.
-pub async fn get(
-    api_base_url: &str,
-    address: &str,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let result = get_query(api_base_url, address).await?;
-    output::print_data(&result.output, format, result.elapsed);
-    Ok(())
-}
-
-/// Get vault details without printing them.
-pub async fn get_query(
-    api_base_url: &str,
-    address: &str,
-) -> Result<VaultQueryResult<VaultDetailsOutput>, anyhow::Error> {
-    let start = Instant::now();
+pub async fn get(inv: &Invocation, address: &str) -> Result<(), anyhow::Error> {
     let vault = parse_address(address)?;
-    let row = raw_vault_details_row(api_base_url, vault).await?;
-    Ok(VaultQueryResult {
-        output: VaultDetailsOutput { row },
-        elapsed: start.elapsed(),
-    })
+    let row = raw_vault_details_row(inv.remote()?.api(), vault).await?;
+    inv.print(&VaultDetailsOutput { row });
+    Ok(())
 }
 
 /// List vault summaries.
-pub async fn list(
-    api_base_url: &str,
-    args: &VaultListArgs,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let result = list_query(api_base_url, args).await?;
-    output::print_data(&result.output, format, result.elapsed);
-    Ok(())
-}
-
-/// List vault summaries without printing them.
-pub async fn list_query(
-    api_base_url: &str,
-    args: &VaultListArgs,
-) -> Result<VaultQueryResult<VaultSummaryOutput>, anyhow::Error> {
-    let start = Instant::now();
+pub async fn list(inv: &Invocation, args: &VaultListArgs) -> Result<(), anyhow::Error> {
     let user = validate_list_args(args)?;
-    let mut rows = vault_summary_rows(api_base_url, user).await?;
+    let mut rows = vault_summary_rows(inv.remote()?.api(), user).await?;
     rows.retain(|row| args.kind.matches(&row.kind));
     sort_vault_rows(&mut rows, args.sort);
     rows.truncate(args.limit);
-    Ok(VaultQueryResult {
-        output: VaultSummaryOutput { rows },
-        elapsed: start.elapsed(),
-    })
-}
-
-/// Search vault summaries by name, leader, or address.
-pub async fn search(
-    api_base_url: &str,
-    args: &VaultSearchArgs,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let result = search_query(api_base_url, args).await?;
-    output::print_data(&result.output, format, result.elapsed);
+    inv.print(&VaultSummaryOutput { rows });
     Ok(())
 }
 
-/// Search vault summaries without printing them.
-pub async fn search_query(
-    api_base_url: &str,
-    args: &VaultSearchArgs,
-) -> Result<VaultQueryResult<VaultSummaryOutput>, anyhow::Error> {
-    let start = Instant::now();
+/// Search vault summaries by name, leader, or address.
+pub async fn search(inv: &Invocation, args: &VaultSearchArgs) -> Result<(), anyhow::Error> {
     let user = validate_search_args(args)?;
     let query = args.query.to_ascii_lowercase();
-    let mut rows = vault_summary_rows(api_base_url, user)
+    let mut rows = vault_summary_rows(inv.remote()?.api(), user)
         .await?
         .into_iter()
         .filter(|row| {
@@ -507,85 +453,49 @@ pub async fn search_query(
         .collect::<Vec<_>>();
     sort_vault_rows(&mut rows, args.sort);
     rows.truncate(args.limit);
-    Ok(VaultQueryResult {
-        output: VaultSummaryOutput { rows },
-        elapsed: start.elapsed(),
-    })
-}
-
-/// List a vault's open positions.
-pub async fn positions(
-    client: &HttpClient,
-    address: &str,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let result = positions_query(client, address).await?;
-    output::print_data(&result.output, format, result.elapsed);
+    inv.print(&VaultSummaryOutput { rows });
     Ok(())
 }
 
-/// List a vault's open positions without printing them.
-pub async fn positions_query(
-    client: &HttpClient,
-    address: &str,
-) -> Result<VaultQueryResult<VaultPositionsOutput>, anyhow::Error> {
-    let start = Instant::now();
+/// List a vault's open positions.
+pub async fn positions(inv: &Invocation, address: &str) -> Result<(), anyhow::Error> {
     let vault = parse_address(address)?;
-    let rows = client
+    let rows = inv
+        .remote()?
+        .api()
+        .sdk()
         .clearinghouse_state(vault, None)
         .await
-        .map_err(map_api_error)?
+        .map_err(from_sdk)?
         .asset_positions
         .into_iter()
         .map(VaultPositionRow::from)
         .filter(|row| !row.size.is_zero())
         .collect::<Vec<_>>();
 
-    Ok(VaultQueryResult {
-        output: VaultPositionsOutput {
-            vault_address: address.to_string(),
-            rows,
-        },
-        elapsed: start.elapsed(),
-    })
+    inv.print(&VaultPositionsOutput {
+        vault_address: address.to_string(),
+        rows,
+    });
+    Ok(())
 }
 
 /// Deposit USDC to a vault.
 pub async fn deposit(
-    api_base_url: &str,
-    chain: Chain,
+    inv: &Invocation,
     signer: &SelectedSigner,
     args: &VaultTransferArgs,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
-    transfer(
-        api_base_url,
-        chain,
-        signer,
-        args,
-        VaultTransferActionKind::Deposit,
-        format,
-    )
-    .await
+    transfer(inv, signer, args, VaultTransferActionKind::Deposit).await
 }
 
 /// Withdraw USDC from a vault.
 pub async fn withdraw(
-    api_base_url: &str,
-    chain: Chain,
+    inv: &Invocation,
     signer: &SelectedSigner,
     args: &VaultTransferArgs,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
-    transfer(
-        api_base_url,
-        chain,
-        signer,
-        args,
-        VaultTransferActionKind::Withdraw,
-        format,
-    )
-    .await
+    transfer(inv, signer, args, VaultTransferActionKind::Withdraw).await
 }
 
 pub fn validate_transfer_args(args: &VaultTransferArgs) -> Result<(), CliError> {
@@ -669,14 +579,13 @@ pub fn validate_search_args(args: &VaultSearchArgs) -> Result<Option<Address>, C
 }
 
 async fn transfer(
-    api_base_url: &str,
-    chain: Chain,
+    inv: &Invocation,
     signer: &SelectedSigner,
     args: &VaultTransferArgs,
     action_kind: VaultTransferActionKind,
-    format: OutputFormat,
 ) -> Result<(), anyhow::Error> {
-    let start = Instant::now();
+    let remote = inv.remote()?;
+    let (api, chain) = (remote.api(), remote.chain());
     let vault = parse_address(&args.vault)?;
     let usd = validate_usdc_amount(args.amount)?;
     let nonce = actions::nonce_now();
@@ -686,25 +595,21 @@ async fn transfer(
         usd,
     });
 
-    actions::send_l1_action(api_base_url, chain, signer, hl_action, nonce).await?;
+    actions::send_l1_action(api, signer, hl_action, nonce).await?;
 
-    output::print_data(
-        &VaultTransferOutput {
-            row: VaultTransferConfirmation {
-                action: action_kind.action_name().to_string(),
-                status: "submitted".to_string(),
-                network: chain.to_string(),
-                signer: signer.address().to_string(),
-                acting_as: signer.query_address().to_string(),
-                reversibility: format_reversibility(action_kind.reversibility()).to_string(),
-                vault_address: args.vault.clone(),
-                amount: args.amount,
-                asset: "USDC".to_string(),
-            },
+    inv.print(&VaultTransferOutput {
+        row: VaultTransferConfirmation {
+            action: action_kind.action_name().to_string(),
+            status: "submitted".to_string(),
+            network: chain.to_string(),
+            signer: signer.address().to_string(),
+            acting_as: signer.query_address().to_string(),
+            reversibility: (action_kind.reversibility()).as_str().to_string(),
+            vault_address: args.vault.clone(),
+            amount: args.amount,
+            asset: "USDC".to_string(),
         },
-        format,
-        start.elapsed(),
-    );
+    });
     Ok(())
 }
 
@@ -767,44 +672,36 @@ struct RawVaultDetails {
 }
 
 async fn raw_vault_details_row(
-    api_base_url: &str,
+    api: &ApiClient,
     vault: Address,
 ) -> Result<VaultDetailsRow, CliError> {
-    let details: RawVaultDetails = match post_info_json(
-        api_base_url,
-        &RawVaultDetailsRequest {
-            request_type: "vaultDetails",
-            vault_address: vault,
-        },
-        "fetching vault details",
-    )
-    .await
-    {
-        Ok(details) => details,
-        Err(err) if is_null_object_decode(&err) => {
-            return Err(CliError::Unsupported(format!(
-                "vault details not found for {}",
-                vault
-            )));
-        }
-        Err(err) => return Err(err),
-    };
+    // The exchange answers `null` for an address that is not a vault.
+    let details = api
+        .info::<Option<RawVaultDetails>>(
+            &RawVaultDetailsRequest {
+                request_type: "vaultDetails",
+                vault_address: vault,
+            },
+            "fetching vault details",
+        )
+        .await?
+        .ok_or_else(|| CliError::Unsupported(format!("vault details not found for {vault}")))?;
     details.into_row(vault)
 }
 
 async fn vault_summary_rows(
-    api_base_url: &str,
+    api: &ApiClient,
     user: Option<Address>,
 ) -> Result<Vec<VaultSummaryRow>, CliError> {
-    let summaries: Vec<RawVaultSummary> = post_info_json(
-        api_base_url,
-        &RawVaultSummariesRequest {
-            request_type: "vaultSummaries",
-            user,
-        },
-        "fetching vault summaries",
-    )
-    .await?;
+    let summaries: Vec<RawVaultSummary> = api
+        .info(
+            &RawVaultSummariesRequest {
+                request_type: "vaultSummaries",
+                user,
+            },
+            "fetching vault summaries",
+        )
+        .await?;
     summaries
         .into_iter()
         .map(RawVaultSummary::into_row)
@@ -922,13 +819,6 @@ fn parse_decimal_text(raw: &str) -> Result<Decimal, rust_decimal::Error> {
         .or_else(|_| Decimal::from_scientific(raw))
 }
 
-fn is_null_object_decode(err: &CliError) -> bool {
-    let message = err.to_string();
-    message.contains("invalid type: null")
-        && message.contains("expected struct RawVaultDetails")
-        && message.contains("body=[untrusted remote data] null")
-}
-
 fn raw_portfolio_summary(portfolio: &Value) -> (Vec<String>, Option<Decimal>) {
     let mut periods = Vec::new();
     let mut latest_tvl = None;
@@ -998,47 +888,205 @@ impl From<AssetPosition> for VaultPositionRow {
 }
 
 fn parse_address(input: &str) -> Result<Address, CliError> {
-    let stripped = input.strip_prefix("0x").ok_or_else(invalid_address_error)?;
-    if stripped.len() != 40 || !stripped.chars().all(|ch| ch.is_ascii_hexdigit()) {
-        return Err(invalid_address_error());
-    }
-    if stripped.chars().all(|ch| ch == '0') {
-        return Err(CliError::Configuration(
-            "address must not be the zero address".to_string(),
-        ));
-    }
-    input
-        .parse::<Address>()
-        .map_err(|_| invalid_address_error())
-}
-
-fn invalid_address_error() -> CliError {
-    CliError::Configuration("address must be a 0x-prefixed 40-byte hex string".to_string())
-}
-
-fn format_reversibility(reversibility: ActionReversibility) -> &'static str {
-    match reversibility {
-        ActionReversibility::Reversible => "reversible",
-        ActionReversibility::PartiallyReversible => "partially_reversible",
-        ActionReversibility::Irreversible => "irreversible",
-    }
+    use crate::resolvers::{HexAddressError, parse_exact_hex_address};
+    parse_exact_hex_address(input, true).map_err(|err| match err {
+        HexAddressError::Zero => {
+            CliError::Configuration("address must not be the zero address".to_string())
+        }
+        HexAddressError::Format => {
+            CliError::Configuration("address must be a 0x-prefixed 40-byte hex string".to_string())
+        }
+    })
 }
 
 fn validate_usdc_amount(amount: Decimal) -> Result<u64, CliError> {
-    if amount <= Decimal::ZERO {
-        return Err(CliError::Configuration(
-            "amount must be greater than zero".to_string(),
-        ));
+    crate::quantity::scaled_u64(
+        amount,
+        1_000_000,
+        CliError::Configuration("amount must be greater than zero".to_string()),
+        CliError::Configuration("amount supports at most 6 decimal places".to_string()),
+        CliError::Configuration("amount is too large".to_string()),
+    )
+}
+
+pub const GROUP: GroupSpec = GroupSpec::new(&["vault"], "Query and fund vaults")
+    .aliases(&["vaults"])
+    .schema_aliases();
+
+#[derive(Args, Debug, Clone)]
+pub struct VaultAddressArgs {
+    /// Vault address
+    pub address: String,
+}
+
+pub struct VaultList;
+
+impl CliCommand for VaultList {
+    type Args = VaultListArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["vault", "list"],
+        "vault",
+        "List vault summaries",
+        "List vault summaries with filtering, sorting, and limits.",
+    )
+    .cli_aliases(&["ls"])
+    .args(&[
+        arg("kind").describe("Vault relationship kind filter. protocol maps to normal protocol vaults; user maps to child/parent user vaults."),
+        arg("user").describe("Optional user address for user-specific deposit context when available."),
+        arg("limit"),
+        arg("sort"),
+    ]);
+
+    async fn run(inv: &Invocation, args: &VaultListArgs) -> Result<(), anyhow::Error> {
+        list(inv, args).await
     }
-    let micro_units = amount * Decimal::from(1_000_000_u64);
-    if micro_units.fract() != Decimal::ZERO {
-        return Err(CliError::Configuration(
-            "amount supports at most 6 decimal places".to_string(),
-        ));
+}
+
+pub struct VaultSearch;
+
+impl CliCommand for VaultSearch {
+    type Args = VaultSearchArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["vault", "search"],
+        "vault",
+        "Search vault summaries by name, leader, or address",
+        "Search vault summaries by name, leader, or address.",
+    )
+    .args(&[
+        arg("query").describe("Search query."),
+        arg("user")
+            .describe("Optional user address for user-specific deposit context when available."),
+        arg("limit"),
+        arg("sort"),
+    ]);
+
+    async fn run(inv: &Invocation, args: &VaultSearchArgs) -> Result<(), anyhow::Error> {
+        search(inv, args).await
     }
-    micro_units
-        .to_u64()
-        .ok_or_else(|| CliError::Configuration("amount is too large".to_string()))
+}
+
+pub struct VaultGet;
+
+impl CliCommand for VaultGet {
+    type Args = VaultAddressArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["vault", "get"],
+        "vault",
+        "Get vault details",
+        "Show vault details.",
+    )
+    .args(&[arg("address")
+        .kind(InputKind::ProtocolObjectAddress)
+        .resource_id("vault address")]);
+
+    async fn run(inv: &Invocation, args: &VaultAddressArgs) -> Result<(), anyhow::Error> {
+        get(inv, &args.address).await
+    }
+}
+
+pub struct VaultPositions;
+
+impl CliCommand for VaultPositions {
+    type Args = VaultAddressArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["vault", "positions"],
+        "vault",
+        "List vault positions",
+        "List vault positions.",
+    )
+    .args(&[arg("address")
+        .kind(InputKind::ProtocolObjectAddress)
+        .resource_id("vault address")]);
+
+    async fn run(inv: &Invocation, args: &VaultAddressArgs) -> Result<(), anyhow::Error> {
+        positions(inv, &args.address).await
+    }
+}
+
+pub struct VaultDeposit;
+
+impl CliCommand for VaultDeposit {
+    type Args = VaultTransferArgs;
+
+    const SPEC: CommandSpec = CommandSpec::signed(
+        &["vault", "deposit"],
+        "vault",
+        "Deposit to a vault",
+        "Deposit USDC to a vault.",
+    )
+    .args(&[
+        arg("vault")
+            .kind(InputKind::ProtocolObjectAddress)
+            .resource_id("vault address"),
+        arg("amount")
+            .kind(InputKind::Amount)
+            .describe("USDC amount."),
+    ]);
+
+    async fn run(inv: &Invocation, args: &VaultTransferArgs) -> Result<(), anyhow::Error> {
+        validate_transfer_args(args)?;
+        if inv.dry_run() {
+            let args_json = transfer_dry_run_value(
+                inv.remote()?.chain(),
+                args,
+                VaultTransferActionKind::Deposit,
+            )?;
+            return print_signed_dry_run(
+                inv,
+                "vault deposit",
+                "deposit_usdc_to_vault",
+                VaultTransferActionKind::Deposit.reversibility(),
+                args_json,
+            );
+        }
+        let resolved = inv.resolve_signer()?;
+        deposit(inv, &resolved.selected_signer(), args).await
+    }
+}
+
+pub struct VaultWithdraw;
+
+impl CliCommand for VaultWithdraw {
+    type Args = VaultTransferArgs;
+
+    const SPEC: CommandSpec = CommandSpec::signed(
+        &["vault", "withdraw"],
+        "vault",
+        "Withdraw from a vault",
+        "Withdraw USDC from a vault.",
+    )
+    .args(&[
+        arg("vault")
+            .kind(InputKind::ProtocolObjectAddress)
+            .resource_id("vault address"),
+        arg("amount")
+            .kind(InputKind::Amount)
+            .describe("USDC amount."),
+    ]);
+
+    async fn run(inv: &Invocation, args: &VaultTransferArgs) -> Result<(), anyhow::Error> {
+        validate_transfer_args(args)?;
+        if inv.dry_run() {
+            let args_json = transfer_dry_run_value(
+                inv.remote()?.chain(),
+                args,
+                VaultTransferActionKind::Withdraw,
+            )?;
+            return print_signed_dry_run(
+                inv,
+                "vault withdraw",
+                "withdraw_usdc_from_vault",
+                VaultTransferActionKind::Withdraw.reversibility(),
+                args_json,
+            );
+        }
+        let resolved = inv.resolve_signer()?;
+        withdraw(inv, &resolved.selected_signer(), args).await
+    }
 }
 
 #[cfg(test)]

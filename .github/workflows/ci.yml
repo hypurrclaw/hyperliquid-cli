@@ -44,7 +44,7 @@ jobs:
         run: cargo test
 
       - name: Contract characterization tests
-        run: cargo test --test command_contracts --test schema_contracts --test registry_contracts --test dry_run_contracts --test output_contracts
+        run: cargo test --test contract_fixtures --test command_contracts --test schema_contracts --test registry_contracts --test dry_run_contracts --test output_contracts
 
       - name: Registry rollout policy gate
         run: bash scripts/qa-registry-rollout-gates.sh

@@ -5,19 +5,15 @@
 /// - `hyperliquid spot get <PAIR>` — get details for a specific spot pair
 use clap::Args;
 use hypersdk::Decimal;
-use hypersdk::hypercore::{HttpClient, PriceTick, SpotMarket};
+use hypersdk::hypercore::PriceTick;
 use serde::Serialize;
-use std::time::{Duration, Instant};
 
-use crate::command_context::CommandContext;
-use crate::commands::{
-    AssetResolver, RawSpotMarket, ResolvedAsset, load_raw_spot_markets, map_api_error,
-};
+use crate::assets::{SpotListing, load_spot_markets};
+use crate::command_spec::{CliCommand, CommandSpec, GroupSpec, InputKind, NoArgs, arg};
 use crate::errors::CliError;
-use crate::output::{OutputFormat, TableData};
-
-#[derive(Args, Debug)]
-pub struct SpotListArgs {}
+use crate::http_api::ApiClient;
+use crate::invocation::Invocation;
+use crate::output::TableData;
 
 #[derive(Args, Debug)]
 pub struct SpotGetArgs {
@@ -37,26 +33,8 @@ pub struct SpotMarketRow {
     pub tick_size_at_price_1: Option<String>,
 }
 
-impl From<SpotMarket> for SpotMarketRow {
-    fn from(market: SpotMarket) -> Self {
-        let base = market.base().clone();
-        let quote = market.quote().clone();
-        Self {
-            symbol: market.symbol(),
-            index: market.index,
-            base: base.name,
-            quote: quote.name,
-            base_sz_decimals: base.sz_decimals,
-            quote_sz_decimals: quote.sz_decimals,
-            tick_size_at_price_1: market
-                .tick_for(Decimal::from(1))
-                .map(|tick| tick.to_string()),
-        }
-    }
-}
-
-impl From<RawSpotMarket> for SpotMarketRow {
-    fn from(market: RawSpotMarket) -> Self {
+impl From<SpotListing> for SpotMarketRow {
+    fn from(market: SpotListing) -> Self {
         Self {
             symbol: market.symbol,
             index: market.index,
@@ -84,37 +62,38 @@ impl SpotMarketsOutput {
     }
 }
 
+const SPOT_MARKET_HEADERS: &[&str] = &[
+    "Symbol",
+    "Index",
+    "Base",
+    "Quote",
+    "Base Sz Decimals",
+    "Quote Sz Decimals",
+    "Tick Size @ Price 1",
+];
+
+fn spot_market_cells(market: &SpotMarketRow) -> Vec<String> {
+    vec![
+        market.symbol.clone(),
+        market.index.to_string(),
+        market.base.clone(),
+        market.quote.clone(),
+        market.base_sz_decimals.to_string(),
+        market.quote_sz_decimals.to_string(),
+        market
+            .tick_size_at_price_1
+            .clone()
+            .unwrap_or_else(|| "n/a".to_string()),
+    ]
+}
+
 impl TableData for SpotMarketsOutput {
     fn headers(&self) -> Vec<&str> {
-        vec![
-            "Symbol",
-            "Index",
-            "Base",
-            "Quote",
-            "Base Sz Decimals",
-            "Quote Sz Decimals",
-            "Tick Size @ Price 1",
-        ]
+        SPOT_MARKET_HEADERS.to_vec()
     }
 
     fn rows(&self) -> Vec<Vec<String>> {
-        self.markets
-            .iter()
-            .map(|market| {
-                vec![
-                    market.symbol.clone(),
-                    market.index.to_string(),
-                    market.base.clone(),
-                    market.quote.clone(),
-                    market.base_sz_decimals.to_string(),
-                    market.quote_sz_decimals.to_string(),
-                    market
-                        .tick_size_at_price_1
-                        .clone()
-                        .unwrap_or_else(|| "n/a".to_string()),
-                ]
-            })
-            .collect()
+        self.markets.iter().map(spot_market_cells).collect()
     }
 
     fn to_json_value(&self) -> serde_json::Value {
@@ -141,19 +120,11 @@ impl SpotMarketDetailsOutput {
 
 impl TableData for SpotMarketDetailsOutput {
     fn headers(&self) -> Vec<&str> {
-        vec![
-            "Symbol",
-            "Index",
-            "Base",
-            "Quote",
-            "Base Sz Decimals",
-            "Quote Sz Decimals",
-            "Tick Size @ Price 1",
-        ]
+        SPOT_MARKET_HEADERS.to_vec()
     }
 
     fn rows(&self) -> Vec<Vec<String>> {
-        SpotMarketsOutput::new(vec![self.market.clone()]).rows()
+        vec![spot_market_cells(&self.market)]
     }
 
     fn to_json_value(&self) -> serde_json::Value {
@@ -161,78 +132,20 @@ impl TableData for SpotMarketDetailsOutput {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SpotMarketsResult {
-    pub output: SpotMarketsOutput,
-    pub elapsed: Duration,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SpotMarketDetailsResult {
-    pub output: SpotMarketDetailsOutput,
-    pub elapsed: Duration,
-}
-
-/// Fetch all spot markets.
-pub async fn list_query(client: &HttpClient) -> Result<SpotMarketsResult, anyhow::Error> {
-    let start = Instant::now();
-    let markets = load_spot_market_rows(client).await?;
-    let output = SpotMarketsOutput::new(markets);
-
-    Ok(SpotMarketsResult {
-        output,
-        elapsed: start.elapsed(),
-    })
-}
-
-/// Fetch and render all spot markets through a per-call output context.
-pub async fn list_with_context(context: &CommandContext<'_>) -> Result<(), anyhow::Error> {
-    let client = context
-        .hypercore_client()
-        .ok_or_else(|| anyhow::anyhow!("spot list command requires a Hyperliquid HTTP client"))?;
-    let result = list_query(client).await?;
-    context.print(&result.output, result.elapsed);
-    Ok(())
-}
-
-/// Fetch and render all spot markets.
-pub async fn list(client: &HttpClient, format: OutputFormat) -> Result<(), anyhow::Error> {
-    let result = list_query(client).await?;
-    crate::output::print_data(&result.output, format, result.elapsed);
+pub async fn list(inv: &Invocation) -> Result<(), anyhow::Error> {
+    let markets = load_spot_market_rows(inv.remote()?.api()).await?;
+    inv.print(&SpotMarketsOutput::new(markets));
     Ok(())
 }
 
 /// Resolve, fetch, and render one spot market.
-pub async fn get(
-    client: &HttpClient,
-    resolver: &AssetResolver,
-    pair: &str,
-    format: OutputFormat,
-) -> Result<(), anyhow::Error> {
-    let result = get_query(client, resolver, pair).await?;
-    crate::output::print_data(&result.output, format, result.elapsed);
-    Ok(())
-}
+pub async fn get(inv: &Invocation, pair: &str) -> Result<(), anyhow::Error> {
+    let api = inv.remote()?.api();
+    let resolver = inv.asset_resolver().await?;
+    let resolved = resolver.resolve_spot(pair).map_err(CliError::from)?;
+    let (resolved_symbol, resolved_index) = (resolved.symbol, resolved.index);
 
-/// Resolve and fetch one spot market.
-pub async fn get_query(
-    client: &HttpClient,
-    resolver: &AssetResolver,
-    pair: &str,
-) -> Result<SpotMarketDetailsResult, anyhow::Error> {
-    let start = Instant::now();
-    let resolved = resolver.resolve_spot(pair)?;
-    let (resolved_symbol, resolved_index) = match resolved {
-        ResolvedAsset::Spot { symbol, index, .. } => (symbol, index),
-        ResolvedAsset::Perp { .. } => {
-            return Err(CliError::AssetNotFoundNoSuggestion {
-                asset: pair.to_string(),
-            }
-            .into());
-        }
-    };
-
-    let market = load_spot_market_rows(client)
+    let market = load_spot_market_rows(api)
         .await?
         .into_iter()
         .find(|market| {
@@ -242,19 +155,56 @@ pub async fn get_query(
             asset: pair.to_string(),
         })?;
 
-    Ok(SpotMarketDetailsResult {
-        output: SpotMarketDetailsOutput::new(market),
-        elapsed: start.elapsed(),
-    })
+    inv.print(&SpotMarketDetailsOutput::new(market));
+    Ok(())
 }
 
-async fn load_spot_market_rows(client: &HttpClient) -> Result<Vec<SpotMarketRow>, CliError> {
-    match client.spot().await {
-        Ok(markets) => Ok(markets.into_iter().map(SpotMarketRow::from).collect()),
-        Err(spot_err) => load_raw_spot_markets(client)
-            .await
-            .map(|markets| markets.into_iter().map(SpotMarketRow::from).collect())
-            .map_err(|_| map_api_error(spot_err)),
+async fn load_spot_market_rows(api: &ApiClient) -> Result<Vec<SpotMarketRow>, CliError> {
+    Ok(load_spot_markets(api)
+        .await?
+        .into_iter()
+        .map(SpotMarketRow::from)
+        .collect())
+}
+
+pub const GROUP: GroupSpec = GroupSpec::new(&["spot"], "Query spot markets");
+
+pub struct SpotList;
+
+impl CliCommand for SpotList {
+    type Args = NoArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["spot", "list"],
+        "market",
+        "List all spot markets",
+        "List spot markets.",
+    )
+    .cli_aliases(&["ls"]);
+
+    async fn run(inv: &Invocation, _args: &NoArgs) -> Result<(), anyhow::Error> {
+        list(inv).await
+    }
+}
+
+pub struct SpotGet;
+
+impl CliCommand for SpotGet {
+    type Args = SpotGetArgs;
+
+    const SPEC: CommandSpec = CommandSpec::read(
+        &["spot", "get"],
+        "market",
+        "Get details for a specific spot pair",
+        "Get details for a spot pair.",
+    )
+    .args(&[arg("pair")
+        .kind(InputKind::MarketSymbol)
+        .describe("Spot pair, for example PURR/USDC.")
+        .resource_id("spot pair")]);
+
+    async fn run(inv: &Invocation, args: &SpotGetArgs) -> Result<(), anyhow::Error> {
+        get(inv, &args.pair).await
     }
 }
 
